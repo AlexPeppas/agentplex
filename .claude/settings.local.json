@@ -15,7 +15,9 @@
       "Bash(mv:*)",
       "Bash(npx electron:*)",
       "Bash(timeout 15 npm start:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node:*)"
     ]
   }
 }

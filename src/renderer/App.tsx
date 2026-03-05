@@ -11,6 +11,8 @@ export function App() {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const appendBuffer = useAppStore((s) => s.appendBuffer);
   const updateStatus = useAppStore((s) => s.updateStatus);
+  const spawnSubagent = useAppStore((s) => s.spawnSubagent);
+  const completeSubagent = useAppStore((s) => s.completeSubagent);
 
   // Subscribe to IPC events
   useEffect(() => {
@@ -26,12 +28,22 @@ export function App() {
       updateStatus(id, SessionStatus.Killed);
     });
 
+    const cleanupSpawn = window.agentField.onSubagentSpawn(({ sessionId, subagentId, description }) => {
+      spawnSubagent(sessionId, subagentId, description);
+    });
+
+    const cleanupComplete = window.agentField.onSubagentComplete(({ sessionId, subagentId }) => {
+      completeSubagent(sessionId, subagentId);
+    });
+
     return () => {
       cleanupData();
       cleanupStatus();
       cleanupExit();
+      cleanupSpawn();
+      cleanupComplete();
     };
-  }, [appendBuffer, updateStatus]);
+  }, [appendBuffer, updateStatus, spawnSubagent, completeSubagent]);
 
   return (
     <div className="app">

@@ -9,16 +9,20 @@ import {
 import '@xyflow/react/dist/style.css';
 import { SessionNode } from './SessionNode';
 import { GroupNode } from './GroupNode';
+import { SubAgentNode } from './SubAgentNode';
 import { useAppStore } from '../store';
 
 const nodeTypes = {
   sessionNode: SessionNode,
   groupNode: GroupNode,
+  subagentNode: SubAgentNode,
 };
 
 export function GraphCanvas() {
   const nodes = useAppStore((s) => s.nodes);
+  const edges = useAppStore((s) => s.edges);
   const onNodesChange = useAppStore((s) => s.onNodesChange);
+  const onEdgesChange = useAppStore((s) => s.onEdgesChange);
   const selectSession = useAppStore((s) => s.selectSession);
   const createGroup = useAppStore((s) => s.createGroup);
   const addToGroup = useAppStore((s) => s.addToGroup);
@@ -84,8 +88,9 @@ export function GraphCanvas() {
     <div className="graph-canvas">
       <ReactFlow
         nodes={nodes}
-        edges={[]}
+        edges={edges}
         onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}

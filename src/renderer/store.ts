@@ -1,10 +1,14 @@
 import { create } from 'zustand';
 import {
   type Node,
+  type Edge,
   type OnNodesChange,
+  type OnEdgesChange,
   applyNodeChanges,
+  applyEdgeChanges,
 } from '@xyflow/react';
 import { SessionStatus, type SessionInfo } from '../shared/ipc-channels';
+import type { SubAgentNodeData } from './components/SubAgentNode';
 
 // Grid layout constants
 const GRID_COLS = 3;
@@ -25,9 +29,18 @@ export type GroupNodeData = {
   [key: string]: unknown;
 };
 
+interface SubagentEntry {
+  subagentId: string;
+  sessionId: string;
+  description: string;
+  status: 'active' | 'completed' | 'faded';
+}
+
 export interface AppState {
   nodes: Node[];
+  edges: Edge[];
   sessions: Record<string, SessionInfo>;
+  subagents: Record<string, SubagentEntry>;
   selectedSessionId: string | null;
   sessionBuffers: Record<string, string>;
   nodeCounter: number;
@@ -39,8 +52,13 @@ export interface AppState {
   selectSession: (id: string | null) => void;
   appendBuffer: (id: string, data: string) => void;
 
+  // Sub-agent actions
+  spawnSubagent: (sessionId: string, subagentId: string, description: string) => void;
+  completeSubagent: (sessionId: string, subagentId: string) => void;
+
   // React Flow
   onNodesChange: OnNodesChange;
+  onEdgesChange: OnEdgesChange;
 
   // Grouping
   createGroup: (nodeIdA: string, nodeIdB: string) => void;
@@ -51,9 +69,13 @@ export interface AppState {
 
 let groupCounter = 0;
 
+const SUBAGENT_SPACING_X = 140;
+
 export const useAppStore = create<AppState>((set, get) => ({
   nodes: [],
+  edges: [],
   sessions: {},
+  subagents: {},
   selectedSessionId: null,
   sessionBuffers: {},
   nodeCounter: 0,
@@ -89,9 +111,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const { [id]: _sess, ...restSessions } = state.sessions;
       const { [id]: _buf, ...restBuffers } = state.sessionBuffers;
-      // Remove the node; if it was in a group, handle group cleanup
+
+      // Find sub-agent IDs belonging to this session
+      const subagentIds = new Set(
+        Object.values(state.subagents)
+          .filter((s) => s.sessionId === id)
+          .map((s) => s.subagentId)
+      );
+
+      // Remove sub-agent entries
+      const restSubagents = Object.fromEntries(
+        Object.entries(state.subagents).filter(([, s]) => s.sessionId !== id)
+      );
+
+      // Remove edges connected to this session or its sub-agents
+      const edges = state.edges.filter(
+        (e) => e.source !== id && !subagentIds.has(e.target)
+      );
+
+      // Remove the node and its sub-agent nodes; if it was in a group, handle group cleanup
       const node = state.nodes.find((n) => n.id === id);
-      let nodes = state.nodes.filter((n) => n.id !== id);
+      let nodes = state.nodes.filter(
+        (n) => n.id !== id && !subagentIds.has(n.id)
+      );
 
       // If it was in a group, check if group should dissolve
       if (node?.parentId) {
@@ -118,8 +160,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return {
         nodes,
+        edges,
         sessions: restSessions,
         sessionBuffers: restBuffers,
+        subagents: restSubagents,
         selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
       };
     });
@@ -152,8 +196,100 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  spawnSubagent: (sessionId: string, subagentId: string, description: string) => {
+    const { nodes, edges, subagents } = get();
+    const parentNode = nodes.find((n) => n.id === sessionId);
+    if (!parentNode) return;
+
+    // Count existing sub-agents for this session to fan out horizontally
+    const siblingCount = Object.values(subagents).filter(
+      (s) => s.sessionId === sessionId
+    ).length;
+    const offsetX = (siblingCount - 0) * SUBAGENT_SPACING_X;
+
+    const newNode: Node = {
+      id: subagentId,
+      type: 'subagentNode',
+      position: {
+        x: parentNode.position.x + offsetX,
+        y: parentNode.position.y + 90,
+      },
+      data: {
+        label: description,
+        status: 'active',
+      } satisfies SubAgentNodeData,
+    };
+
+    const newEdge: Edge = {
+      id: `edge-${sessionId}-${subagentId}`,
+      source: sessionId,
+      target: subagentId,
+      type: 'smoothstep',
+      animated: true,
+      style: { stroke: '#7dcfff', strokeWidth: 2 },
+    };
+
+    set({
+      nodes: [...nodes, newNode],
+      edges: [...edges, newEdge],
+      subagents: {
+        ...subagents,
+        [subagentId]: { subagentId, sessionId, description, status: 'active' },
+      },
+    });
+  },
+
+  completeSubagent: (_sessionId: string, subagentId: string) => {
+    const { nodes, edges, subagents } = get();
+    if (!subagents[subagentId]) return;
+
+    set({
+      nodes: nodes.map((n) =>
+        n.id === subagentId
+          ? { ...n, data: { ...n.data, status: 'completed' } }
+          : n
+      ),
+      edges: edges.map((e) =>
+        e.target === subagentId
+          ? { ...e, animated: false, style: { stroke: '#9ece6a', strokeWidth: 2 } }
+          : e
+      ),
+      subagents: {
+        ...subagents,
+        [subagentId]: { ...subagents[subagentId], status: 'completed' },
+      },
+    });
+
+    // Fade after 10 seconds
+    setTimeout(() => {
+      const current = get();
+      if (!current.subagents[subagentId]) return;
+
+      set({
+        nodes: current.nodes.map((n) =>
+          n.id === subagentId
+            ? { ...n, data: { ...n.data, status: 'faded' } }
+            : n
+        ),
+        edges: current.edges.map((e) =>
+          e.target === subagentId
+            ? { ...e, style: { stroke: '#565f89', strokeWidth: 1 } }
+            : e
+        ),
+        subagents: {
+          ...current.subagents,
+          [subagentId]: { ...current.subagents[subagentId], status: 'faded' },
+        },
+      });
+    }, 10_000);
+  },
+
   onNodesChange: (changes) => {
     set({ nodes: applyNodeChanges(changes, get().nodes) });
+  },
+
+  onEdgesChange: (changes) => {
+    set({ edges: applyEdgeChanges(changes, get().edges) });
   },
 
   createGroup: (nodeIdA: string, nodeIdB: string) => {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, SessionInfo, SessionStatus } from '../shared/ipc-channels';
+import { IPC, SessionInfo, SessionStatus, SubagentInfo } from '../shared/ipc-channels';
 
 const api = {
   createSession: (cwd?: string): Promise<SessionInfo> => {
@@ -48,6 +48,22 @@ const api = {
     };
     ipcRenderer.on(IPC.SESSION_EXIT, handler);
     return () => ipcRenderer.removeListener(IPC.SESSION_EXIT, handler);
+  },
+
+  onSubagentSpawn: (callback: (data: SubagentInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: SubagentInfo) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.SUBAGENT_SPAWN, handler);
+    return () => ipcRenderer.removeListener(IPC.SUBAGENT_SPAWN, handler);
+  },
+
+  onSubagentComplete: (callback: (data: SubagentInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: SubagentInfo) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.SUBAGENT_COMPLETE, handler);
+    return () => ipcRenderer.removeListener(IPC.SUBAGENT_COMPLETE, handler);
   },
 };
 

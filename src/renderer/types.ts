@@ -1,4 +1,4 @@
-import type { SessionInfo, SessionStatus } from '../shared/ipc-channels';
+import type { SessionInfo, SessionStatus, SubagentInfo } from '../shared/ipc-channels';
 
 export interface AgentFieldAPI {
   createSession: (cwd?: string) => Promise<SessionInfo>;
@@ -10,6 +10,8 @@ export interface AgentFieldAPI {
   onSessionData: (callback: (data: { id: string; data: string }) => void) => () => void;
   onSessionStatus: (callback: (data: { id: string; status: SessionStatus }) => void) => () => void;
   onSessionExit: (callback: (data: { id: string; exitCode: number }) => void) => () => void;
+  onSubagentSpawn: (callback: (data: SubagentInfo) => void) => () => void;
+  onSubagentComplete: (callback: (data: SubagentInfo) => void) => () => void;
 }
 
 declare global {

@@ -1,6 +1,7 @@
 import * as pty from 'node-pty';
 import { BrowserWindow } from 'electron';
 import { SessionStatus, SessionInfo, IPC } from '../shared/ipc-channels';
+import { SubagentDetector } from './subagent-detector';
 
 interface Session {
   id: string;
@@ -8,6 +9,7 @@ interface Session {
   pty: pty.IPty;
   status: SessionStatus;
   lastOutput: number;
+  subagentDetector: SubagentDetector;
 }
 
 let sessionCounter = 0;
@@ -56,16 +58,34 @@ export class SessionManager {
       env: process.env as Record<string, string>,
     });
 
+    const detector = new SubagentDetector((event) => {
+      if (event.type === 'spawn') {
+        this.send(IPC.SUBAGENT_SPAWN, {
+          sessionId: id,
+          subagentId: event.subagentId,
+          description: event.description,
+        });
+      } else {
+        this.send(IPC.SUBAGENT_COMPLETE, {
+          sessionId: id,
+          subagentId: event.subagentId,
+          description: event.description,
+        });
+      }
+    });
+
     const session: Session = {
       id,
       title,
       pty: term,
       status: SessionStatus.Running,
       lastOutput: Date.now(),
+      subagentDetector: detector,
     };
 
     term.onData((data: string) => {
       session.lastOutput = Date.now();
+      detector.feed(data);
       this.send(IPC.SESSION_DATA, { id, data });
     });
 

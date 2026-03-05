@@ -11,6 +11,12 @@ export interface SessionInfo {
   pid: number;
 }
 
+export interface SubagentInfo {
+  sessionId: string;
+  subagentId: string;
+  description: string;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -21,4 +27,6 @@ export const IPC = {
   SESSION_STATUS: 'session:status',
   SESSION_EXIT: 'session:exit',
   DIALOG_OPEN_DIR: 'dialog:openDirectory',
+  SUBAGENT_SPAWN: 'subagent:spawn',
+  SUBAGENT_COMPLETE: 'subagent:complete',
 } as const;
