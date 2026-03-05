@@ -5,7 +5,9 @@ export function Toolbar() {
   const addSession = useAppStore((s) => s.addSession);
 
   const handleNewSession = useCallback(async () => {
-    const info = await window.agentField.createSession();
+    const cwd = await window.agentField.pickDirectory();
+    if (!cwd) return; // user cancelled
+    const info = await window.agentField.createSession(cwd);
     addSession(info);
   }, [addSession]);
 

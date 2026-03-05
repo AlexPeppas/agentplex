@@ -1,7 +1,8 @@
 import type { SessionInfo, SessionStatus } from '../shared/ipc-channels';
 
 export interface AgentFieldAPI {
-  createSession: () => Promise<SessionInfo>;
+  createSession: (cwd?: string) => Promise<SessionInfo>;
+  pickDirectory: () => Promise<string | null>;
   writeSession: (id: string, data: string) => void;
   resizeSession: (id: string, cols: number, rows: number) => void;
   killSession: (id: string) => Promise<void>;

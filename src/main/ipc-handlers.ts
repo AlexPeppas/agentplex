@@ -1,10 +1,21 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
 import { IPC } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
 
 export function registerIpcHandlers() {
-  ipcMain.handle(IPC.SESSION_CREATE, () => {
-    return sessionManager.create();
+  ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd }: { cwd?: string } = {}) => {
+    return sessionManager.create(cwd);
+  });
+
+  ipcMain.handle(IPC.DIALOG_OPEN_DIR, async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (!win) return null;
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: 'Select working directory for Claude session',
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
   });
 
   ipcMain.on(IPC.SESSION_WRITE, (_event, { id, data }: { id: string; data: string }) => {

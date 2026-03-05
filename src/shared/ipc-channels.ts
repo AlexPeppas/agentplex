@@ -20,4 +20,5 @@ export const IPC = {
   SESSION_DATA: 'session:data',
   SESSION_STATUS: 'session:status',
   SESSION_EXIT: 'session:exit',
+  DIALOG_OPEN_DIR: 'dialog:openDirectory',
 } as const;

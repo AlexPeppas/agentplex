@@ -34,6 +34,7 @@ export interface AppState {
 
   // Actions
   addSession: (info: SessionInfo) => void;
+  removeSession: (id: string) => void;
   updateStatus: (id: string, status: SessionStatus) => void;
   selectSession: (id: string | null) => void;
   appendBuffer: (id: string, data: string) => void;
@@ -81,6 +82,46 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessions: { ...get().sessions, [info.id]: info },
       sessionBuffers: { ...get().sessionBuffers, [info.id]: '' },
       nodeCounter: nodeCounter + 1,
+    });
+  },
+
+  removeSession: (id: string) => {
+    set((state) => {
+      const { [id]: _sess, ...restSessions } = state.sessions;
+      const { [id]: _buf, ...restBuffers } = state.sessionBuffers;
+      // Remove the node; if it was in a group, handle group cleanup
+      const node = state.nodes.find((n) => n.id === id);
+      let nodes = state.nodes.filter((n) => n.id !== id);
+
+      // If it was in a group, check if group should dissolve
+      if (node?.parentId) {
+        const remainingChildren = nodes.filter((n) => n.parentId === node.parentId);
+        if (remainingChildren.length <= 1) {
+          const parentNode = nodes.find((n) => n.id === node.parentId);
+          nodes = nodes
+            .filter((n) => n.id !== node.parentId)
+            .map((n) => {
+              if (n.parentId === node.parentId) {
+                const { parentId, extent, ...rest } = n;
+                return {
+                  ...rest,
+                  position: {
+                    x: (parentNode?.position.x || 0) + n.position.x,
+                    y: (parentNode?.position.y || 0) + n.position.y,
+                  },
+                };
+              }
+              return n;
+            });
+        }
+      }
+
+      return {
+        nodes,
+        sessions: restSessions,
+        sessionBuffers: restBuffers,
+        selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
+      };
     });
   },
 

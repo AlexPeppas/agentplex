@@ -2,8 +2,12 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, SessionInfo, SessionStatus } from '../shared/ipc-channels';
 
 const api = {
-  createSession: (): Promise<SessionInfo> => {
-    return ipcRenderer.invoke(IPC.SESSION_CREATE);
+  createSession: (cwd?: string): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd });
+  },
+
+  pickDirectory: (): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC.DIALOG_OPEN_DIR);
   },
 
   writeSession: (id: string, data: string): void => {

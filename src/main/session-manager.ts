@@ -40,17 +40,19 @@ export class SessionManager {
     this.sessions.clear();
   }
 
-  create(): SessionInfo {
+  create(cwd?: string): SessionInfo {
     sessionCounter++;
     const id = `session-${sessionCounter}`;
-    const title = `Session ${sessionCounter}`;
+    const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
+    const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
+    const title = `Session ${sessionCounter} — ${dirName}`;
 
     const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,
-      cwd: process.env.HOME || process.env.USERPROFILE || '.',
+      cwd: workDir,
       env: process.env as Record<string, string>,
     });
 

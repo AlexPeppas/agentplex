@@ -173,6 +173,30 @@ html, body, #root {
   background: rgba(247, 118, 142, 0.15);
 }
 
+.session-node__remove {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid #414868;
+  border-radius: 4px;
+  color: #565f89;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.session-node:hover .session-node__remove {
+  opacity: 1;
+}
+
+.session-node__remove:hover {
+  background: rgba(247, 118, 142, 0.15);
+  color: #f7768e;
+}
+
 /* Status dot */
 .status-dot {
   display: inline-block;
