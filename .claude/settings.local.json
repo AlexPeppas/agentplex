@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:reactflow.dev)",
+      "WebFetch(domain:thomasdeegan.medium.com)",
+      "WebFetch(domain:www.electronforge.io)",
+      "Bash(mkdir:*)",
+      "Bash(npm install:*)",
+      "Bash(npm start:*)",
+      "Bash(taskkill:*)",
+      "Bash(ELECTRON_ENABLE_LOGGING=1 npm start:*)",
+      "Bash(tasklist:*)",
+      "Bash(mv:*)",
+      "Bash(npx electron:*)",
+      "Bash(timeout 15 npm start:*)",
+      "Bash(rm:*)"
+    ]
+  }
+}
