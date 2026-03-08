@@ -4,6 +4,17 @@
   "version": "1.0.0",
   "description": "Multi-session Claude CLI desktop app with graph visualization",
   "main": ".vite/build/main.js",
+  "bin": {
+    "agentplex": "bin/agentplex.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/agentplex.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
