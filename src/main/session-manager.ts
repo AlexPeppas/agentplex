@@ -2,9 +2,21 @@ import * as pty from 'node-pty';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
-import { SessionStatus, SessionInfo, IPC } from '../shared/ipc-channels';
+import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, type CliTool } from '../shared/ipc-channels';
+import { stripAnsi } from '../shared/ansi-strip';
 import { SubagentDetector } from './subagent-detector';
 import { PlanTaskDetector } from './plan-task-detector';
+
+const PROMPT_PATTERNS = [
+  /\[Y\/n\]/i,                                   // [Y/n], [y/N] variants
+  /\(y\/n\)/i,                                   // (y/N), (Y/n) variants
+  /\b(?:do you want|proceed|confirm|approve)\b/i, // common prompt phrases
+  /Yes\s*\/\s*No/,                                // Yes / No (Claude CLI)
+  /Allow\s*\/\s*Deny/,                            // Allow / Deny (Claude CLI)
+  /Enter to select/,                              // Claude CLI multi-choice selection
+  /Esc to cancel/,                                // Claude CLI selection navigation hint
+  /Tab\/Arrow keys to navigate/,                  // Claude CLI selection navigation hint
+];
 
 const BUFFER_CAP = 512 * 1024; // 512KB per session
 
@@ -14,6 +26,7 @@ interface Session {
   pty: pty.IPty;
   status: SessionStatus;
   lastOutput: number;
+  lastVisibleOutput: number;
   buffer: string;
   subagentDetector: SubagentDetector;
   planTaskDetector: PlanTaskDetector;
@@ -49,11 +62,12 @@ export class SessionManager {
     this.sessions.clear();
   }
 
-  create(cwd?: string): SessionInfo {
+  create(cwd?: string, cli: CliTool = 'claude'): SessionInfo {
     sessionCounter++;
     const id = `session-${sessionCounter}`;
     const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
+    const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
     const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
@@ -126,6 +140,7 @@ export class SessionManager {
       pty: term,
       status: SessionStatus.Running,
       lastOutput: Date.now(),
+      lastVisibleOutput: Date.now(),
       buffer: '',
       subagentDetector: detector,
       planTaskDetector: planDetector,
@@ -133,6 +148,9 @@ export class SessionManager {
 
     term.onData((data: string) => {
       session.lastOutput = Date.now();
+      if (stripAnsi(data).trim()) {
+        session.lastVisibleOutput = Date.now();
+      }
       session.buffer += data;
       if (session.buffer.length > BUFFER_CAP) {
         session.buffer = session.buffer.slice(-BUFFER_CAP);
@@ -150,10 +168,10 @@ export class SessionManager {
 
     this.sessions.set(id, session);
 
-    // Auto-start claude after a short delay for shell to initialize
+    // Auto-start the selected CLI tool after a short delay for shell to initialize
     setTimeout(() => {
       try {
-        term.write('claude\r');
+        term.write(toolDef.command + '\r');
       } catch {
         // session may have been killed
       }
@@ -215,10 +233,21 @@ export class SessionManager {
     for (const session of this.sessions.values()) {
       if (session.status === SessionStatus.Killed) continue;
 
-      const newStatus =
-        now - session.lastOutput < 2000
-          ? SessionStatus.Running
-          : SessionStatus.Idle;
+      let newStatus: SessionStatus;
+      if (now - session.lastVisibleOutput < 2000) {
+        newStatus = SessionStatus.Running;
+      } else {
+        // Idle — check if the session is waiting for user input.
+        // Claude CLI draws interactive prompts with cursor-based TUI rendering,
+        // so the stripped buffer may not have clean newlines. Check both:
+        //  1) the full stripped tail as a single string (handles incremental TUI draws)
+        //  2) individual lines (handles well-formed output)
+        const tail = stripAnsi(session.buffer.slice(-500));
+        const matchesFull = PROMPT_PATTERNS.some((re) => re.test(tail));
+        const matchesLine = !matchesFull && tail.split('\n').filter((l) => l.trim()).slice(-5)
+          .some((line) => PROMPT_PATTERNS.some((re) => re.test(line.trim())));
+        newStatus = (matchesFull || matchesLine) ? SessionStatus.WaitingForInput : SessionStatus.Idle;
+      }
 
       if (newStatus !== session.status) {
         session.status = newStatus;

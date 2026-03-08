@@ -3,8 +3,8 @@ import { IPC } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
 
 export function registerIpcHandlers() {
-  ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd }: { cwd?: string } = {}) => {
-    return sessionManager.create(cwd);
+  ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli }: { cwd?: string; cli?: string } = {}) => {
+    return sessionManager.create(cwd, (cli as any) || 'claude');
   });
 
   ipcMain.handle(IPC.DIALOG_OPEN_DIR, async () => {

@@ -18,7 +18,7 @@ function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
-    title: 'Agent Field',
+    title: 'AgentPlex',
     backgroundColor: '#1a1b26',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

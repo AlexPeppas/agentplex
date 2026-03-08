@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
+import { IPC, type CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
 
 const api = {
-  createSession: (cwd?: string): Promise<SessionInfo> => {
-    return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd });
+  createSession: (cwd?: string, cli?: CliTool): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli });
   },
 
   pickDirectory: (): Promise<string | null> => {
@@ -111,4 +111,4 @@ const api = {
   },
 };
 
-contextBridge.exposeInMainWorld('agentField', api);
+contextBridge.exposeInMainWorld('agentPlex', api);

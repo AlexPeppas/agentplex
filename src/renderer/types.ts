@@ -1,7 +1,7 @@
-import type { SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
+import type { CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
 
-export interface AgentFieldAPI {
-  createSession: (cwd?: string) => Promise<SessionInfo>;
+export interface AgentPlexAPI {
+  createSession: (cwd?: string, cli?: CliTool) => Promise<SessionInfo>;
   pickDirectory: () => Promise<string | null>;
   writeSession: (id: string, data: string) => void;
   resizeSession: (id: string, cols: number, rows: number) => void;
@@ -22,6 +22,6 @@ export interface AgentFieldAPI {
 
 declare global {
   interface Window {
-    agentField: AgentFieldAPI;
+    agentPlex: AgentPlexAPI;
   }
 }

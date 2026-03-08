@@ -58,17 +58,17 @@ export function SendDialog() {
     void targetTitle; // target title not needed in the message
 
     const message = [
-      `Context from ${sourceLabel}:`,
-      '```',
-      contextPreview,
-      '```',
-      '',
       instruction.trim(),
+      '',
+      '<summary_context>',
+      `Context from ${sourceLabel}:`,
+      contextPreview,
+      '</summary_context>',
     ].join('\n');
 
     // Use bracketed paste so Claude CLI treats multi-line input as a single paste
     const bracketedPaste = `\x1b[200~${message}\x1b[201~\r`;
-    window.agentField.writeSession(targetId, bracketedPaste);
+    window.agentPlex.writeSession(targetId, bracketedPaste);
 
     setInstruction('');
     closeSendDialog();

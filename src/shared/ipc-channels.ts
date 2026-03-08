@@ -1,6 +1,15 @@
+export type CliTool = 'claude' | 'codex' | 'copilot';
+
+export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
+  { id: 'claude', label: 'Claude', command: 'claude' },
+  { id: 'codex', label: 'Codex', command: 'codex' },
+  { id: 'copilot', label: 'GitHub Copilot', command: 'gh copilot' },
+];
+
 export enum SessionStatus {
   Running = 'running',
   Idle = 'idle',
+  WaitingForInput = 'waiting-for-input',
   Killed = 'killed',
 }
 

@@ -10,8 +10,11 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const removeSession = useAppStore((s) => s.removeSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  // Subscribe directly to store status so React Flow's memo diffing can't block re-renders
+  const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const isSelected = selectedSessionId === nodeData.sessionId;
-  const isKilled = nodeData.status === SessionStatus.Killed;
+  const isKilled = status === SessionStatus.Killed;
+  const isWaiting = status === SessionStatus.WaitingForInput;
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -21,7 +24,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const handleKill = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!isKilled) {
-      window.agentField.killSession(nodeData.sessionId);
+      window.agentPlex.killSession(nodeData.sessionId);
     }
   };
 
@@ -40,9 +43,10 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
       className={`session-node ${isSelected ? 'session-node--selected' : ''} ${isKilled ? 'session-node--killed' : ''}`}
       onClick={handleClick}
     >
+      {isWaiting && <span className="session-node__attention">?</span>}
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
       <div className="session-node__header">
-        <StatusIndicator status={nodeData.status} />
+        <StatusIndicator status={status} />
         <span className="session-node__title">{nodeData.label}</span>
         {isKilled ? (
           <button

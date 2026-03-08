@@ -50,7 +50,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       try {
         fitAddon.fit();
         if (selectedSessionId) {
-          window.agentField.resizeSession(
+          window.agentPlex.resizeSession(
             selectedSessionId,
             term.cols,
             term.rows
@@ -72,11 +72,11 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     // Forward keystrokes to pty
     const sessionId = selectedSessionId;
     term.onData((data) => {
-      window.agentField.writeSession(sessionId, data);
+      window.agentPlex.writeSession(sessionId, data);
     });
 
     // Subscribe to pty output
-    const cleanup = window.agentField.onSessionData(({ id, data }) => {
+    const cleanup = window.agentPlex.onSessionData(({ id, data }) => {
       if (id === sessionId && termRef.current) {
         termRef.current.write(data);
       }
@@ -86,7 +86,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     const resizeObserver = new ResizeObserver(() => {
       try {
         fitAddon.fit();
-        window.agentField.resizeSession(sessionId, term.cols, term.rows);
+        window.agentPlex.resizeSession(sessionId, term.cols, term.rows);
       } catch {
         // ignore
       }

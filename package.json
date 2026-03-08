@@ -1,6 +1,6 @@
 {
-  "name": "agent-field",
-  "productName": "Agent Field",
+  "name": "agentplex",
+  "productName": "AgentPlex",
   "version": "1.0.0",
   "description": "Multi-session Claude CLI desktop app with graph visualization",
   "main": ".vite/build/main.js",
