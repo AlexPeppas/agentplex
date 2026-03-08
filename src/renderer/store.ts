@@ -58,6 +58,7 @@ export interface AppState {
   subagents: Record<string, SubagentEntry>;
   selectedSessionId: string | null;
   sessionBuffers: Record<string, string>;
+  displayNames: Record<string, string>;
   nodeCounter: number;
 
   // Actions
@@ -93,6 +94,7 @@ export interface AppState {
   addToGroup: (groupId: string, nodeId: string) => void;
   removeFromGroup: (nodeId: string) => void;
   renameGroup: (groupId: string, name: string) => void;
+  renameSession: (sessionId: string, name: string) => void;
 }
 
 let groupCounter = 0;
@@ -106,6 +108,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   subagents: {},
   selectedSessionId: null,
   sessionBuffers: {},
+  displayNames: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
 
@@ -143,6 +146,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const { [id]: _sess, ...restSessions } = state.sessions;
       const { [id]: _buf, ...restBuffers } = state.sessionBuffers;
+      const { [id]: _dn, ...restDisplayNames } = state.displayNames;
 
       // Find sub-agent IDs belonging to this session
       const subagentIds = new Set(
@@ -195,6 +199,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         edges,
         sessions: restSessions,
         sessionBuffers: restBuffers,
+        displayNames: restDisplayNames,
         subagents: restSubagents,
         selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
       };
@@ -539,6 +544,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       nodes: state.nodes.map((n) =>
         n.id === groupId ? { ...n, data: { ...n.data, label: name } } : n
       ),
+    }));
+  },
+
+  renameSession: (sessionId: string, name: string) => {
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === sessionId && n.type === 'sessionNode'
+          ? { ...n, data: { ...n.data, label: name } }
+          : n
+      ),
+      displayNames: { ...state.displayNames, [sessionId]: name },
     }));
   },
 }));

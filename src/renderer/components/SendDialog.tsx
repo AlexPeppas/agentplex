@@ -21,6 +21,7 @@ export function SendDialog() {
   const closeSendDialog = useAppStore((s) => s.closeSendDialog);
   const sessions = useAppStore((s) => s.sessions);
   const sessionBuffers = useAppStore((s) => s.sessionBuffers);
+  const displayNames = useAppStore((s) => s.displayNames);
   const [targetId, setTargetId] = useState<string>('');
   const [instruction, setInstruction] = useState('');
   const instructionRef = useRef<HTMLTextAreaElement>(null);
@@ -30,7 +31,9 @@ export function SendDialog() {
     (s) => s.id !== sourceId && s.status !== SessionStatus.Killed
   );
 
-  const sourceLabel = sourceId && sessions[sourceId] ? sessions[sourceId].title : sourceId;
+  const sourceLabel = sourceId
+    ? displayNames[sourceId] || sessions[sourceId]?.title || sourceId
+    : sourceId;
 
   const contextPreview = useMemo(() => {
     if (!sourceId || !sessionBuffers[sourceId]) return '';
@@ -61,14 +64,21 @@ export function SendDialog() {
       instruction.trim(),
       '',
       '<summary_context>',
-      `Context from ${sourceLabel}:`,
+      `Context from ${sourceLabel}, another session instance of you:`,
       contextPreview,
       '</summary_context>',
     ].join('\n');
 
-    // Use bracketed paste so Claude CLI treats multi-line input as a single paste
-    const bracketedPaste = `\x1b[200~${message}\x1b[201~\r`;
-    window.agentPlex.writeSession(targetId, bracketedPaste);
+    // Use bracketed paste so Claude CLI treats multi-line input as a single paste,
+    // then send Enter after a delay so the TUI fully processes the paste first.
+    const bracketedPaste = `\x1b[200~${message}\x1b[201~`;
+    const tid = targetId;
+    window.agentPlex.writeSession(tid, bracketedPaste);
+    setTimeout(() => {
+      window.agentPlex.writeSession(tid, '\r');
+      // Fallback: some TUI frameworks on Windows need \n instead of \r
+      setTimeout(() => window.agentPlex.writeSession(tid, '\n'), 100);
+    }, 500);
 
     setInstruction('');
     closeSendDialog();
@@ -110,7 +120,7 @@ export function SendDialog() {
           >
             {targetSessions.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.title}
+                {displayNames[s.id] || s.title}
               </option>
             ))}
           </select>

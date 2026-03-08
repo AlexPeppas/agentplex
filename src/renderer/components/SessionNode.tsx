@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { StatusIndicator } from './StatusIndicator';
 import { useAppStore, type SessionNodeData } from '../store';
@@ -9,12 +9,35 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const selectSession = useAppStore((s) => s.selectSession);
   const removeSession = useAppStore((s) => s.removeSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
+  const renameSession = useAppStore((s) => s.renameSession);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   // Subscribe directly to store status so React Flow's memo diffing can't block re-renders
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const isSelected = selectedSessionId === nodeData.sessionId;
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  const commit = useCallback(() => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== nodeData.label) {
+      renameSession(nodeData.sessionId, trimmed);
+    }
+    setEditing(false);
+  }, [draft, nodeData.label, nodeData.sessionId, renameSession]);
+
+  const handleTitleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDraft(nodeData.label);
+    setEditing(true);
+  };
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -47,7 +70,27 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
       <div className="session-node__header">
         <StatusIndicator status={status} />
-        <span className="session-node__title">{nodeData.label}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="session-node__title-input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commit(); }
+              if (e.key === 'Escape') { e.preventDefault(); setEditing(false); }
+              e.stopPropagation();
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <span className="session-node__title" onDoubleClick={handleTitleDoubleClick}>
+            {nodeData.label}
+          </span>
+        )}
         {isKilled ? (
           <button
             className="session-node__remove"
