@@ -43,15 +43,23 @@ html, body, #root {
   border-left: 1px solid #292e42;
 }
 
-/* Toolbar */
+/* Toolbar (acts as custom title bar) */
 .toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
+  gap: 10px;
+  height: 40px;
+  padding: 0 16px;
+  padding-right: 140px; /* reserve space for Windows title-bar overlay buttons */
   background: #16161e;
   border-bottom: 1px solid #292e42;
   -webkit-app-region: drag;
+}
+
+.toolbar__logo {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
 }
 
 .toolbar__title {
@@ -59,6 +67,7 @@ html, body, #root {
   font-weight: 600;
   color: #7aa2f7;
   letter-spacing: 0.5px;
+  flex: 1;
 }
 
 .toolbar__button {

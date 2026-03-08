@@ -7,6 +7,8 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    icon: 'assets/logo',
+    extraResource: ['assets/logo.png', 'assets/logo.ico'],
   },
   rebuildConfig: {
     onlyModules: [], // node-pty uses N-API prebuilds, no rebuild needed

@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3d4260"/>
+      <stop offset="100%" stop-color="#343852"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect x="16" y="16" width="480" height="480" rx="80" fill="url(#bg4)" stroke="#8890b0" stroke-width="5"/>
+
+  <!-- Orbital rings -->
+  <ellipse cx="256" cy="256" rx="180" ry="80" fill="none" stroke="#9099b8" stroke-width="3" transform="rotate(-25 256 256)"/>
+  <ellipse cx="256" cy="256" rx="180" ry="80" fill="none" stroke="#9099b8" stroke-width="3" transform="rotate(35 256 256)"/>
+  <ellipse cx="256" cy="256" rx="180" ry="80" fill="none" stroke="#9099b8" stroke-width="3" transform="rotate(95 256 256)"/>
+
+  <!-- Message arcs -->
+  <path d="M155 155 Q 256 100 357 155" fill="none" stroke="#b0b8d4" stroke-width="2.5" stroke-dasharray="5 3"/>
+  <path d="M357 155 Q 410 256 357 357" fill="none" stroke="#b0b8d4" stroke-width="2.5" stroke-dasharray="5 3"/>
+  <path d="M357 357 Q 256 410 155 357" fill="none" stroke="#b0b8d4" stroke-width="2.5" stroke-dasharray="5 3"/>
+  <path d="M155 357 Q 100 256 155 155" fill="none" stroke="#b0b8d4" stroke-width="2.5" stroke-dasharray="5 3"/>
+
+  <!-- Radial spokes from center -->
+  <line x1="256" y1="256" x2="155" y2="155" stroke="#d0d8f0" stroke-width="4"/>
+  <line x1="256" y1="256" x2="357" y2="155" stroke="#d0d8f0" stroke-width="4"/>
+  <line x1="256" y1="256" x2="357" y2="357" stroke="#d0d8f0" stroke-width="4"/>
+  <line x1="256" y1="256" x2="155" y2="357" stroke="#d0d8f0" stroke-width="4"/>
+  <line x1="256" y1="256" x2="256" y2="115" stroke="#d0d8f0" stroke-width="4"/>
+  <line x1="256" y1="256" x2="400" y2="256" stroke="#d0d8f0" stroke-width="4"/>
+
+  <!-- Sub-agent tendrils -->
+  <path d="M155 155 Q 120 120 95 80" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <path d="M155 155 Q 100 155 70 140" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <path d="M357 155 Q 390 110 420 85" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <path d="M357 155 Q 400 160 430 145" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <path d="M357 357 Q 400 390 430 420" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <path d="M155 357 Q 115 395 90 425" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <path d="M256 115 Q 240 75 225 55" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <path d="M256 115 Q 275 75 290 55" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <path d="M400 256 Q 430 240 450 225" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+
+  <!-- Sub-agent leaf nodes -->
+  <circle cx="95" cy="80" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+  <circle cx="70" cy="140" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+  <circle cx="420" cy="85" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+  <circle cx="430" cy="145" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+  <circle cx="430" cy="420" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+  <circle cx="90" cy="425" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+  <circle cx="225" cy="55" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+  <circle cx="290" cy="55" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+  <circle cx="450" cy="225" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+
+  <!-- Primary session nodes — pill-shaped -->
+  <rect x="127" y="137" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="4"/>
+  <circle cx="148" cy="155" r="5" fill="#f0f4ff"/>
+
+  <rect x="329" y="137" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="4"/>
+  <circle cx="350" cy="155" r="5" fill="#f0f4ff"/>
+
+  <rect x="329" y="339" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="4"/>
+  <circle cx="350" cy="357" r="5" fill="#f0f4ff"/>
+
+  <rect x="127" y="339" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="4"/>
+  <circle cx="148" cy="357" r="5" fill="#f0f4ff"/>
+
+  <!-- Extra session nodes on orbits -->
+  <rect x="228" y="97" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="3.5"/>
+  <circle cx="249" cy="115" r="4.5" fill="#f0f4ff"/>
+
+  <rect x="372" y="238" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="3.5"/>
+  <circle cx="393" cy="256" r="4.5" fill="#f0f4ff"/>
+
+  <!-- Central hub — layered rings -->
+  <circle cx="256" cy="256" r="40" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <circle cx="256" cy="256" r="32" fill="#5d6488" stroke="#e8edf8" stroke-width="4.5"/>
+  <circle cx="256" cy="256" r="20" fill="#3d4260"/>
+  <!-- Inner plex: interconnected triangle -->
+  <circle cx="249" cy="250" r="5" fill="#e0e6f8"/>
+  <circle cx="263" cy="250" r="5" fill="#f0f4ff"/>
+  <circle cx="256" cy="264" r="5" fill="#e0e6f8"/>
+  <line x1="249" y1="250" x2="263" y2="250" stroke="#d0d8f0" stroke-width="2.5"/>
+  <line x1="263" y1="250" x2="256" y2="264" stroke="#d0d8f0" stroke-width="2.5"/>
+  <line x1="256" y1="264" x2="249" y2="250" stroke="#d0d8f0" stroke-width="2.5"/>
+</svg>

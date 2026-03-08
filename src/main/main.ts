@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage } from 'electron';
 import path from 'node:path';
 import { sessionManager } from './session-manager';
 import { registerIpcHandlers } from './ipc-handlers';
@@ -14,11 +14,30 @@ process.on('unhandledRejection', (reason) => {
   console.error('UNHANDLED REJECTION:', reason);
 });
 
+function getAppIcon() {
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath)
+    : path.resolve(__dirname, '../../');
+  const iconPath = path.join(base, 'assets', process.platform === 'win32' ? 'logo.ico' : 'logo.png');
+  try {
+    return nativeImage.createFromPath(iconPath);
+  } catch {
+    return undefined;
+  }
+}
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     title: 'AgentPlex',
+    icon: getAppIcon(),
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#16161e',
+      symbolColor: '#c0caf5',
+      height: 40,
+    },
     backgroundColor: '#1a1b26',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -27,6 +46,7 @@ function createWindow() {
     },
   });
 
+  Menu.setApplicationMenu(null);
   sessionManager.setWindow(mainWindow);
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

@@ -39,6 +39,7 @@ export function Toolbar() {
 
   return (
     <div className="toolbar">
+      <img className="toolbar__logo" src="/assets/logo.svg" alt="AgentPlex" />
       <span className="toolbar__title">AgentPlex</span>
       <div className="toolbar__new-wrapper" ref={menuRef}>
         <button
