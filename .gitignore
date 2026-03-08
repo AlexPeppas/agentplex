@@ -3,3 +3,6 @@ dist/
 out/
 .vite/
 *.js.map
+.env
+.env.*
+*.pem
