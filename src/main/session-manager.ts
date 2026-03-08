@@ -1,7 +1,12 @@
 import * as pty from 'node-pty';
+import * as path from 'path';
+import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
 import { SessionStatus, SessionInfo, IPC } from '../shared/ipc-channels';
 import { SubagentDetector } from './subagent-detector';
+import { PlanTaskDetector } from './plan-task-detector';
+
+const BUFFER_CAP = 512 * 1024; // 512KB per session
 
 interface Session {
   id: string;
@@ -9,7 +14,9 @@ interface Session {
   pty: pty.IPty;
   status: SessionStatus;
   lastOutput: number;
+  buffer: string;
   subagentDetector: SubagentDetector;
+  planTaskDetector: PlanTaskDetector;
 }
 
 let sessionCounter = 0;
@@ -74,18 +81,64 @@ export class SessionManager {
       }
     });
 
+    const planDetector = new PlanTaskDetector((event) => {
+      switch (event.type) {
+        case 'plan-enter': {
+          let planTitle = 'Plan Mode';
+          if (event.planSlug) {
+            try {
+              const home = process.env.HOME || process.env.USERPROFILE || '';
+              const planPath = path.join(home, '.claude', 'plans', `${event.planSlug}.md`);
+              const content = fs.readFileSync(planPath, 'utf-8');
+              const headingMatch = content.match(/^#\s+(.+)/m);
+              if (headingMatch) {
+                const extracted = headingMatch[1].trim();
+                // Reject empty or punctuation/dash-only titles (file may not be fully written yet)
+                if (extracted && !/^[\s\-—–_.…]+$/.test(extracted)) {
+                  planTitle = extracted;
+                }
+              }
+            } catch {
+              // file not found or unreadable
+            }
+          }
+          this.send(IPC.PLAN_ENTER, { sessionId: id, planTitle });
+          break;
+        }
+        case 'plan-exit':
+          this.send(IPC.PLAN_EXIT, { sessionId: id });
+          break;
+        case 'task-create':
+          this.send(IPC.TASK_CREATE, { sessionId: id, taskNumber: event.taskNumber, description: event.description });
+          break;
+        case 'task-update':
+          this.send(IPC.TASK_UPDATE, { sessionId: id, taskNumber: event.taskNumber, status: event.status });
+          break;
+        case 'task-list':
+          this.send(IPC.TASK_LIST, { sessionId: id, tasks: event.tasks });
+          break;
+      }
+    });
+
     const session: Session = {
       id,
       title,
       pty: term,
       status: SessionStatus.Running,
       lastOutput: Date.now(),
+      buffer: '',
       subagentDetector: detector,
+      planTaskDetector: planDetector,
     };
 
     term.onData((data: string) => {
       session.lastOutput = Date.now();
+      session.buffer += data;
+      if (session.buffer.length > BUFFER_CAP) {
+        session.buffer = session.buffer.slice(-BUFFER_CAP);
+      }
       detector.feed(data);
+      planDetector.feed(data);
       this.send(IPC.SESSION_DATA, { id, data });
     });
 
@@ -112,7 +165,11 @@ export class SessionManager {
   write(id: string, data: string) {
     const session = this.sessions.get(id);
     if (session && session.status !== SessionStatus.Killed) {
-      session.pty.write(data);
+      try {
+        session.pty.write(data);
+      } catch {
+        // pty may have died between status check and write
+      }
     }
   }
 
@@ -138,6 +195,10 @@ export class SessionManager {
       session.status = SessionStatus.Killed;
       this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
     }
+  }
+
+  getBuffer(id: string): string {
+    return this.sessions.get(id)?.buffer || '';
   }
 
   list(): SessionInfo[] {

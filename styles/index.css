@@ -197,6 +197,77 @@ html, body, #root {
   color: #f7768e;
 }
 
+/* Plan badge */
+.session-node__plan-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 8px;
+  background: rgba(187, 154, 247, 0.12);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.session-node__plan-badge-icon {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.session-node__plan-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #bb9af7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Plan entries */
+.session-node__plan-entries {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-node__plan-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 0;
+}
+
+.session-node__plan-entry-icon {
+  flex-shrink: 0;
+  font-size: 11px;
+  width: 14px;
+  text-align: center;
+}
+
+.session-node__plan-entry-title {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.session-node__plan-entry--active .session-node__plan-entry-icon {
+  color: #7dcfff;
+}
+.session-node__plan-entry--active .session-node__plan-entry-title {
+  color: #c0caf5;
+}
+
+.session-node__plan-entry--completed .session-node__plan-entry-icon {
+  color: #9ece6a;
+}
+.session-node__plan-entry--completed .session-node__plan-entry-title {
+  color: #565f89;
+  text-decoration: line-through;
+}
+
 /* Status dot */
 .status-dot {
   display: inline-block;
@@ -338,6 +409,172 @@ html, body, #root {
 .subagent-node--faded {
   border-left-color: #565f89;
   opacity: 0.4;
+}
+
+/* Send button */
+.session-node__send {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid #414868;
+  border-radius: 4px;
+  color: #7aa2f7;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.session-node:hover .session-node__send {
+  opacity: 1;
+}
+
+.session-node__send:hover {
+  background: rgba(122, 162, 247, 0.15);
+}
+
+/* Send dialog */
+.send-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.send-dialog {
+  background: #24283b;
+  border: 1px solid #414868;
+  border-radius: 12px;
+  padding: 20px;
+  width: 520px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.send-dialog__header {
+  font-size: 14px;
+  font-weight: 600;
+  color: #c0caf5;
+  margin-bottom: 14px;
+}
+
+.send-dialog__label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #565f89;
+  margin-bottom: 6px;
+}
+
+.send-dialog__select {
+  width: 100%;
+  padding: 8px 10px;
+  background: #1a1b26;
+  border: 1px solid #414868;
+  border-radius: 8px;
+  color: #c0caf5;
+  font-size: 13px;
+  outline: none;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.send-dialog__select:focus {
+  border-color: #7aa2f7;
+}
+
+.send-dialog__no-targets {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #565f89;
+  margin-bottom: 12px;
+}
+
+.send-dialog__context-preview {
+  width: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #16161e;
+  border: 1px solid #292e42;
+  border-radius: 8px;
+  color: #565f89;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: 12px;
+}
+
+.send-dialog__textarea {
+  width: 100%;
+  background: #1a1b26;
+  border: 1px solid #414868;
+  border-radius: 8px;
+  color: #c0caf5;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 13px;
+  padding: 10px 12px;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.send-dialog__textarea:focus {
+  border-color: #7aa2f7;
+}
+
+.send-dialog__textarea::placeholder {
+  color: #565f89;
+}
+
+.send-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.send-dialog__cancel {
+  padding: 6px 14px;
+  background: none;
+  border: 1px solid #414868;
+  border-radius: 6px;
+  color: #c0caf5;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.send-dialog__cancel:hover {
+  background: #292e42;
+}
+
+.send-dialog__send {
+  padding: 6px 14px;
+  background: #7aa2f7;
+  color: #1a1b26;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.send-dialog__send:hover {
+  background: #89b4fa;
+}
+
+.send-dialog__send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* React Flow overrides */

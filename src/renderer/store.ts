@@ -17,10 +17,24 @@ const GRID_SPACING_Y = 120;
 const GRID_OFFSET_X = 60;
 const GRID_OFFSET_Y = 60;
 
+export interface PlanEntry {
+  title: string;
+  status: 'active' | 'completed';
+}
+
+export interface TaskEntry {
+  taskNumber: number;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
 export type SessionNodeData = {
   label: string;
   sessionId: string;
   status: SessionStatus;
+  mode: 'normal' | 'plan';
+  plans: PlanEntry[];
+  tasks: TaskEntry[];
   [key: string]: unknown;
 };
 
@@ -34,6 +48,7 @@ interface SubagentEntry {
   sessionId: string;
   description: string;
   status: 'active' | 'completed' | 'faded';
+  spawnedAt: number;
 }
 
 export interface AppState {
@@ -55,10 +70,23 @@ export interface AppState {
   // Sub-agent actions
   spawnSubagent: (sessionId: string, subagentId: string, description: string) => void;
   completeSubagent: (sessionId: string, subagentId: string) => void;
+  cleanupStaleSubagents: () => void;
+
+  // Plan & task actions
+  enterPlan: (sessionId: string, planTitle: string) => void;
+  exitPlan: (sessionId: string) => void;
+  createTask: (sessionId: string, taskNumber: number, description: string) => void;
+  updateTask: (sessionId: string, taskNumber: number, status: 'pending' | 'in_progress' | 'completed') => void;
+  reconcileTasks: (sessionId: string, tasks: TaskEntry[]) => void;
 
   // React Flow
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
+
+  // Send dialog
+  sendDialogSourceId: string | null;
+  openSendDialog: (sourceSessionId: string) => void;
+  closeSendDialog: () => void;
 
   // Grouping
   createGroup: (nodeIdA: string, nodeIdB: string) => void;
@@ -79,6 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedSessionId: null,
   sessionBuffers: {},
   nodeCounter: 0,
+  sendDialogSourceId: null,
 
   addSession: (info: SessionInfo) => {
     const { nodes, nodeCounter } = get();
@@ -96,6 +125,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         label: info.title,
         sessionId: info.id,
         status: info.status,
+        mode: 'normal',
+        plans: [],
+        tasks: [],
       } satisfies SessionNodeData,
     };
 
@@ -188,16 +220,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   appendBuffer: (id: string, data: string) => {
-    set((state) => ({
-      sessionBuffers: {
-        ...state.sessionBuffers,
-        [id]: (state.sessionBuffers[id] || '') + data,
-      },
-    }));
+    set((state) => {
+      let buf = (state.sessionBuffers[id] || '') + data;
+      // Cap at ~512KB to prevent unbounded memory growth
+      if (buf.length > 512 * 1024) {
+        buf = buf.slice(-512 * 1024);
+      }
+      return {
+        sessionBuffers: {
+          ...state.sessionBuffers,
+          [id]: buf,
+        },
+      };
+    });
   },
 
   spawnSubagent: (sessionId: string, subagentId: string, description: string) => {
     const { nodes, edges, subagents } = get();
+    // Idempotency guard — ignore duplicate spawns
+    if (subagents[subagentId]) return;
     const parentNode = nodes.find((n) => n.id === sessionId);
     if (!parentNode) return;
 
@@ -234,7 +275,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       edges: [...edges, newEdge],
       subagents: {
         ...subagents,
-        [subagentId]: { subagentId, sessionId, description, status: 'active' },
+        [subagentId]: { subagentId, sessionId, description, status: 'active', spawnedAt: Date.now() },
       },
     });
   },
@@ -281,7 +322,100 @@ export const useAppStore = create<AppState>((set, get) => ({
           [subagentId]: { ...current.subagents[subagentId], status: 'faded' },
         },
       });
+
+      // Remove faded node entirely after another 10 seconds (20s total)
+      setTimeout(() => {
+        const later = get();
+        if (!later.subagents[subagentId]) return;
+        const { [subagentId]: _removed, ...restSubagents } = later.subagents;
+        set({
+          nodes: later.nodes.filter((n) => n.id !== subagentId),
+          edges: later.edges.filter((e) => e.target !== subagentId),
+          subagents: restSubagents,
+        });
+      }, 10_000);
     }, 10_000);
+  },
+
+  cleanupStaleSubagents: () => {
+    const STALE_MS = 3 * 60 * 1000; // 3 minutes
+    const now = Date.now();
+    const { subagents } = get();
+    for (const entry of Object.values(subagents)) {
+      if (entry.status === 'active' && now - entry.spawnedAt > STALE_MS) {
+        // Trigger the normal complete → fade → remove chain
+        get().completeSubagent(entry.sessionId, entry.subagentId);
+      }
+    }
+  },
+
+  enterPlan: (sessionId: string, planTitle: string) => {
+    set((state) => ({
+      nodes: state.nodes.map((n) => {
+        if (n.id !== sessionId || n.type !== 'sessionNode') return n;
+        const data = n.data as SessionNodeData;
+        const plans = [...data.plans, { title: planTitle, status: 'active' as const }].slice(-3);
+        return { ...n, data: { ...data, mode: 'plan' as const, plans } };
+      }),
+    }));
+  },
+
+  exitPlan: (sessionId: string) => {
+    set((state) => ({
+      nodes: state.nodes.map((n) => {
+        if (n.id !== sessionId || n.type !== 'sessionNode') return n;
+        const data = n.data as SessionNodeData;
+        const plans = data.plans.map((p) =>
+          p.status === 'active' ? { ...p, status: 'completed' as const } : p
+        );
+        return { ...n, data: { ...data, mode: 'normal' as const, plans, tasks: [] } };
+      }),
+    }));
+  },
+
+  createTask: (sessionId: string, taskNumber: number, description: string) => {
+    set((state) => ({
+      nodes: state.nodes.map((n) => {
+        if (n.id !== sessionId || n.type !== 'sessionNode') return n;
+        const tasks = (n.data as SessionNodeData).tasks;
+        if (tasks.some((t: TaskEntry) => t.taskNumber === taskNumber)) return n;
+        return { ...n, data: { ...n.data, tasks: [...tasks, { taskNumber, description, status: 'pending' as const }] } };
+      }),
+    }));
+  },
+
+  updateTask: (sessionId: string, taskNumber: number, status: 'pending' | 'in_progress' | 'completed') => {
+    set((state) => ({
+      nodes: state.nodes.map((n) => {
+        if (n.id !== sessionId || n.type !== 'sessionNode') return n;
+        const tasks = (n.data as SessionNodeData).tasks;
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            tasks: tasks.map((t: TaskEntry) => t.taskNumber === taskNumber ? { ...t, status } : t),
+          },
+        };
+      }),
+    }));
+  },
+
+  reconcileTasks: (sessionId: string, tasks: TaskEntry[]) => {
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === sessionId && n.type === 'sessionNode'
+          ? { ...n, data: { ...n.data, tasks } }
+          : n
+      ),
+    }));
+  },
+
+  openSendDialog: (sourceSessionId: string) => {
+    set({ sendDialogSourceId: sourceSessionId });
+  },
+
+  closeSendDialog: () => {
+    set({ sendDialogSourceId: null });
   },
 
   onNodesChange: (changes) => {

@@ -8,6 +8,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const nodeData = data as SessionNodeData;
   const selectSession = useAppStore((s) => s.selectSession);
   const removeSession = useAppStore((s) => s.removeSession);
+  const openSendDialog = useAppStore((s) => s.openSendDialog);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const isSelected = selectedSessionId === nodeData.sessionId;
   const isKilled = nodeData.status === SessionStatus.Killed;
@@ -27,6 +28,11 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const handleRemove = (e: React.MouseEvent) => {
     e.stopPropagation();
     removeSession(nodeData.sessionId);
+  };
+
+  const handleSend = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    openSendDialog(nodeData.sessionId);
   };
 
   return (
@@ -50,15 +56,48 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
             </svg>
           </button>
         ) : (
-          <button
-            className="session-node__kill"
-            onClick={handleKill}
-            title="Kill session"
-          >
-            ×
-          </button>
+          <>
+            <button
+              className="session-node__send"
+              onClick={handleSend}
+              title="Send message to session"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
+            <button
+              className="session-node__kill"
+              onClick={handleKill}
+              title="Kill session"
+            >
+              ×
+            </button>
+          </>
         )}
       </div>
+
+      {nodeData.mode === 'plan' && (
+        <div className="session-node__plan-badge">
+          <span className="session-node__plan-badge-icon">{'\uD83D\uDCDD'}</span>
+          <span className="session-node__plan-title">Plan</span>
+        </div>
+      )}
+
+      {nodeData.plans.length > 0 && (
+        <div className="session-node__plan-entries">
+          {nodeData.plans.map((plan, i) => (
+            <div key={i} className={`session-node__plan-entry session-node__plan-entry--${plan.status}`}>
+              <span className="session-node__plan-entry-icon">
+                {plan.status === 'active' ? '\u25C9' : '\u2713'}
+              </span>
+              <span className="session-node__plan-entry-title">{plan.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
     </div>
   );

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, SessionInfo, SessionStatus, SubagentInfo } from '../shared/ipc-channels';
+import { IPC, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
 
 const api = {
   createSession: (cwd?: string): Promise<SessionInfo> => {
@@ -24,6 +24,10 @@ const api = {
 
   listSessions: (): Promise<SessionInfo[]> => {
     return ipcRenderer.invoke(IPC.SESSION_LIST);
+  },
+
+  getSessionBuffer: (id: string): Promise<string> => {
+    return ipcRenderer.invoke(IPC.SESSION_GET_BUFFER, { id });
   },
 
   onSessionData: (callback: (data: { id: string; data: string }) => void): (() => void) => {
@@ -64,6 +68,46 @@ const api = {
     };
     ipcRenderer.on(IPC.SUBAGENT_COMPLETE, handler);
     return () => ipcRenderer.removeListener(IPC.SUBAGENT_COMPLETE, handler);
+  },
+
+  onPlanEnter: (callback: (data: PlanInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: PlanInfo) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.PLAN_ENTER, handler);
+    return () => ipcRenderer.removeListener(IPC.PLAN_ENTER, handler);
+  },
+
+  onPlanExit: (callback: (data: { sessionId: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { sessionId: string }) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.PLAN_EXIT, handler);
+    return () => ipcRenderer.removeListener(IPC.PLAN_EXIT, handler);
+  },
+
+  onTaskCreate: (callback: (data: TaskInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: TaskInfo) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.TASK_CREATE, handler);
+    return () => ipcRenderer.removeListener(IPC.TASK_CREATE, handler);
+  },
+
+  onTaskUpdate: (callback: (data: TaskUpdateInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: TaskUpdateInfo) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.TASK_UPDATE, handler);
+    return () => ipcRenderer.removeListener(IPC.TASK_UPDATE, handler);
+  },
+
+  onTaskList: (callback: (data: TaskListInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: TaskListInfo) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.TASK_LIST, handler);
+    return () => ipcRenderer.removeListener(IPC.TASK_LIST, handler);
   },
 };
 

@@ -1,4 +1,4 @@
-import { stripAnsi } from './ansi-strip';
+import { stripAnsi } from '../shared/ansi-strip';
 
 export interface SubagentEvent {
   type: 'spawn' | 'complete';
@@ -87,11 +87,31 @@ export class SubagentDetector {
     // Single agent spawn
     const singleMatch = line.match(SINGLE_SPAWN_RE);
     if (singleMatch) {
+      const rawDesc = singleMatch[1].replace(/[)"]+$/, '').trim() || 'Sub-agent';
+
+      // Lines like '● Agent "name" completed' or '● Agent A is done' are
+      // completion/status messages, not new spawns
+      if (/\bcompleted\b|\bis done\b/i.test(rawDesc)) {
+        if (this.stack.length > 0) {
+          const completed = this.stack.pop()!;
+          this.seenDescriptions.delete(completed.description);
+          this.callback({
+            type: 'complete',
+            subagentId: completed.id,
+            description: completed.description,
+          });
+        }
+        return;
+      }
+
+      // Deduplicate — terminal redraws repeat the same spawn line
+      if (this.seenDescriptions.has(rawDesc)) return;
+      this.seenDescriptions.add(rawDesc);
+
       idCounter++;
       const subagentId = `subagent-${idCounter}`;
-      const description = singleMatch[1].replace(/[)"]+$/, '').trim() || 'Sub-agent';
-      this.stack.push({ id: subagentId, description });
-      this.callback({ type: 'spawn', subagentId, description });
+      this.stack.push({ id: subagentId, description: rawDesc });
+      this.callback({ type: 'spawn', subagentId, description: rawDesc });
       return;
     }
 

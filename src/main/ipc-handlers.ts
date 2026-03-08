@@ -33,4 +33,8 @@ export function registerIpcHandlers() {
   ipcMain.handle(IPC.SESSION_LIST, () => {
     return sessionManager.list();
   });
+
+  ipcMain.handle(IPC.SESSION_GET_BUFFER, (_event, { id }: { id: string }) => {
+    return sessionManager.getBuffer(id);
+  });
 }

@@ -17,7 +17,8 @@
       "Bash(timeout 15 npm start:*)",
       "Bash(rm:*)",
       "Bash(npx tsc:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(xargs grep:*)"
     ]
   }
 }
