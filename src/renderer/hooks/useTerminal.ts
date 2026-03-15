@@ -4,6 +4,45 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { useAppStore } from '../store';
 
+function getCssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function buildTerminalTheme() {
+  const bg = getCssVar('--bg-primary') || '#262420';
+  const fg = getCssVar('--text-primary') || '#ece4d8';
+  const muted = getCssVar('--text-muted') || '#9a8a70';
+  const border = getCssVar('--border') || '#3e3830';
+  const accent = getCssVar('--accent') || '#d18a7a';
+  const accentHover = getCssVar('--accent-hover') || '#dfa898';
+  const success = getCssVar('--success') || '#a8c878';
+  const warning = getCssVar('--warning') || '#e8c070';
+  const error = getCssVar('--error') || '#e07070';
+
+  return {
+    background: bg,
+    foreground: fg,
+    cursor: fg,
+    selectionBackground: border,
+    black: getCssVar('--bg-inset') || '#1e1c18',
+    red: error,
+    green: success,
+    yellow: warning,
+    blue: accent,
+    magenta: accentHover,
+    cyan: accent,
+    white: muted,
+    brightBlack: getCssVar('--border-strong') || '#4e4638',
+    brightRed: error,
+    brightGreen: success,
+    brightYellow: warning,
+    brightBlue: accentHover,
+    brightMagenta: accentHover,
+    brightCyan: accent,
+    brightWhite: fg,
+  };
+}
+
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const termRef = useRef<Terminal | null>(null);
@@ -13,28 +52,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Create terminal
     const term = new Terminal({
-      theme: {
-        background: '#262624',
-        foreground: '#e6dace',
-        cursor: '#e6dace',
-        selectionBackground: '#3a3a38',
-        black: '#1e1e1c',
-        red: '#f7768e',
-        green: '#9ece6a',
-        yellow: '#e0af68',
-        blue: '#d18a7a',
-        magenta: '#be7868',
-        cyan: '#c9806e',
-        white: '#d0c4b4',
-        brightBlack: '#4e4e4a',
-        brightRed: '#f7768e',
-        brightGreen: '#9ece6a',
-        brightYellow: '#e0af68',
-        brightBlue: '#dba090',
-        brightMagenta: '#be7868',
-        brightCyan: '#c9806e',
-        brightWhite: '#e6dace',
-      },
+      theme: buildTerminalTheme(),
       fontSize: 14,
       fontFamily: 'Cascadia Code, Consolas, monospace',
       cursorBlink: true,
@@ -62,6 +80,17 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
 
     termRef.current = term;
+
+    // Update terminal theme when data-theme attribute changes
+    const observer = new MutationObserver(() => {
+      if (termRef.current) {
+        termRef.current.options.theme = buildTerminalTheme();
+      }
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
 
     // Write buffered output
     const buffer = useAppStore.getState().sessionBuffers[selectedSessionId];
@@ -94,6 +123,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      observer.disconnect();
       resizeObserver.disconnect();
       cleanup();
       term.dispose();

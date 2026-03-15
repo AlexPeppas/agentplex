@@ -10,6 +10,10 @@ import {
 import { SessionStatus, type SessionInfo } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 
+function getAccentColor(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#d18a7a';
+}
+
 // Grid layout constants
 const GRID_COLS = 3;
 const GRID_SPACING_X = 280;
@@ -272,7 +276,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       target: subagentId,
       type: 'smoothstep',
       animated: true,
-      style: { stroke: '#d18a7a', strokeWidth: 2 },
+      style: { stroke: getAccentColor(), strokeWidth: 2 },
     };
 
     set({

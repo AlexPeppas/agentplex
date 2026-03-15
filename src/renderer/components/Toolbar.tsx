@@ -2,10 +2,27 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
 import { CLI_TOOLS, RESUME_TOOL, type CliTool } from '../../shared/ipc-channels';
 
+function getInitialTheme(): 'dark' | 'light' {
+  const saved = localStorage.getItem('agentplex-theme');
+  if (saved === 'dark' || saved === 'light') return saved;
+  return 'dark';
+}
+
 export function Toolbar() {
   const addSession = useAppStore((s) => s.addSession);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Apply theme to document
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('agentplex-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   const handlePick = useCallback(async (cli: CliTool) => {
     setMenuOpen(false);
@@ -49,6 +66,13 @@ export function Toolbar() {
     <div className="toolbar">
       <img className="toolbar__logo" src="/assets/logo.svg" alt="AgentPlex" />
       <span className="toolbar__title">AgentPlex</span>
+      <button
+        className="toolbar__theme-toggle"
+        onClick={toggleTheme}
+        title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+      >
+        {theme === 'dark' ? '\u2600' : '\u263E'}
+      </button>
       <div className="toolbar__new-wrapper" ref={menuRef}>
         <button
           className="toolbar__button"

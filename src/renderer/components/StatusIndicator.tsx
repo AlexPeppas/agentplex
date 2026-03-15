@@ -1,10 +1,10 @@
 import { SessionStatus } from '../../shared/ipc-channels';
 
-const STATUS_COLORS: Record<SessionStatus, string> = {
-  [SessionStatus.Running]: '#50fa7b',
-  [SessionStatus.Idle]: '#8a7a60',
-  [SessionStatus.WaitingForInput]: '#f0c674',
-  [SessionStatus.Killed]: '#ff5555',
+const STATUS_VAR: Record<SessionStatus, string> = {
+  [SessionStatus.Running]: 'var(--success)',
+  [SessionStatus.Idle]: 'var(--text-muted)',
+  [SessionStatus.WaitingForInput]: 'var(--warning)',
+  [SessionStatus.Killed]: 'var(--error)',
 };
 
 interface StatusIndicatorProps {
@@ -12,7 +12,7 @@ interface StatusIndicatorProps {
 }
 
 export function StatusIndicator({ status }: StatusIndicatorProps) {
-  const color = STATUS_COLORS[status];
+  const color = STATUS_VAR[status];
   const shouldPulse = status === SessionStatus.Running || status === SessionStatus.WaitingForInput;
 
   return (
