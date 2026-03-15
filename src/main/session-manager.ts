@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
-import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, type CliTool } from '../shared/ipc-channels';
+import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { PlanTaskDetector } from './plan-task-detector';
@@ -11,7 +11,7 @@ import { PlanTaskDetector } from './plan-task-detector';
 const PROMPT_PATTERNS = [
   /\[Y\/n\]/i,                                   // [Y/n], [y/N] variants
   /\(y\/n\)/i,                                   // (y/N), (Y/n) variants
-  /\b(?:do you want|proceed|confirm|approve)\b/i, // common prompt phrases
+  /\b(?:do you want|proceed|confirm|approve|allow)\b/i, // common prompt phrases
   /Yes\s*\/\s*No/,                                // Yes / No (Claude CLI)
   /Allow\s*\/\s*Deny/,                            // Allow / Deny (Claude CLI)
   /Enter to select/,                              // Claude CLI multi-choice selection
@@ -28,6 +28,10 @@ interface Session {
   status: SessionStatus;
   lastOutput: number;
   lastVisibleOutput: number;
+  /** Timestamp when WaitingForInput was first detected (0 = not waiting) */
+  waitingSince: number;
+  /** Buffer length at the time HITL was detected — used to tell real output from redraws */
+  waitingBufferLen: number;
   buffer: string;
   jsonlWatcher: JsonlSessionWatcher | null;
   planTaskDetector: PlanTaskDetector;
@@ -69,7 +73,8 @@ export class SessionManager {
     const id = `session-${sessionCounter}`;
     const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
-    const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
+    const allTools = [...CLI_TOOLS, RESUME_TOOL];
+    const toolDef = allTools.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
     const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
@@ -81,34 +86,22 @@ export class SessionManager {
       env: process.env as Record<string, string>,
     });
 
-    // Generate session UUID and set up JSONL watcher for Claude CLI only
+    // Set up JSONL watcher for Claude CLI sessions
     let jsonlWatcher: JsonlSessionWatcher | null = null;
     let sessionUuid: string | null = null;
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const encodedPath = encodeProjectPath(workDir);
 
     if (cli === 'claude') {
+      // New session: generate UUID upfront so we know the JSONL path immediately
       sessionUuid = crypto.randomUUID();
-      const home = process.env.HOME || process.env.USERPROFILE || '';
-      const encodedPath = encodeProjectPath(workDir);
       const jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${sessionUuid}.jsonl`);
-
-      jsonlWatcher = new JsonlSessionWatcher(jsonlPath);
-
-      jsonlWatcher.on('agent-spawn', (event: { toolUseId: string; description: string; subagentType: string }) => {
-        this.send(IPC.SUBAGENT_SPAWN, {
-          sessionId: id,
-          subagentId: event.toolUseId,
-          description: event.description,
-        });
-      });
-
-      jsonlWatcher.on('agent-complete', (event: { toolUseId: string }) => {
-        this.send(IPC.SUBAGENT_COMPLETE, {
-          sessionId: id,
-          subagentId: event.toolUseId,
-        });
-      });
-
+      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id);
       jsonlWatcher.start();
+    } else if (cli === 'claude-resume') {
+      // Resume: the user picks the session interactively, so we discover the
+      // session ID by polling ~/.claude/sessions/<pid>.json after the CLI starts.
+      this.discoverResumedSession(term.pid, home, encodedPath, id);
     }
 
     const planDetector = new PlanTaskDetector((event) => {
@@ -157,6 +150,8 @@ export class SessionManager {
       status: SessionStatus.Running,
       lastOutput: Date.now(),
       lastVisibleOutput: Date.now(),
+      waitingSince: 0,
+      waitingBufferLen: 0,
       buffer: '',
       jsonlWatcher,
       planTaskDetector: planDetector,
@@ -185,6 +180,7 @@ export class SessionManager {
     this.sessions.set(id, session);
 
     // Auto-start the selected CLI tool after a short delay for shell to initialize
+    // Only pass --session-id for new claude sessions, not resume (user picks session interactively)
     const command = sessionUuid
       ? `${toolDef.command} --session-id ${sessionUuid}`
       : toolDef.command;
@@ -249,25 +245,135 @@ export class SessionManager {
     }));
   }
 
+  private createJsonlWatcher(jsonlPath: string, sessionId: string): JsonlSessionWatcher {
+    const watcher = new JsonlSessionWatcher(jsonlPath);
+
+    watcher.on('agent-spawn', (event: { toolUseId: string; description: string; subagentType: string }) => {
+      this.send(IPC.SUBAGENT_SPAWN, {
+        sessionId,
+        subagentId: event.toolUseId,
+        description: event.description,
+      });
+    });
+
+    watcher.on('agent-complete', (event: { toolUseId: string }) => {
+      this.send(IPC.SUBAGENT_COMPLETE, {
+        sessionId,
+        subagentId: event.toolUseId,
+      });
+    });
+
+    return watcher;
+  }
+
+  /**
+   * For `claude --resume`: we don't know the session ID upfront because the
+   * user picks it interactively. Watch the projects JSONL directory for
+   * whichever .jsonl file starts receiving new writes after launch.
+   */
+  private discoverResumedSession(
+    _ptyPid: number,
+    home: string,
+    encodedPath: string,
+    sessionId: string,
+  ): void {
+    const projectDir = path.join(home, '.claude', 'projects', encodedPath);
+    const launchTime = Date.now();
+    let attempts = 0;
+    const maxAttempts = 120; // 60 seconds at 500ms intervals
+
+    // Snapshot existing file mtimes so we can detect which one changes
+    const baselineMtimes = new Map<string, number>();
+    try {
+      for (const file of fs.readdirSync(projectDir)) {
+        if (!file.endsWith('.jsonl')) continue;
+        try {
+          const stat = fs.statSync(path.join(projectDir, file));
+          baselineMtimes.set(file, stat.mtimeMs);
+        } catch { /* skip */ }
+      }
+    } catch { /* dir may not exist yet */ }
+
+    const poll = setInterval(() => {
+      attempts++;
+      const session = this.sessions.get(sessionId);
+      if (!session || session.status === SessionStatus.Killed || attempts > maxAttempts) {
+        clearInterval(poll);
+        return;
+      }
+
+      try {
+        const files = fs.readdirSync(projectDir);
+        for (const file of files) {
+          if (!file.endsWith('.jsonl')) continue;
+          try {
+            const stat = fs.statSync(path.join(projectDir, file));
+            const baseline = baselineMtimes.get(file) ?? 0;
+            // File was modified after we launched — this is the resumed session
+            if (stat.mtimeMs > launchTime && stat.mtimeMs > baseline) {
+              const jsonlPath = path.join(projectDir, file);
+              const watcher = this.createJsonlWatcher(jsonlPath, sessionId);
+              session.jsonlWatcher = watcher;
+              watcher.start();
+              clearInterval(poll);
+              return;
+            }
+          } catch { /* skip */ }
+        }
+      } catch { /* dir doesn't exist yet */ }
+    }, 500);
+  }
+
   private checkStatuses() {
     const now = Date.now();
+    // Minimum new visible bytes before we consider the session "responded" after HITL
+    const HITL_RESPONSE_THRESHOLD = 80;
+
     for (const session of this.sessions.values()) {
       if (session.status === SessionStatus.Killed) continue;
 
+      const tail = stripAnsi(session.buffer.slice(-500));
+      const trimmedTail = tail.trimEnd();
+
+      // Check if the CLI is at a prompt — this takes priority over recency.
+      // Claude CLI shows "> " when waiting for user input.
+      const atPrompt = /^>\s*$/m.test(trimmedTail.split('\n').pop() || '');
+
+      // Check for interactive prompts (Y/n, Allow/Deny, etc.)
+      const matchesFull = PROMPT_PATTERNS.some((re) => re.test(tail));
+      const matchesLine = !matchesFull && tail.split('\n').filter((l) => l.trim()).slice(-5)
+        .some((line) => PROMPT_PATTERNS.some((re) => re.test(line.trim())));
+
+      const promptDetected = atPrompt || matchesFull || matchesLine;
+
       let newStatus: SessionStatus;
-      if (now - session.lastVisibleOutput < 2000) {
+      if (promptDetected) {
+        newStatus = SessionStatus.WaitingForInput;
+        // Mark the moment and buffer length when HITL was first detected
+        if (session.waitingSince === 0) {
+          session.waitingSince = now;
+          session.waitingBufferLen = session.buffer.length;
+        }
+      } else if (session.waitingSince > 0) {
+        // HITL was previously detected — only transition away if we see
+        // substantial new output (meaning the user actually responded and
+        // the CLI is producing real content, not just terminal redraws).
+        const newBytes = session.buffer.length - session.waitingBufferLen;
+        if (newBytes > HITL_RESPONSE_THRESHOLD) {
+          // Real response detected — clear the sticky lock
+          session.waitingSince = 0;
+          session.waitingBufferLen = 0;
+          newStatus = now - session.lastVisibleOutput < 2000
+            ? SessionStatus.Running
+            : SessionStatus.Idle;
+        } else {
+          // Not enough new output — keep WaitingForInput sticky
+          newStatus = SessionStatus.WaitingForInput;
+        }
+      } else if (now - session.lastVisibleOutput < 2000) {
         newStatus = SessionStatus.Running;
       } else {
-        // Idle — check if the session is waiting for user input.
-        // Claude CLI draws interactive prompts with cursor-based TUI rendering,
-        // so the stripped buffer may not have clean newlines. Check both:
-        //  1) the full stripped tail as a single string (handles incremental TUI draws)
-        //  2) individual lines (handles well-formed output)
-        const tail = stripAnsi(session.buffer.slice(-500));
-        const matchesFull = PROMPT_PATTERNS.some((re) => re.test(tail));
-        const matchesLine = !matchesFull && tail.split('\n').filter((l) => l.trim()).slice(-5)
-          .some((line) => PROMPT_PATTERNS.some((re) => re.test(line.trim())));
-        newStatus = (matchesFull || matchesLine) ? SessionStatus.WaitingForInput : SessionStatus.Idle;
+        newStatus = SessionStatus.Idle;
       }
 
       if (newStatus !== session.status) {

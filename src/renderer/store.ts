@@ -306,7 +306,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     });
 
-    // Fade after 10 seconds
+    // Begin progressive fade — CSS handles the 3s opacity transition
     setTimeout(() => {
       const current = get();
       if (!current.subagents[subagentId]) return;
@@ -319,7 +319,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
         edges: current.edges.map((e) =>
           e.target === subagentId
-            ? { ...e, style: { stroke: '#8a7a60', strokeWidth: 1 } }
+            ? { ...e, style: { stroke: '#d18a7a', strokeWidth: 2 } }
             : e
         ),
         subagents: {
@@ -328,7 +328,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       });
 
-      // Remove faded node entirely after another 10 seconds (20s total)
+      // Remove after the 3s CSS fade completes
       setTimeout(() => {
         const later = get();
         if (!later.subagents[subagentId]) return;
@@ -338,7 +338,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           edges: later.edges.filter((e) => e.target !== subagentId),
           subagents: restSubagents,
         });
-      }, 10_000);
+      }, 3_000);
     }, 10_000);
   },
 

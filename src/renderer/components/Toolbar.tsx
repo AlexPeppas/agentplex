@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
-import { CLI_TOOLS, type CliTool } from '../../shared/ipc-channels';
+import { CLI_TOOLS, RESUME_TOOL, type CliTool } from '../../shared/ipc-channels';
 
 export function Toolbar() {
   const addSession = useAppStore((s) => s.addSession);
@@ -12,6 +12,14 @@ export function Toolbar() {
     const cwd = await window.agentPlex.pickDirectory();
     if (!cwd) return;
     const info = await window.agentPlex.createSession(cwd, cli);
+    addSession(info);
+  }, [addSession]);
+
+  const handleResume = useCallback(async () => {
+    setMenuOpen(false);
+    const cwd = await window.agentPlex.pickDirectory();
+    if (!cwd) return;
+    const info = await window.agentPlex.createSession(cwd, RESUME_TOOL.id);
     addSession(info);
   }, [addSession]);
 
@@ -59,6 +67,13 @@ export function Toolbar() {
                 {tool.label}
               </button>
             ))}
+            <div className="toolbar__menu-divider" />
+            <button
+              className="toolbar__menu-item"
+              onClick={handleResume}
+            >
+              {RESUME_TOOL.label}
+            </button>
           </div>
         )}
       </div>

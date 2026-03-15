@@ -1,10 +1,14 @@
-export type CliTool = 'claude' | 'codex' | 'copilot';
+export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume';
 
 export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'claude', label: 'Claude', command: 'claude' },
   { id: 'codex', label: 'Codex', command: 'codex' },
   { id: 'copilot', label: 'GitHub Copilot', command: 'gh copilot' },
 ];
+
+export const RESUME_TOOL: { id: CliTool; label: string; command: string } = {
+  id: 'claude-resume', label: 'Claude Resume', command: 'claude --resume',
+};
 
 export enum SessionStatus {
   Running = 'running',
