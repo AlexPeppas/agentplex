@@ -19,6 +19,7 @@ function extractContext(buffer: string): string {
 export function SendDialog() {
   const sourceId = useAppStore((s) => s.sendDialogSourceId);
   const closeSendDialog = useAppStore((s) => s.closeSendDialog);
+  const flashMessageEdge = useAppStore((s) => s.flashMessageEdge);
   const sessions = useAppStore((s) => s.sessions);
   const sessionBuffers = useAppStore((s) => s.sessionBuffers);
   const displayNames = useAppStore((s) => s.displayNames);
@@ -80,9 +81,10 @@ export function SendDialog() {
       setTimeout(() => window.agentPlex.writeSession(tid, '\n'), 100);
     }, 500);
 
+    if (sourceId) flashMessageEdge(sourceId, tid);
     setInstruction('');
     closeSendDialog();
-  }, [targetId, instruction, sourceLabel, contextPreview, sessions, closeSendDialog]);
+  }, [targetId, instruction, sourceId, sourceLabel, contextPreview, sessions, closeSendDialog, flashMessageEdge]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

@@ -99,6 +99,9 @@ export interface AppState {
   removeFromGroup: (nodeId: string) => void;
   renameGroup: (groupId: string, name: string) => void;
   renameSession: (sessionId: string, name: string) => void;
+
+  // Message flash
+  flashMessageEdge: (sourceId: string, targetId: string) => void;
 }
 
 let groupCounter = 0;
@@ -537,5 +540,39 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
       displayNames: { ...state.displayNames, [sessionId]: name },
     }));
+  },
+
+  flashMessageEdge: (sourceId: string, targetId: string) => {
+    const edgeId = `msg-${sourceId}-${targetId}-${Date.now()}`;
+    const { edges } = get();
+
+    const newEdge: Edge = {
+      id: edgeId,
+      source: sourceId,
+      target: targetId,
+      type: 'smoothstep',
+      animated: true,
+      className: 'edge-message',
+      markerEnd: { type: 'arrowclosed' as any, color: getAccentColor(), width: 16, height: 16 },
+      style: { stroke: getAccentColor(), strokeWidth: 2 },
+    };
+
+    set({ edges: [...edges, newEdge] });
+
+    // Fade out then remove
+    setTimeout(() => {
+      const current = get();
+      set({
+        edges: current.edges.map((e) =>
+          e.id === edgeId ? { ...e, className: 'edge-message edge-message--fading' } : e
+        ),
+      });
+
+      // Remove after CSS transition completes
+      setTimeout(() => {
+        const later = get();
+        set({ edges: later.edges.filter((e) => e.id !== edgeId) });
+      }, 1000);
+    }, 1000);
   },
 }));

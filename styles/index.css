@@ -681,6 +681,24 @@ html, body, #root {
   transition: opacity 3s ease-out;
 }
 
+/* Cross-session message arrow */
+.react-flow__edge.edge-message path {
+  stroke-dasharray: 8 4;
+  animation: message-dash 0.4s linear infinite;
+}
+
+.react-flow__edge.edge-message--fading path,
+.react-flow__edge.edge-message--fading marker path {
+  opacity: 0;
+  transition: opacity 1s ease-out;
+}
+
+@keyframes message-dash {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════
    Send button
    ═══════════════════════════════════════════════════════════ */
