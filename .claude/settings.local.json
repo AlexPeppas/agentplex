@@ -18,7 +18,12 @@
       "Bash(rm:*)",
       "Bash(npx tsc:*)",
       "Bash(node:*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(grep:*)",
+      "Bash(claude mcp:*)",
+      "Bash(echo:*)",
+      "Bash(claude agents:*)",
+      "Bash(tail:*)"
     ]
   }
 }

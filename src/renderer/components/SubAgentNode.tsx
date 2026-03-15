@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { useAppStore } from '../store';
 
 export type SubAgentNodeData = {
   label: string;
@@ -8,7 +9,9 @@ export type SubAgentNodeData = {
 
 type SubAgentNodeType = Node<SubAgentNodeData, 'subagentNode'>;
 
-export function SubAgentNode({ data }: NodeProps<SubAgentNodeType>) {
+export function SubAgentNode({ id, data }: NodeProps<SubAgentNodeType>) {
+  const dismissSubagent = useAppStore((s) => s.dismissSubagent);
+
   const statusClass =
     data.status === 'active'
       ? 'subagent-node--active'
@@ -19,7 +22,18 @@ export function SubAgentNode({ data }: NodeProps<SubAgentNodeType>) {
   return (
     <div className={`subagent-node ${statusClass}`}>
       <Handle type="target" position={Position.Top} />
-      <div className="subagent-node__label">{data.label}</div>
+      <div className="subagent-node__header">
+        <div className="subagent-node__label">{data.label}</div>
+        <button
+          className="subagent-node__dismiss"
+          onClick={(e) => {
+            e.stopPropagation();
+            dismissSubagent(id);
+          }}
+        >
+          ×
+        </button>
+      </div>
     </div>
   );
 }

@@ -71,7 +71,7 @@ export interface AppState {
   // Sub-agent actions
   spawnSubagent: (sessionId: string, subagentId: string, description: string) => void;
   completeSubagent: (sessionId: string, subagentId: string) => void;
-  cleanupStaleSubagents: () => void;
+  dismissSubagent: (subagentId: string) => void;
 
   // Plan & task actions
   enterPlan: (sessionId: string, planTitle: string) => void;
@@ -272,7 +272,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       target: subagentId,
       type: 'smoothstep',
       animated: true,
-      style: { stroke: '#7dcfff', strokeWidth: 2 },
+      style: { stroke: '#d18a7a', strokeWidth: 2 },
     };
 
     set({
@@ -319,7 +319,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
         edges: current.edges.map((e) =>
           e.target === subagentId
-            ? { ...e, style: { stroke: '#565f89', strokeWidth: 1 } }
+            ? { ...e, style: { stroke: '#8a7a60', strokeWidth: 1 } }
             : e
         ),
         subagents: {
@@ -342,16 +342,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     }, 10_000);
   },
 
-  cleanupStaleSubagents: () => {
-    const STALE_MS = 3 * 60 * 1000; // 3 minutes
-    const now = Date.now();
-    const { subagents } = get();
-    for (const entry of Object.values(subagents)) {
-      if (entry.status === 'active' && now - entry.spawnedAt > STALE_MS) {
-        // Trigger the normal complete → fade → remove chain
-        get().completeSubagent(entry.sessionId, entry.subagentId);
-      }
-    }
+  dismissSubagent: (subagentId: string) => {
+    const { nodes, edges, subagents } = get();
+    if (!subagents[subagentId]) return;
+    const { [subagentId]: _removed, ...restSubagents } = subagents;
+    set({
+      nodes: nodes.filter((n) => n.id !== subagentId),
+      edges: edges.filter((e) => e.target !== subagentId),
+      subagents: restSubagents,
+    });
   },
 
   enterPlan: (sessionId: string, planTitle: string) => {
