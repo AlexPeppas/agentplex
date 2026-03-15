@@ -14,10 +14,11 @@ export function Toolbar() {
   const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Apply theme to document
+  // Apply theme to document and notify main process for titlebar
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('agentplex-theme', theme);
+    window.agentPlex.setTheme(theme);
   }, [theme]);
 
   const toggleTheme = useCallback(() => {

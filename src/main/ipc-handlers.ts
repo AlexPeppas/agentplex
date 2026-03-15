@@ -37,4 +37,20 @@ export function registerIpcHandlers() {
   ipcMain.handle(IPC.SESSION_GET_BUFFER, (_event, { id }: { id: string }) => {
     return sessionManager.getBuffer(id);
   });
+
+  const THEME_COLORS = {
+    dark: { titleBar: '#1e1c18', symbol: '#ece4d8', bg: '#262420' },
+    light: { titleBar: '#ebe5da', symbol: '#3a3428', bg: '#f5f0e8' },
+  };
+
+  ipcMain.on(IPC.THEME_CHANGE, (_event, { theme }: { theme: 'dark' | 'light' }) => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (!win) return;
+    const colors = THEME_COLORS[theme];
+    win.setTitleBarOverlay({
+      color: colors.titleBar,
+      symbolColor: colors.symbol,
+    });
+    win.setBackgroundColor(colors.bg);
+  });
 }

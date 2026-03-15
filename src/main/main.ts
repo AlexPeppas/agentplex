@@ -34,11 +34,11 @@ function createWindow() {
     icon: getAppIcon(),
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: '#1e1e1c',
-      symbolColor: '#e6dace',
+      color: '#1e1c18',
+      symbolColor: '#ece4d8',
       height: 40,
     },
-    backgroundColor: '#262624',
+    backgroundColor: '#262420',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,

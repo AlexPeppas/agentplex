@@ -18,6 +18,7 @@ export interface AgentPlexAPI {
   onTaskCreate: (callback: (data: TaskInfo) => void) => () => void;
   onTaskUpdate: (callback: (data: TaskUpdateInfo) => void) => () => void;
   onTaskList: (callback: (data: TaskListInfo) => void) => () => void;
+  setTheme: (theme: 'dark' | 'light') => void;
 }
 
 declare global {

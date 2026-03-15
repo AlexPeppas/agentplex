@@ -70,4 +70,5 @@ export const IPC = {
   TASK_CREATE: 'task:create',
   TASK_UPDATE: 'task:update',
   TASK_LIST: 'task:list',
+  THEME_CHANGE: 'theme:change',
 } as const;

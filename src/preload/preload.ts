@@ -109,6 +109,10 @@ const api = {
     ipcRenderer.on(IPC.TASK_LIST, handler);
     return () => ipcRenderer.removeListener(IPC.TASK_LIST, handler);
   },
+
+  setTheme: (theme: 'dark' | 'light'): void => {
+    ipcRenderer.send(IPC.THEME_CHANGE, { theme });
+  },
 };
 
 contextBridge.exposeInMainWorld('agentPlex', api);
