@@ -58,7 +58,25 @@ export function Toolbar() {
         </button>
         {menuOpen && (
           <div className="toolbar__menu">
-            {CLI_TOOLS.map((tool) => (
+            <div className="toolbar__menu-section">
+              <span className="toolbar__menu-label">Claude</span>
+              <div className="toolbar__menu-row">
+                <button
+                  className="toolbar__menu-pill"
+                  onClick={() => handlePick('claude')}
+                >
+                  New
+                </button>
+                <button
+                  className="toolbar__menu-pill"
+                  onClick={handleResume}
+                >
+                  Resume
+                </button>
+              </div>
+            </div>
+            <div className="toolbar__menu-divider" />
+            {CLI_TOOLS.filter((t) => t.id !== 'claude').map((tool) => (
               <button
                 key={tool.id}
                 className="toolbar__menu-item"
@@ -67,13 +85,6 @@ export function Toolbar() {
                 {tool.label}
               </button>
             ))}
-            <div className="toolbar__menu-divider" />
-            <button
-              className="toolbar__menu-item"
-              onClick={handleResume}
-            >
-              {RESUME_TOOL.label}
-            </button>
           </div>
         )}
       </div>
