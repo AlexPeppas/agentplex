@@ -289,57 +289,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { nodes, edges, subagents } = get();
     if (!subagents[subagentId]) return;
 
+    // Skip green — go straight to faded. CSS handles 3s opacity transition.
     set({
       nodes: nodes.map((n) =>
         n.id === subagentId
-          ? { ...n, data: { ...n.data, status: 'completed' } }
+          ? { ...n, data: { ...n.data, status: 'faded' } }
           : n
       ),
       edges: edges.map((e) =>
         e.target === subagentId
-          ? { ...e, animated: false, style: { stroke: '#9ece6a', strokeWidth: 2 } }
+          ? { ...e, animated: false, className: 'edge-fading' }
           : e
       ),
       subagents: {
         ...subagents,
-        [subagentId]: { ...subagents[subagentId], status: 'completed' },
+        [subagentId]: { ...subagents[subagentId], status: 'faded' },
       },
     });
 
-    // Begin progressive fade — CSS handles the 3s opacity transition
+    // Remove after the 3s CSS fade completes
     setTimeout(() => {
       const current = get();
       if (!current.subagents[subagentId]) return;
-
+      const { [subagentId]: _removed, ...restSubagents } = current.subagents;
       set({
-        nodes: current.nodes.map((n) =>
-          n.id === subagentId
-            ? { ...n, data: { ...n.data, status: 'faded' } }
-            : n
-        ),
-        edges: current.edges.map((e) =>
-          e.target === subagentId
-            ? { ...e, style: { stroke: '#d18a7a', strokeWidth: 2 } }
-            : e
-        ),
-        subagents: {
-          ...current.subagents,
-          [subagentId]: { ...current.subagents[subagentId], status: 'faded' },
-        },
+        nodes: current.nodes.filter((n) => n.id !== subagentId),
+        edges: current.edges.filter((e) => e.target !== subagentId),
+        subagents: restSubagents,
       });
-
-      // Remove after the 3s CSS fade completes
-      setTimeout(() => {
-        const later = get();
-        if (!later.subagents[subagentId]) return;
-        const { [subagentId]: _removed, ...restSubagents } = later.subagents;
-        set({
-          nodes: later.nodes.filter((n) => n.id !== subagentId),
-          edges: later.edges.filter((e) => e.target !== subagentId),
-          subagents: restSubagents,
-        });
-      }, 3_000);
-    }, 10_000);
+    }, 3_000);
   },
 
   dismissSubagent: (subagentId: string) => {

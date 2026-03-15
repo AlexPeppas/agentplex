@@ -532,12 +532,19 @@ html, body, #root {
 }
 
 .subagent-node--completed {
-  border-left-color: #9ece6a;
+  border-left-color: #c9806e;
   box-shadow: none;
 }
 
 .subagent-node--faded {
   border-left-color: #c9806e;
+  opacity: 0;
+  transition: opacity 3s ease-out;
+}
+
+/* Edge fading — applied via className on the React Flow edge wrapper */
+.react-flow__edge.edge-fading path {
+  stroke: #d18a7a !important;
   opacity: 0;
   transition: opacity 3s ease-out;
 }
