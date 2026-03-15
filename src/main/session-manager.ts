@@ -1,10 +1,11 @@
 import * as pty from 'node-pty';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, type CliTool } from '../shared/ipc-channels';
 import { stripAnsi } from '../shared/ansi-strip';
-import { SubagentDetector } from './subagent-detector';
+import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { PlanTaskDetector } from './plan-task-detector';
 
 const PROMPT_PATTERNS = [
@@ -28,7 +29,7 @@ interface Session {
   lastOutput: number;
   lastVisibleOutput: number;
   buffer: string;
-  subagentDetector: SubagentDetector;
+  jsonlWatcher: JsonlSessionWatcher | null;
   planTaskDetector: PlanTaskDetector;
 }
 
@@ -53,6 +54,7 @@ export class SessionManager {
       this.statusInterval = null;
     }
     for (const session of this.sessions.values()) {
+      if (session.jsonlWatcher) session.jsonlWatcher.stop();
       try {
         session.pty.kill();
       } catch {
@@ -79,21 +81,35 @@ export class SessionManager {
       env: process.env as Record<string, string>,
     });
 
-    const detector = new SubagentDetector((event) => {
-      if (event.type === 'spawn') {
+    // Generate session UUID and set up JSONL watcher for Claude CLI only
+    let jsonlWatcher: JsonlSessionWatcher | null = null;
+    let sessionUuid: string | null = null;
+
+    if (cli === 'claude') {
+      sessionUuid = crypto.randomUUID();
+      const home = process.env.HOME || process.env.USERPROFILE || '';
+      const encodedPath = encodeProjectPath(workDir);
+      const jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${sessionUuid}.jsonl`);
+
+      jsonlWatcher = new JsonlSessionWatcher(jsonlPath);
+
+      jsonlWatcher.on('agent-spawn', (event: { toolUseId: string; description: string; subagentType: string }) => {
         this.send(IPC.SUBAGENT_SPAWN, {
           sessionId: id,
-          subagentId: event.subagentId,
+          subagentId: event.toolUseId,
           description: event.description,
         });
-      } else {
+      });
+
+      jsonlWatcher.on('agent-complete', (event: { toolUseId: string }) => {
         this.send(IPC.SUBAGENT_COMPLETE, {
           sessionId: id,
-          subagentId: event.subagentId,
-          description: event.description,
+          subagentId: event.toolUseId,
         });
-      }
-    });
+      });
+
+      jsonlWatcher.start();
+    }
 
     const planDetector = new PlanTaskDetector((event) => {
       switch (event.type) {
@@ -142,7 +158,7 @@ export class SessionManager {
       lastOutput: Date.now(),
       lastVisibleOutput: Date.now(),
       buffer: '',
-      subagentDetector: detector,
+      jsonlWatcher,
       planTaskDetector: planDetector,
     };
 
@@ -155,13 +171,13 @@ export class SessionManager {
       if (session.buffer.length > BUFFER_CAP) {
         session.buffer = session.buffer.slice(-BUFFER_CAP);
       }
-      detector.feed(data);
       planDetector.feed(data);
       this.send(IPC.SESSION_DATA, { id, data });
     });
 
     term.onExit(({ exitCode }: { exitCode: number }) => {
       session.status = SessionStatus.Killed;
+      if (session.jsonlWatcher) session.jsonlWatcher.stop();
       this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
       this.send(IPC.SESSION_EXIT, { id, exitCode });
     });
@@ -169,9 +185,13 @@ export class SessionManager {
     this.sessions.set(id, session);
 
     // Auto-start the selected CLI tool after a short delay for shell to initialize
+    const command = sessionUuid
+      ? `${toolDef.command} --session-id ${sessionUuid}`
+      : toolDef.command;
+
     setTimeout(() => {
       try {
-        term.write(toolDef.command + '\r');
+        term.write(command + '\r');
       } catch {
         // session may have been killed
       }
@@ -205,6 +225,7 @@ export class SessionManager {
   kill(id: string) {
     const session = this.sessions.get(id);
     if (session) {
+      if (session.jsonlWatcher) session.jsonlWatcher.stop();
       try {
         session.pty.kill();
       } catch {

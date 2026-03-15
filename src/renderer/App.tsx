@@ -30,7 +30,6 @@ export function App() {
   const updateStatus = useAppStore((s) => s.updateStatus);
   const spawnSubagent = useAppStore((s) => s.spawnSubagent);
   const completeSubagent = useAppStore((s) => s.completeSubagent);
-  const cleanupStaleSubagents = useAppStore((s) => s.cleanupStaleSubagents);
   const enterPlan = useAppStore((s) => s.enterPlan);
   const exitPlan = useAppStore((s) => s.exitPlan);
   const createTask = useAppStore((s) => s.createTask);
@@ -60,12 +59,6 @@ export function App() {
     };
     reconnect();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Periodically clean up sub-agents stuck in "active" state (missed completion events)
-  useEffect(() => {
-    const timer = setInterval(cleanupStaleSubagents, 30_000);
-    return () => clearInterval(timer);
-  }, [cleanupStaleSubagents]);
 
   // Subscribe to IPC events
   useEffect(() => {
