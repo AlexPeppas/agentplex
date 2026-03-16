@@ -113,8 +113,8 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
-  padding: 0 16px;
+  height: 48px;
+  padding: 0 18px;
   padding-right: 140px;
   background: var(--bg-inset);
   border-bottom: 1px solid var(--border);
@@ -122,8 +122,8 @@ html, body, #root {
 }
 
 .toolbar__logo {
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
 }
 

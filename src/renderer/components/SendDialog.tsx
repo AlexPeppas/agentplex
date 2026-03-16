@@ -71,15 +71,19 @@ export function SendDialog() {
     ].join('\n');
 
     // Use bracketed paste so Claude CLI treats multi-line input as a single paste,
-    // then send Enter after a delay so the TUI fully processes the paste first.
+    // then send Enter after a generous delay so the TUI fully processes the paste.
+    // Retry Enter a few times — the TUI can sometimes swallow the first one.
     const bracketedPaste = `\x1b[200~${message}\x1b[201~`;
     const tid = targetId;
     window.agentPlex.writeSession(tid, bracketedPaste);
-    setTimeout(() => {
-      window.agentPlex.writeSession(tid, '\r');
-      // Fallback: some TUI frameworks on Windows need \n instead of \r
-      setTimeout(() => window.agentPlex.writeSession(tid, '\n'), 100);
-    }, 500);
+    const sendEnter = (delay: number) => {
+      setTimeout(() => {
+        window.agentPlex.writeSession(tid, '\r');
+      }, delay);
+    };
+    sendEnter(800);
+    sendEnter(1500);
+    sendEnter(2200);
 
     if (sourceId) flashMessageEdge(sourceId, tid);
     setInstruction('');

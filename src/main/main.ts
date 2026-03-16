@@ -36,7 +36,7 @@ function createWindow() {
     titleBarOverlay: {
       color: '#1e1c18',
       symbolColor: '#ece4d8',
-      height: 40,
+      height: 48,
     },
     backgroundColor: '#262420',
     webPreferences: {
