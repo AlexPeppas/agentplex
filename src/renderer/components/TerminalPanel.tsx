@@ -6,7 +6,9 @@ export function TerminalPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const sessionTitle = useAppStore(
-    (s) => (selectedSessionId ? s.sessions[selectedSessionId]?.title : null)
+    (s) => selectedSessionId
+      ? s.displayNames[selectedSessionId] || s.sessions[selectedSessionId]?.title
+      : null
   );
   const selectSession = useAppStore((s) => s.selectSession);
   useTerminal(containerRef);

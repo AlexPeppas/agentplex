@@ -39,10 +39,18 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { context, sourceLabel }: { context: string; sourceLabel: string }) => {
+    console.log(`[summarize] Request for "${sourceLabel}" (${context.length} chars)`);
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      console.warn('[summarize] ANTHROPIC_API_KEY not set — skipping summarization');
+      return { summary: null, error: 'ANTHROPIC_API_KEY not set. Set it to enable cross-session summarization.' };
+    }
+
     try {
-      // Lazy require to avoid top-level import issues with bundler
       const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      const client = new Anthropic();
+      console.log('[summarize] Calling Haiku...');
+      const client = new Anthropic({ apiKey });
       const response = await client.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 2000,
@@ -64,8 +72,11 @@ ${context}
         }],
       });
       const text = response.content.find((b: any) => b.type === 'text');
-      return { summary: text ? (text as any).text : context, error: null };
+      const summary = text ? (text as any).text : context;
+      console.log(`[summarize] Success — ${summary.length} chars, usage: ${response.usage?.input_tokens}in/${response.usage?.output_tokens}out`);
+      return { summary, error: null };
     } catch (err: any) {
+      console.error('[summarize] Failed:', err.message || err);
       return { summary: null, error: err.message || 'Summarization failed' };
     }
   });

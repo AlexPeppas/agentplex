@@ -42,18 +42,29 @@ To remove it later: `npm unlink -g agentplex`
 - **Multi-session management** — run multiple Claude/Codex/GH CLI sessions side by side
 - **Graph canvas** — drag, arrange, and connect session nodes on a visual canvas
 - **HITL notifications** — get notified when a CLI session requires human input
-- **Cross-session messaging** — send messages between sessions with context summary for continuation
+- **Cross-session messaging** — send messages between sessions with optional Haiku-powered summarization
 - **Sub-agent tracking** — visualize spawned sub-agents via JSONL transcript tailing (no regex parsing)
 - **Plan & task visualization** — see plans and task lists rendered in the graph
 - **Session resume** — resume previous Claude sessions with `claude --resume`
 - **Dark / light mode** — warm terracotta palette with theme toggle
 - **Inline rename** — double-click any node to rename it
 
+### Cross-session summarization (optional)
+
+To enable AI-powered summarization when sending messages between sessions, set your Anthropic API key:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Without this, cross-session messaging still works — it sends raw context instead of a summary.
 <p align="center">
-  <img src="assets/screenshot.png" alt="AgentPlex screenshot" width="800" />
+  <img src="assets/session-graph.png" alt="AgentPlex screenshot" width="800" />
 </p>
 
-> Three concurrent sessions on the graph canvas: **s1** researching autonomous vehicles with spawned sub-agents (Tesla, Uber, Waymo) and an active plan. The fading sub-agent has finished work and it will dissapear shortly, **s2** waiting for human input (indicated by the **?** badge), and **s3** in plan mode for a separate context management task. Each node reflects real-time session status at a glance.
+> Three concurrent sessions on the graph canvas: **Autonomous Driving** spawned 3 sub-agents and researches Tesla, Uber, Waymo and upcoming deals. **Fine Tuning** is in plan mode and investigates fine tuning techniques. At that moment, it waits for human input (indicated by the **?** badge). Finally **Mortgage** is doing my competitor Greek mortgage loans analysis :).
+<br>
+Each node reflects real-time session status at a glance.
 <br>
 You can hover over any session and click the send button to instill the session's context summary and a prompt/instruction in another active session.
 
