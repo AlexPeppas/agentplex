@@ -27,7 +27,8 @@
       "WebFetch(domain:atmos.style)",
       "WebFetch(domain:www.designpieces.com)",
       "WebFetch(domain:dribbble.com)",
-      "WebFetch(domain:www.brandcolorcode.com)"
+      "WebFetch(domain:www.brandcolorcode.com)",
+      "Bash(which convert:*)"
     ]
   }
 }

@@ -1,84 +1,104 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="bg4" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#3d4260"/>
-      <stop offset="100%" stop-color="#343852"/>
+    <linearGradient id="bg4n" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#262420"/>
+      <stop offset="100%" stop-color="#1e1c18"/>
     </linearGradient>
+    <radialGradient id="nebula1" cx="40%" cy="35%" r="50%">
+      <stop offset="0%" stop-color="#d18a7a" stop-opacity="0.08"/>
+      <stop offset="50%" stop-color="#dfa898" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#d18a7a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="nebula2" cx="60%" cy="60%" r="45%">
+      <stop offset="0%" stop-color="#a8c878" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#a8c878" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="star-glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
 
   <!-- Background -->
-  <rect x="16" y="16" width="480" height="480" rx="80" fill="url(#bg4)" stroke="#8890b0" stroke-width="5"/>
+  <rect x="16" y="16" width="480" height="480" rx="80" fill="url(#bg4n)" stroke="#3e3830" stroke-width="4"/>
 
-  <!-- Orbital rings -->
-  <ellipse cx="256" cy="256" rx="180" ry="80" fill="none" stroke="#9099b8" stroke-width="3" transform="rotate(-25 256 256)"/>
-  <ellipse cx="256" cy="256" rx="180" ry="80" fill="none" stroke="#9099b8" stroke-width="3" transform="rotate(35 256 256)"/>
-  <ellipse cx="256" cy="256" rx="180" ry="80" fill="none" stroke="#9099b8" stroke-width="3" transform="rotate(95 256 256)"/>
+  <!-- Nebula layers -->
+  <rect x="16" y="16" width="480" height="480" rx="80" fill="url(#nebula1)"/>
+  <rect x="16" y="16" width="480" height="480" rx="80" fill="url(#nebula2)"/>
 
-  <!-- Message arcs -->
-  <path d="M155 155 Q 256 100 357 155" fill="none" stroke="#b0b8d4" stroke-width="2.5" stroke-dasharray="5 3"/>
-  <path d="M357 155 Q 410 256 357 357" fill="none" stroke="#b0b8d4" stroke-width="2.5" stroke-dasharray="5 3"/>
-  <path d="M357 357 Q 256 410 155 357" fill="none" stroke="#b0b8d4" stroke-width="2.5" stroke-dasharray="5 3"/>
-  <path d="M155 357 Q 100 256 155 155" fill="none" stroke="#b0b8d4" stroke-width="2.5" stroke-dasharray="5 3"/>
+  <!-- Constellation lines — thin, ethereal -->
+  <line x1="155" y1="145" x2="310" y2="135" stroke="#ece4d8" stroke-width="1.5" opacity="0.25"/>
+  <line x1="310" y1="135" x2="380" y2="240" stroke="#ece4d8" stroke-width="1.5" opacity="0.25"/>
+  <line x1="380" y1="240" x2="345" y2="370" stroke="#ece4d8" stroke-width="1.5" opacity="0.25"/>
+  <line x1="345" y1="370" x2="200" y2="385" stroke="#ece4d8" stroke-width="1.5" opacity="0.25"/>
+  <line x1="200" y1="385" x2="130" y2="290" stroke="#ece4d8" stroke-width="1.5" opacity="0.25"/>
+  <line x1="130" y1="290" x2="155" y2="145" stroke="#ece4d8" stroke-width="1.5" opacity="0.25"/>
 
-  <!-- Radial spokes from center -->
-  <line x1="256" y1="256" x2="155" y2="155" stroke="#d0d8f0" stroke-width="4"/>
-  <line x1="256" y1="256" x2="357" y2="155" stroke="#d0d8f0" stroke-width="4"/>
-  <line x1="256" y1="256" x2="357" y2="357" stroke="#d0d8f0" stroke-width="4"/>
-  <line x1="256" y1="256" x2="155" y2="357" stroke="#d0d8f0" stroke-width="4"/>
-  <line x1="256" y1="256" x2="256" y2="115" stroke="#d0d8f0" stroke-width="4"/>
-  <line x1="256" y1="256" x2="400" y2="256" stroke="#d0d8f0" stroke-width="4"/>
+  <!-- Cross constellation lines -->
+  <line x1="155" y1="145" x2="345" y2="370" stroke="#d18a7a" stroke-width="1" opacity="0.2"/>
+  <line x1="310" y1="135" x2="200" y2="385" stroke="#d18a7a" stroke-width="1" opacity="0.2"/>
+  <line x1="380" y1="240" x2="130" y2="290" stroke="#d18a7a" stroke-width="1" opacity="0.2"/>
 
-  <!-- Sub-agent tendrils -->
-  <path d="M155 155 Q 120 120 95 80" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
-  <path d="M155 155 Q 100 155 70 140" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
-  <path d="M357 155 Q 390 110 420 85" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
-  <path d="M357 155 Q 400 160 430 145" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
-  <path d="M357 357 Q 400 390 430 420" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
-  <path d="M155 357 Q 115 395 90 425" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
-  <path d="M256 115 Q 240 75 225 55" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
-  <path d="M256 115 Q 275 75 290 55" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
-  <path d="M400 256 Q 430 240 450 225" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
+  <!-- Central convergence -->
+  <line x1="155" y1="145" x2="255" y2="260" stroke="#9a8a70" stroke-width="2" opacity="0.35"/>
+  <line x1="310" y1="135" x2="255" y2="260" stroke="#9a8a70" stroke-width="2" opacity="0.35"/>
+  <line x1="380" y1="240" x2="255" y2="260" stroke="#9a8a70" stroke-width="2" opacity="0.35"/>
+  <line x1="345" y1="370" x2="255" y2="260" stroke="#9a8a70" stroke-width="2" opacity="0.35"/>
+  <line x1="200" y1="385" x2="255" y2="260" stroke="#9a8a70" stroke-width="2" opacity="0.35"/>
+  <line x1="130" y1="290" x2="255" y2="260" stroke="#9a8a70" stroke-width="2" opacity="0.35"/>
 
-  <!-- Sub-agent leaf nodes -->
-  <circle cx="95" cy="80" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
-  <circle cx="70" cy="140" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
-  <circle cx="420" cy="85" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
-  <circle cx="430" cy="145" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
-  <circle cx="430" cy="420" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
-  <circle cx="90" cy="425" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
-  <circle cx="225" cy="55" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
-  <circle cx="290" cy="55" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
-  <circle cx="450" cy="225" r="8" fill="#5d6488" stroke="#e0e6f8" stroke-width="2.5"/>
+  <!-- Scattered dust particles -->
+  <circle cx="100" cy="100" r="1.5" fill="#ece4d8" opacity="0.3"/>
+  <circle cx="420" cy="90" r="1.5" fill="#ece4d8" opacity="0.3"/>
+  <circle cx="440" cy="400" r="1.5" fill="#ece4d8" opacity="0.3"/>
+  <circle cx="80" cy="410" r="1.5" fill="#ece4d8" opacity="0.3"/>
+  <circle cx="250" cy="80" r="1" fill="#dfa898" opacity="0.4"/>
+  <circle cx="430" cy="300" r="1" fill="#dfa898" opacity="0.4"/>
+  <circle cx="80" cy="200" r="1" fill="#dfa898" opacity="0.4"/>
+  <circle cx="350" cy="450" r="1" fill="#dfa898" opacity="0.3"/>
+  <circle cx="170" cy="60" r="1" fill="#ece4d8" opacity="0.2"/>
+  <circle cx="400" cy="170" r="1" fill="#ece4d8" opacity="0.2"/>
 
-  <!-- Primary session nodes — pill-shaped -->
-  <rect x="127" y="137" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="4"/>
-  <circle cx="148" cy="155" r="5" fill="#f0f4ff"/>
+  <!-- Sub-agent tendrils from stars -->
+  <line x1="155" y1="145" x2="110" y2="95" stroke="#d18a7a" stroke-width="1.5" opacity="0.35"/>
+  <line x1="310" y1="135" x2="340" y2="80" stroke="#d18a7a" stroke-width="1.5" opacity="0.35"/>
+  <line x1="380" y1="240" x2="435" y2="215" stroke="#d18a7a" stroke-width="1.5" opacity="0.35"/>
+  <line x1="345" y1="370" x2="400" y2="420" stroke="#d18a7a" stroke-width="1.5" opacity="0.35"/>
+  <line x1="200" y1="385" x2="160" y2="435" stroke="#d18a7a" stroke-width="1.5" opacity="0.35"/>
+  <line x1="130" y1="290" x2="75" y2="310" stroke="#d18a7a" stroke-width="1.5" opacity="0.35"/>
 
-  <rect x="329" y="137" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="4"/>
-  <circle cx="350" cy="155" r="5" fill="#f0f4ff"/>
+  <!-- Sub-agent tiny stars -->
+  <circle cx="110" cy="95" r="3.5" fill="#d18a7a" opacity="0.5" filter="url(#star-glow)"/>
+  <circle cx="340" cy="80" r="3.5" fill="#d18a7a" opacity="0.5" filter="url(#star-glow)"/>
+  <circle cx="435" cy="215" r="3.5" fill="#d18a7a" opacity="0.5" filter="url(#star-glow)"/>
+  <circle cx="400" cy="420" r="3.5" fill="#d18a7a" opacity="0.5" filter="url(#star-glow)"/>
+  <circle cx="160" cy="435" r="3.5" fill="#d18a7a" opacity="0.5" filter="url(#star-glow)"/>
+  <circle cx="75" cy="310" r="3.5" fill="#d18a7a" opacity="0.5" filter="url(#star-glow)"/>
 
-  <rect x="329" y="339" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="4"/>
-  <circle cx="350" cy="357" r="5" fill="#f0f4ff"/>
+  <!-- Primary star nodes — glowing -->
+  <circle cx="155" cy="145" r="14" fill="#d18a7a" opacity="0.2" filter="url(#star-glow)"/>
+  <circle cx="155" cy="145" r="8" fill="#ece4d8" filter="url(#star-glow)"/>
 
-  <rect x="127" y="339" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="4"/>
-  <circle cx="148" cy="357" r="5" fill="#f0f4ff"/>
+  <circle cx="310" cy="135" r="14" fill="#d18a7a" opacity="0.2" filter="url(#star-glow)"/>
+  <circle cx="310" cy="135" r="8" fill="#ece4d8" filter="url(#star-glow)"/>
 
-  <!-- Extra session nodes on orbits -->
-  <rect x="228" y="97" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="3.5"/>
-  <circle cx="249" cy="115" r="4.5" fill="#f0f4ff"/>
+  <circle cx="380" cy="240" r="14" fill="#a8c878" opacity="0.15" filter="url(#star-glow)"/>
+  <circle cx="380" cy="240" r="8" fill="#ece4d8" filter="url(#star-glow)"/>
 
-  <rect x="372" y="238" width="56" height="36" rx="18" fill="#5d6488" stroke="#e8edf8" stroke-width="3.5"/>
-  <circle cx="393" cy="256" r="4.5" fill="#f0f4ff"/>
+  <circle cx="345" cy="370" r="14" fill="#e8c070" opacity="0.15" filter="url(#star-glow)"/>
+  <circle cx="345" cy="370" r="8" fill="#ece4d8" filter="url(#star-glow)"/>
 
-  <!-- Central hub — layered rings -->
-  <circle cx="256" cy="256" r="40" fill="none" stroke="#b0b8d4" stroke-width="2.5"/>
-  <circle cx="256" cy="256" r="32" fill="#5d6488" stroke="#e8edf8" stroke-width="4.5"/>
-  <circle cx="256" cy="256" r="20" fill="#3d4260"/>
-  <!-- Inner plex: interconnected triangle -->
-  <circle cx="249" cy="250" r="5" fill="#e0e6f8"/>
-  <circle cx="263" cy="250" r="5" fill="#f0f4ff"/>
-  <circle cx="256" cy="264" r="5" fill="#e0e6f8"/>
-  <line x1="249" y1="250" x2="263" y2="250" stroke="#d0d8f0" stroke-width="2.5"/>
-  <line x1="263" y1="250" x2="256" y2="264" stroke="#d0d8f0" stroke-width="2.5"/>
-  <line x1="256" y1="264" x2="249" y2="250" stroke="#d0d8f0" stroke-width="2.5"/>
+  <circle cx="200" cy="385" r="14" fill="#d18a7a" opacity="0.15" filter="url(#star-glow)"/>
+  <circle cx="200" cy="385" r="7" fill="#9a8a70"/>
+
+  <circle cx="130" cy="290" r="14" fill="#a8c878" opacity="0.15" filter="url(#star-glow)"/>
+  <circle cx="130" cy="290" r="8" fill="#ece4d8" filter="url(#star-glow)"/>
+
+  <!-- Central star — brightest -->
+  <circle cx="255" cy="260" r="24" fill="#d18a7a" opacity="0.12" filter="url(#star-glow)"/>
+  <circle cx="255" cy="260" r="15" fill="#d18a7a" opacity="0.25" filter="url(#star-glow)"/>
+  <circle cx="255" cy="260" r="9" fill="#ece4d8" filter="url(#star-glow)"/>
 </svg>

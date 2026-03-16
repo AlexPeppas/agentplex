@@ -20,7 +20,7 @@
 ### Installation
 
 ```bash
-git clone https://github.com/anthropics/agentplex.git
+git clone https://github.com/AlexPeppas/agentplex.git
 cd agentplex
 npm install
 npm start
@@ -43,8 +43,10 @@ To remove it later: `npm unlink -g agentplex`
 - **Graph canvas** — drag, arrange, and connect session nodes on a visual canvas
 - **HITL notifications** — get notified when a CLI session requires human input
 - **Cross-session messaging** — send messages between sessions with context summary for continuation
-- **Sub-agent tracking** — visualize spawned sub-agents as child nodes
+- **Sub-agent tracking** — visualize spawned sub-agents via JSONL transcript tailing (no regex parsing)
 - **Plan & task visualization** — see plans and task lists rendered in the graph
+- **Session resume** — resume previous Claude sessions with `claude --resume`
+- **Dark / light mode** — warm terracotta palette with theme toggle
 - **Inline rename** — double-click any node to rename it
 
 <p align="center">
@@ -71,7 +73,7 @@ agentplex/
 │   │   ├── main.ts          # App entry point & window management
 │   │   ├── session-manager.ts   # PTY session lifecycle
 │   │   ├── ipc-handlers.ts      # IPC bridge between main & renderer
-│   │   ├── subagent-detector.ts # Sub-agent spawn detection
+│   │   ├── jsonl-session-watcher.ts # JSONL transcript tailing for sub-agent detection
 │   │   └── plan-task-detector.ts # Plan & task list parsing
 │   ├── preload/
 │   │   └── preload.ts       # Context bridge for renderer
