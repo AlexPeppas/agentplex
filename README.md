@@ -58,6 +58,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 Without this, cross-session messaging still works — it sends raw context instead of a summary.
+
 <p align="center">
   <img src="assets/session-graph.png" alt="AgentPlex screenshot" width="800" />
 </p>
@@ -122,6 +123,7 @@ agentplex/
 | Terminal | [xterm.js](https://xtermjs.org/) |
 | State | [Zustand](https://zustand-demo.pmnd.rs/) |
 | PTY backend | [node-pty](https://github.com/microsoft/node-pty) |
+| Summarization | [Anthropic SDK](https://docs.anthropic.com/en/docs/sdks) (optional) |
 
 ## Contributing
 
