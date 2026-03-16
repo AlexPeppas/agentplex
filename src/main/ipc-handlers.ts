@@ -38,6 +38,38 @@ export function registerIpcHandlers() {
     return sessionManager.getBuffer(id);
   });
 
+  ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { context, sourceLabel }: { context: string; sourceLabel: string }) => {
+    try {
+      // Lazy require to avoid top-level import issues with bundler
+      const { default: Anthropic } = await import('@anthropic-ai/sdk');
+      const client = new Anthropic();
+      const response = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: `You are summarizing the recent activity of an AI coding assistant session called "${sourceLabel}". This summary will be sent to another AI assistant session so it can understand what the source session has been working on.
+
+Summarize the following terminal output concisely. Focus on:
+- What task/goal the session is working on
+- Key decisions made or approaches taken
+- Current state (what's done, what's in progress, any blockers)
+- Any important file paths, function names, or technical details
+
+Keep it under 2000 tokens. Be direct and factual.
+
+<terminal_output>
+${context}
+</terminal_output>`,
+        }],
+      });
+      const text = response.content.find((b: any) => b.type === 'text');
+      return { summary: text ? (text as any).text : context, error: null };
+    } catch (err: any) {
+      return { summary: null, error: err.message || 'Summarization failed' };
+    }
+  });
+
   const THEME_COLORS = {
     dark: { titleBar: '#1e1c18', symbol: '#ece4d8', bg: '#262420' },
     light: { titleBar: '#ebe5da', symbol: '#3a3428', bg: '#f5f0e8' },

@@ -25,6 +25,8 @@ export function SendDialog() {
   const displayNames = useAppStore((s) => s.displayNames);
   const [targetId, setTargetId] = useState<string>('');
   const [instruction, setInstruction] = useState('');
+  const [summarize, setSummarize] = useState(true);
+  const [sending, setSending] = useState(false);
   const instructionRef = useRef<HTMLTextAreaElement>(null);
 
   // All live (non-killed) sessions except the source
@@ -55,18 +57,31 @@ export function SendDialog() {
     instructionRef.current?.focus();
   }, []);
 
-  const handleSend = useCallback(() => {
-    if (!targetId || !instruction.trim()) return;
+  const handleSend = useCallback(async () => {
+    if (!targetId || !instruction.trim() || sending) return;
 
-    const targetTitle = sessions[targetId]?.title || targetId;
-    void targetTitle; // target title not needed in the message
+    let contextBlock = contextPreview;
+
+    if (summarize && contextPreview) {
+      setSending(true);
+      try {
+        const result = await window.agentPlex.summarizeContext(contextPreview, sourceLabel || 'session');
+        if (result.summary) {
+          contextBlock = result.summary;
+        }
+        // On error, fall back to raw context silently
+      } catch {
+        // fall back to raw context
+      }
+      setSending(false);
+    }
 
     const message = [
       instruction.trim(),
       '',
       '<summary_context>',
       `Context from ${sourceLabel}, another session instance of you:`,
-      contextPreview,
+      contextBlock,
       '</summary_context>',
     ].join('\n');
 
@@ -88,7 +103,7 @@ export function SendDialog() {
     if (sourceId) flashMessageEdge(sourceId, tid);
     setInstruction('');
     closeSendDialog();
-  }, [targetId, instruction, sourceId, sourceLabel, contextPreview, sessions, closeSendDialog, flashMessageEdge]);
+  }, [targetId, instruction, sourceId, sourceLabel, contextPreview, summarize, sending, sessions, closeSendDialog, flashMessageEdge]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -146,6 +161,18 @@ export function SendDialog() {
           placeholder="e.g. Continue this refactor, review this output..."
           rows={3}
         />
+
+        <div className="send-dialog__options">
+          <label className="send-dialog__toggle">
+            <input
+              type="checkbox"
+              checked={summarize}
+              onChange={(e) => setSummarize(e.target.checked)}
+            />
+            <span>Summarize with Haiku</span>
+          </label>
+        </div>
+
         <div className="send-dialog__actions">
           <button className="send-dialog__cancel" onClick={closeSendDialog}>
             Cancel
@@ -153,9 +180,9 @@ export function SendDialog() {
           <button
             className="send-dialog__send"
             onClick={handleSend}
-            disabled={!instruction.trim() || !targetId}
+            disabled={!instruction.trim() || !targetId || sending}
           >
-            Send ⏎
+            {sending ? 'Summarizing...' : 'Send \u23CE'}
           </button>
         </div>
       </div>

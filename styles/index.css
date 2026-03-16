@@ -826,6 +826,24 @@ html, body, #root {
   color: var(--text-muted);
 }
 
+.send-dialog__options {
+  margin-top: 10px;
+}
+
+.send-dialog__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.send-dialog__toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .send-dialog__actions {
   display: flex;
   justify-content: flex-end;

@@ -110,6 +110,10 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.TASK_LIST, handler);
   },
 
+  summarizeContext: (context: string, sourceLabel: string): Promise<{ summary: string | null; error: string | null }> => {
+    return ipcRenderer.invoke(IPC.SUMMARIZE_CONTEXT, { context, sourceLabel });
+  },
+
   setTheme: (theme: 'dark' | 'light'): void => {
     ipcRenderer.send(IPC.THEME_CHANGE, { theme });
   },
