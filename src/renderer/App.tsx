@@ -40,6 +40,12 @@ export function App() {
   // Reconnect to existing sessions on mount (e.g. after renderer reload/crash)
   useEffect(() => {
     const reconnect = async () => {
+      // Load persisted display names from ~/.agentplex
+      const savedNames = await window.agentPlex.loadDisplayNames();
+      if (Object.keys(savedNames).length > 0) {
+        useAppStore.setState({ displayNames: savedNames });
+      }
+
       const existing = await window.agentPlex.listSessions();
       const knownIds = new Set(Object.keys(useAppStore.getState().sessions));
       for (const info of existing) {

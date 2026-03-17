@@ -8,16 +8,32 @@
   Multi-session Claude/Codex/GitHub CLI orchestrator with graph visualization.
 </p>
 
+<p align="center">
+  <a href="https://github.com/AlexPeppas/agentplex/releases/latest"><strong>Download for Windows</strong></a> &nbsp;|&nbsp;
+  <a href="#build-from-source">Build from source</a>
+</p>
+
 ---
 
 ## Quick Start
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) 18 or later
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) installed and authenticated
 
-### Installation
+### Option 1: Download (recommended)
+
+Download **AgentPlex-1.0.0 Setup.exe** from the [latest release](https://github.com/AlexPeppas/agentplex/releases/latest) and run it. That's it.
+
+### Option 2: Build from source
+
+<a id="build-from-source"></a>
+
+Requires [Node.js](https://nodejs.org/) 18+ and native build tools for `node-pty`:
+
+- **Windows**: [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
+- **macOS**: `xcode-select --install`
+- **Linux**: `sudo apt install build-essential python3`
 
 ```bash
 git clone https://github.com/AlexPeppas/agentplex.git
@@ -26,16 +42,20 @@ npm install
 npm start
 ```
 
-### Global Shortcut (optional)
+To build a distributable installer:
 
-Install a global `agentplex` command:
+```bash
+npm run make
+```
+
+### Global CLI shortcut (optional)
 
 ```bash
 npm link        # one-time setup
 agentplex       # launch from anywhere
 ```
 
-To remove it later: `npm unlink -g agentplex`
+To remove: `npm unlink -g agentplex`
 
 ## Features
 
@@ -43,21 +63,11 @@ To remove it later: `npm unlink -g agentplex`
 - **Graph canvas** — drag, arrange, and connect session nodes on a visual canvas
 - **HITL notifications** — get notified when a CLI session requires human input
 - **Cross-session messaging** — send messages between sessions with optional Haiku-powered summarization
-- **Sub-agent tracking** — visualize spawned sub-agents via JSONL transcript tailing (no regex parsing)
+- **Sub-agent tracking** — visualize spawned sub-agents via JSONL transcript tailing
 - **Plan & task visualization** — see plans and task lists rendered in the graph
 - **Session resume** — resume previous Claude sessions with `claude --resume`
 - **Dark / light mode** — warm terracotta palette with theme toggle
 - **Inline rename** — double-click any node to rename it
-
-### Cross-session summarization (optional)
-
-To enable AI-powered summarization when sending messages between sessions, set your Anthropic API key:
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-```
-
-Without this, cross-session messaging still works — it sends raw context instead of a summary.
 
 <p align="center">
   <img src="assets/session-graph.png" alt="AgentPlex screenshot" width="800" />
@@ -69,12 +79,27 @@ Each node reflects real-time session status at a glance.
 <br>
 You can hover over any session and click the send button to instill the session's context summary and a prompt/instruction in another active session.
 
+## Configuration
+
+### Cross-session summarization (optional)
+
+To enable AI-powered context summarization when sending messages between sessions, set your Anthropic API key:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...       # macOS/Linux
+set ANTHROPIC_API_KEY=sk-ant-...          # Windows (cmd)
+$env:ANTHROPIC_API_KEY="sk-ant-..."       # Windows (PowerShell)
+```
+
+Without this, cross-session messaging still works — it sends raw context instead of a summary.
+
 ## Usage
 
-1. **Create sessions** — click the "+" button to spawn a new Claude CLI session
+1. **Create sessions** — click "+ New Session" and pick a working directory
 2. **Arrange nodes** — drag session nodes freely on the canvas
 3. **Rename** — double-click a node label to rename it
-4. **Send messages** — use cross-session messaging to coordinate between agents
+4. **Send messages** — hover a node, click the send icon to share context with another session
+5. **Resume** — use "Claude Resume" from the menu to continue a previous session
 
 ## Project Structure
 

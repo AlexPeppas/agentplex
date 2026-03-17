@@ -1,6 +1,5 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
-import { MakerZIP } from '@electron-forge/maker-zip';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 
@@ -13,7 +12,7 @@ const config: ForgeConfig = {
   rebuildConfig: {
     onlyModules: [], // node-pty uses N-API prebuilds, no rebuild needed
   },
-  makers: [new MakerSquirrel({}), new MakerZIP({})],
+  makers: [new MakerSquirrel({ setupIcon: 'assets/logo.ico', iconUrl: 'https://raw.githubusercontent.com/AlexPeppas/agentplex/master/assets/logo.ico' })],
   plugins: [
     new AutoUnpackNativesPlugin({}),
     new VitePlugin({

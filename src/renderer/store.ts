@@ -154,6 +154,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { [id]: _sess, ...restSessions } = state.sessions;
       const { [id]: _buf, ...restBuffers } = state.sessionBuffers;
       const { [id]: _dn, ...restDisplayNames } = state.displayNames;
+      window.agentPlex.saveDisplayNames(restDisplayNames);
 
       // Find sub-agent IDs belonging to this session
       const subagentIds = new Set(
@@ -532,14 +533,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   renameSession: (sessionId: string, name: string) => {
+    const newDisplayNames = { ...get().displayNames, [sessionId]: name };
     set((state) => ({
       nodes: state.nodes.map((n) =>
         n.id === sessionId && n.type === 'sessionNode'
           ? { ...n, data: { ...n.data, label: name } }
           : n
       ),
-      displayNames: { ...state.displayNames, [sessionId]: name },
+      displayNames: newDisplayNames,
     }));
+    window.agentPlex.saveDisplayNames(newDisplayNames);
   },
 
   flashMessageEdge: (sourceId: string, targetId: string) => {

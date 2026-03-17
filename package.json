@@ -3,6 +3,7 @@
   "productName": "AgentPlex",
   "version": "1.0.0",
   "description": "Multi-session Claude CLI desktop app with graph visualization",
+  "author": "Alexandros Peppas",
   "main": ".vite/build/main.js",
   "bin": {
     "agentplex": "bin/agentplex.js"

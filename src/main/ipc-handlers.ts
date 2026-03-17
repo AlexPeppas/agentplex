@@ -1,6 +1,12 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
 import { IPC } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
+import * as path from 'path';
+import * as fs from 'fs';
+import { homedir } from 'os';
+
+const AGENTPLEX_DIR = path.join(homedir(), '.agentplex');
+const DISPLAY_NAMES_PATH = path.join(AGENTPLEX_DIR, 'displayNames.json');
 
 export function registerIpcHandlers() {
   ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli }: { cwd?: string; cli?: string } = {}) => {
@@ -78,6 +84,24 @@ ${context}
     } catch (err: any) {
       console.error('[summarize] Failed:', err.message || err);
       return { summary: null, error: err.message || 'Summarization failed' };
+    }
+  });
+
+  ipcMain.handle(IPC.DISPLAY_NAMES_LOAD, () => {
+    try {
+      const data = fs.readFileSync(DISPLAY_NAMES_PATH, 'utf-8');
+      return JSON.parse(data) as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+
+  ipcMain.on(IPC.DISPLAY_NAMES_SAVE, (_event, { displayNames }: { displayNames: Record<string, string> }) => {
+    try {
+      fs.mkdirSync(AGENTPLEX_DIR, { recursive: true });
+      fs.writeFileSync(DISPLAY_NAMES_PATH, JSON.stringify(displayNames, null, 2));
+    } catch (err: any) {
+      console.error('[displayNames] Failed to save:', err.message);
     }
   });
 

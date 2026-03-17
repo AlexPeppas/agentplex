@@ -72,4 +72,6 @@ export const IPC = {
   TASK_LIST: 'task:list',
   THEME_CHANGE: 'theme:change',
   SUMMARIZE_CONTEXT: 'summarize:context',
+  DISPLAY_NAMES_LOAD: 'displayNames:load',
+  DISPLAY_NAMES_SAVE: 'displayNames:save',
 } as const;

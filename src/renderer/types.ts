@@ -19,6 +19,8 @@ export interface AgentPlexAPI {
   onTaskUpdate: (callback: (data: TaskUpdateInfo) => void) => () => void;
   onTaskList: (callback: (data: TaskListInfo) => void) => () => void;
   summarizeContext: (context: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
+  loadDisplayNames: () => Promise<Record<string, string>>;
+  saveDisplayNames: (displayNames: Record<string, string>) => void;
   setTheme: (theme: 'dark' | 'light') => void;
 }
 
