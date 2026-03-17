@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
 import { CLI_TOOLS, RESUME_TOOL, type CliTool } from '../../shared/ipc-channels';
+import logoSvg from '../../../assets/logo.svg';
 
 function getInitialTheme(): 'dark' | 'light' {
   const saved = localStorage.getItem('agentplex-theme');
@@ -65,7 +66,7 @@ export function Toolbar() {
 
   return (
     <div className="toolbar">
-      <img className="toolbar__logo" src="/assets/logo.svg" alt="AgentPlex" />
+      <img className="toolbar__logo" src={logoSvg} alt="AgentPlex" />
       <span className="toolbar__title">AgentPlex</span>
       <button
         className="toolbar__theme-toggle"

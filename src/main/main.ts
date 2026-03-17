@@ -6,6 +6,14 @@ import { registerIpcHandlers } from './ipc-handlers';
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
+// Handle Squirrel install/update/uninstall events immediately — skip app startup
+if (process.platform === 'win32') {
+  const cmd = process.argv[1];
+  if (cmd === '--squirrel-install' || cmd === '--squirrel-updated' || cmd === '--squirrel-uninstall' || cmd === '--squirrel-obsolete') {
+    app.quit();
+  }
+}
+
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err.stack || err.message);
 });
@@ -32,6 +40,7 @@ function createWindow() {
     height: 900,
     title: 'AgentPlex',
     icon: getAppIcon(),
+    show: false,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       color: '#1e1c18',
@@ -45,6 +54,9 @@ function createWindow() {
       contextIsolation: true,
     },
   });
+
+  // Show window as soon as the renderer is ready — avoids white flash
+  mainWindow.once('ready-to-show', () => mainWindow.show());
 
   Menu.setApplicationMenu(null);
   sessionManager.setWindow(mainWindow);

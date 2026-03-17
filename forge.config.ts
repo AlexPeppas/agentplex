@@ -9,7 +9,6 @@ const config: ForgeConfig = {
     },
     icon: 'assets/logo',
     extraResource: ['assets/logo.png', 'assets/logo.ico'],
-    ignore: [/^\/out/],
   },
   rebuildConfig: {
     // Skip native rebuild — node-pty ships N-API prebuilds that work across Node/Electron
@@ -28,7 +27,7 @@ const config: ForgeConfig = {
       }
     },
   },
-  makers: [new MakerSquirrel({ setupIcon: 'assets/logo.ico', iconUrl: 'https://raw.githubusercontent.com/AlexPeppas/agentplex/master/assets/logo.ico' })],
+  makers: [new MakerSquirrel({ setupExe: 'AgentPlex.exe', setupIcon: 'assets/logo.ico', loadingGif: 'assets/installer.gif', iconUrl: 'https://raw.githubusercontent.com/AlexPeppas/agentplex/master/assets/logo.ico' })],
   plugins: [
     new VitePlugin({
       build: [
