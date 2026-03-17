@@ -15,25 +15,19 @@
 
 ---
 
-## Quick Start
-
-### Prerequisites
+## Requirements
 
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) installed and authenticated
 
-### Option 1: Download (recommended)
+## Quick Start
 
 Download **AgentPlex-1.0.0 Setup.exe** from the [latest release](https://github.com/AlexPeppas/agentplex/releases/latest) and run it. That's it.
 
-### Option 2: Build from source
+## Installation
 
 <a id="build-from-source"></a>
 
-Requires [Node.js](https://nodejs.org/) 18+ and native build tools for `node-pty`:
-
-- **Windows**: [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
-- **macOS**: `xcode-select --install`
-- **Linux**: `sudo apt install build-essential python3`
+If you prefer to build from source instead of using the installer:
 
 ```bash
 git clone https://github.com/AlexPeppas/agentplex.git
@@ -56,6 +50,14 @@ agentplex       # launch from anywhere
 ```
 
 To remove: `npm unlink -g agentplex`
+
+## Dev Requirements
+
+Building from source requires [Node.js](https://nodejs.org/) 18+ and native build tools for `node-pty`:
+
+- **Windows**: [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
+- **macOS**: `xcode-select --install`
+- **Linux**: `sudo apt install build-essential python3`
 
 ## Features
 
