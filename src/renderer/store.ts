@@ -543,6 +543,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       displayNames: newDisplayNames,
     }));
     window.agentPlex.saveDisplayNames(newDisplayNames);
+    window.agentPlex.updateSessionState(sessionId, name);
   },
 
   flashMessageEdge: (sourceId: string, targetId: string) => {

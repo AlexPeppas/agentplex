@@ -1,9 +1,14 @@
-export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume';
+export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | 'powershell' | 'bash';
 
 export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'claude', label: 'Claude', command: 'claude' },
   { id: 'codex', label: 'Codex', command: 'codex' },
   { id: 'copilot', label: 'GitHub Copilot', command: 'gh copilot' },
+];
+
+export const SHELL_TOOLS: { id: CliTool; label: string; command: string }[] = [
+  { id: 'powershell', label: 'PowerShell', command: '' },
+  { id: 'bash', label: 'Bash', command: '' },
 ];
 
 export const RESUME_TOOL: { id: CliTool; label: string; command: string } = {
@@ -74,4 +79,6 @@ export const IPC = {
   SUMMARIZE_CONTEXT: 'summarize:context',
   DISPLAY_NAMES_LOAD: 'displayNames:load',
   DISPLAY_NAMES_SAVE: 'displayNames:save',
+  SESSION_RESTORE_ALL: 'session:restoreAll',
+  SESSION_UPDATE_STATE: 'session:updateState',
 } as const;

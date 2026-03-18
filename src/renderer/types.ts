@@ -18,6 +18,8 @@ export interface AgentPlexAPI {
   onTaskCreate: (callback: (data: TaskInfo) => void) => () => void;
   onTaskUpdate: (callback: (data: TaskUpdateInfo) => void) => () => void;
   onTaskList: (callback: (data: TaskListInfo) => void) => () => void;
+  updateSessionState: (sessionId: string, displayName: string) => void;
+  restoreAllSessions: () => Promise<{ info: SessionInfo; displayName: string }[]>;
   summarizeContext: (context: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
   loadDisplayNames: () => Promise<Record<string, string>>;
   saveDisplayNames: (displayNames: Record<string, string>) => void;

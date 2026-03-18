@@ -110,6 +110,14 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.TASK_LIST, handler);
   },
 
+  updateSessionState: (sessionId: string, displayName: string): void => {
+    ipcRenderer.send(IPC.SESSION_UPDATE_STATE, { sessionId, displayName });
+  },
+
+  restoreAllSessions: (): Promise<{ info: SessionInfo; displayName: string }[]> => {
+    return ipcRenderer.invoke(IPC.SESSION_RESTORE_ALL);
+  },
+
   summarizeContext: (context: string, sourceLabel: string): Promise<{ summary: string | null; error: string | null }> => {
     return ipcRenderer.invoke(IPC.SUMMARIZE_CONTEXT, { context, sourceLabel });
   },

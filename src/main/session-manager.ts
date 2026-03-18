@@ -3,10 +3,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
-import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
+import { homedir } from 'os';
+import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../shared/ipc-channels';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { PlanTaskDetector } from './plan-task-detector';
+
+const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
 
 const PROMPT_PATTERNS = [
   /\[Y\/n\]/i,                                   // [Y/n], [y/N] variants
@@ -24,6 +27,9 @@ const BUFFER_CAP = 512 * 1024; // 512KB per session
 interface Session {
   id: string;
   title: string;
+  cli: CliTool;
+  cwd: string;
+  claudeSessionUuid: string | null;
   pty: pty.IPty;
   status: SessionStatus;
   lastOutput: number;
@@ -37,6 +43,17 @@ interface Session {
   planTaskDetector: PlanTaskDetector;
 }
 
+interface PersistedSession {
+  displayName: string;
+  cwd: string;
+  cli: CliTool;
+  claudeSessionUuid: string;
+}
+
+export interface PersistedState {
+  sessions: Record<string, PersistedSession>;
+}
+
 let sessionCounter = 0;
 
 export class SessionManager {
@@ -48,8 +65,200 @@ export class SessionManager {
     this.window = win;
   }
 
+  /** Load persisted state from disk */
+  loadState(): PersistedState {
+    try {
+      return JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'));
+    } catch {
+      return { sessions: {} };
+    }
+  }
+
+  /** Save current Claude sessions to disk */
+  private saveState(displayNames: Record<string, string> = {}) {
+    const state: PersistedState = { sessions: {} };
+    for (const session of this.sessions.values()) {
+      if (session.status === SessionStatus.Killed) continue;
+      if (!session.claudeSessionUuid) continue; // only persist Claude sessions
+      state.sessions[session.id] = {
+        displayName: displayNames[session.id] || session.title,
+        cwd: session.cwd,
+        cli: session.cli,
+        claudeSessionUuid: session.claudeSessionUuid,
+      };
+    }
+    try {
+      fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
+      fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+    } catch (err: any) {
+      console.error('[state] Failed to save:', err.message);
+    }
+  }
+
+  /** Update display names in persisted state */
+  updateDisplayName(sessionId: string, displayName: string) {
+    const state = this.loadState();
+    if (state.sessions[sessionId]) {
+      state.sessions[sessionId].displayName = displayName;
+      try {
+        fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+      } catch { /* ignore */ }
+    }
+  }
+
+  /** Remove a session from persisted state */
+  private removeFromState(sessionId: string) {
+    const state = this.loadState();
+    if (state.sessions[sessionId]) {
+      delete state.sessions[sessionId];
+      try {
+        fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+      } catch { /* ignore */ }
+    }
+  }
+
   start() {
     this.statusInterval = setInterval(() => this.checkStatuses(), 500);
+  }
+
+  /**
+   * Restore persisted Claude sessions from state.json.
+   * Returns SessionInfo[] for each restored session so the renderer can add them.
+   */
+  restoreAll(): { info: SessionInfo; displayName: string }[] {
+    const state = this.loadState();
+    const results: { info: SessionInfo; displayName: string }[] = [];
+
+    for (const [oldId, persisted] of Object.entries(state.sessions)) {
+      try {
+        // Create a new session that resumes the Claude conversation via --session-id
+        const info = this.createWithUuid(
+          persisted.cwd,
+          persisted.cli,
+          persisted.claudeSessionUuid
+        );
+        results.push({ info, displayName: persisted.displayName });
+        console.log(`[restore] Restored "${persisted.displayName}" (${persisted.claudeSessionUuid})`);
+      } catch (err: any) {
+        console.error(`[restore] Failed to restore ${oldId}:`, err.message);
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Create a session with a specific Claude session UUID (for restore).
+   */
+  private createWithUuid(cwd: string, cli: CliTool, claudeSessionUuid: string): SessionInfo {
+    sessionCounter++;
+    const id = `session-${sessionCounter}`;
+    const workDir = cwd;
+    const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
+    const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
+    const title = `Session ${sessionCounter} — ${dirName}`;
+
+    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    const term = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 30,
+      cwd: workDir,
+      env: process.env as Record<string, string>,
+    });
+
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const encodedPath = encodeProjectPath(workDir);
+    const jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${claudeSessionUuid}.jsonl`);
+    const jsonlWatcher = this.createJsonlWatcher(jsonlPath, id);
+    jsonlWatcher.start();
+
+    const planDetector = new PlanTaskDetector((event) => {
+      switch (event.type) {
+        case 'plan-enter': {
+          let planTitle = 'Plan Mode';
+          if (event.planSlug) {
+            try {
+              const planPath = path.join(home, '.claude', 'plans', `${event.planSlug}.md`);
+              const content = fs.readFileSync(planPath, 'utf-8');
+              const headingMatch = content.match(/^#\s+(.+)/m);
+              if (headingMatch) {
+                const extracted = headingMatch[1].trim();
+                if (extracted && !/^[\s\-—–_.…]+$/.test(extracted)) {
+                  planTitle = extracted;
+                }
+              }
+            } catch { /* ignore */ }
+          }
+          this.send(IPC.PLAN_ENTER, { sessionId: id, planTitle });
+          break;
+        }
+        case 'plan-exit':
+          this.send(IPC.PLAN_EXIT, { sessionId: id });
+          break;
+        case 'task-create':
+          this.send(IPC.TASK_CREATE, { sessionId: id, taskNumber: event.taskNumber, description: event.description });
+          break;
+        case 'task-update':
+          this.send(IPC.TASK_UPDATE, { sessionId: id, taskNumber: event.taskNumber, status: event.status });
+          break;
+        case 'task-list':
+          this.send(IPC.TASK_LIST, { sessionId: id, tasks: event.tasks });
+          break;
+      }
+    });
+
+    const session: Session = {
+      id,
+      title,
+      cli,
+      cwd: workDir,
+      claudeSessionUuid,
+      pty: term,
+      status: SessionStatus.Running,
+      lastOutput: Date.now(),
+      lastVisibleOutput: Date.now(),
+      waitingSince: 0,
+      waitingBufferLen: 0,
+      buffer: '',
+      jsonlWatcher,
+      planTaskDetector: planDetector,
+    };
+
+    term.onData((data: string) => {
+      session.lastOutput = Date.now();
+      if (stripAnsi(data).trim()) {
+        session.lastVisibleOutput = Date.now();
+      }
+      session.buffer += data;
+      if (session.buffer.length > BUFFER_CAP) {
+        session.buffer = session.buffer.slice(-BUFFER_CAP);
+      }
+      planDetector.feed(data);
+      this.send(IPC.SESSION_DATA, { id, data });
+    });
+
+    term.onExit(({ exitCode }: { exitCode: number }) => {
+      session.status = SessionStatus.Killed;
+      if (session.jsonlWatcher) session.jsonlWatcher.stop();
+      this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
+      this.send(IPC.SESSION_EXIT, { id, exitCode });
+    });
+
+    this.sessions.set(id, session);
+
+    // Resume the previous Claude conversation
+    const command = `${toolDef.command} --resume ${claudeSessionUuid}`;
+    setTimeout(() => {
+      try {
+        term.write(command + '\r');
+      } catch { /* session may have been killed */ }
+    }, 1000);
+
+    // Update persisted state with new internal ID
+    this.saveState();
+
+    return { id, title, status: SessionStatus.Running, pid: term.pid };
   }
 
   stop() {
@@ -73,11 +282,15 @@ export class SessionManager {
     const id = `session-${sessionCounter}`;
     const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
-    const allTools = [...CLI_TOOLS, RESUME_TOOL];
+    const isRawShell = cli === 'powershell' || cli === 'bash';
+    const allTools = [...CLI_TOOLS, RESUME_TOOL, ...SHELL_TOOLS];
     const toolDef = allTools.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    const shell = cli === 'bash'
+      ? (process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash')
+      : cli === 'powershell' ? 'powershell.exe'
+      : process.platform === 'win32' ? 'powershell.exe' : 'bash';
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -146,6 +359,9 @@ export class SessionManager {
     const session: Session = {
       id,
       title,
+      cli,
+      cwd: workDir,
+      claudeSessionUuid: sessionUuid,
       pty: term,
       status: SessionStatus.Running,
       lastOutput: Date.now(),
@@ -179,19 +395,24 @@ export class SessionManager {
 
     this.sessions.set(id, session);
 
-    // Auto-start the selected CLI tool after a short delay for shell to initialize
-    // Only pass --session-id for new claude sessions, not resume (user picks session interactively)
-    const command = sessionUuid
-      ? `${toolDef.command} --session-id ${sessionUuid}`
-      : toolDef.command;
+    // Auto-start the selected CLI tool after a short delay for shell to initialize.
+    // Raw shell sessions (powershell/bash) skip this — the PTY is already the shell.
+    if (!isRawShell) {
+      const command = sessionUuid
+        ? `${toolDef.command} --session-id ${sessionUuid}`
+        : toolDef.command;
 
-    setTimeout(() => {
-      try {
-        term.write(command + '\r');
-      } catch {
-        // session may have been killed
-      }
-    }, 1000);
+      setTimeout(() => {
+        try {
+          term.write(command + '\r');
+        } catch {
+          // session may have been killed
+        }
+      }, 1000);
+    }
+
+    // Persist state if this is a Claude session
+    if (sessionUuid) this.saveState();
 
     return { id, title, status: SessionStatus.Running, pid: term.pid };
   }
@@ -229,6 +450,7 @@ export class SessionManager {
       }
       session.status = SessionStatus.Killed;
       this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
+      this.removeFromState(id);
     }
   }
 

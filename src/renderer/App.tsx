@@ -37,7 +37,10 @@ export function App() {
   const reconcileTasks = useAppStore((s) => s.reconcileTasks);
   const prevStatuses = useRef<Map<string, SessionStatus>>(new Map());
 
+  const renameSession = useAppStore((s) => s.renameSession);
+
   // Reconnect to existing sessions on mount (e.g. after renderer reload/crash)
+  // and restore persisted Claude sessions from state.json
   useEffect(() => {
     const reconnect = async () => {
       // Load persisted display names from ~/.agentplex
@@ -46,13 +49,13 @@ export function App() {
         useAppStore.setState({ displayNames: savedNames });
       }
 
+      // Reconnect to sessions that survived a renderer reload
       const existing = await window.agentPlex.listSessions();
       const knownIds = new Set(Object.keys(useAppStore.getState().sessions));
       for (const info of existing) {
         if (knownIds.has(info.id)) continue;
         addSession(info);
         updateStatus(info.id, info.status);
-        // Replay buffered output from main process
         try {
           const buffer = await window.agentPlex.getSessionBuffer(info.id);
           if (buffer) {
@@ -60,6 +63,24 @@ export function App() {
           }
         } catch {
           // Handler may not be registered if main process hasn't restarted
+        }
+      }
+
+      // Restore persisted Claude sessions (only on fresh launch, not renderer reload)
+      if (existing.length === 0) {
+        try {
+          const restored = await window.agentPlex.restoreAllSessions();
+          for (const { info, displayName } of restored) {
+            addSession(info);
+            if (displayName) {
+              renameSession(info.id, displayName);
+            }
+          }
+          if (restored.length > 0) {
+            console.log(`[restore] Restored ${restored.length} session(s)`);
+          }
+        } catch (err) {
+          console.error('[restore] Failed:', err);
         }
       }
     };

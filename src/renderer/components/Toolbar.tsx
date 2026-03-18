@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
-import { CLI_TOOLS, RESUME_TOOL, type CliTool } from '../../shared/ipc-channels';
+import { CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
 
 function getInitialTheme(): 'dark' | 'light' {
@@ -111,6 +111,21 @@ export function Toolbar() {
                 {tool.label}
               </button>
             ))}
+            <div className="toolbar__menu-divider" />
+            <div className="toolbar__menu-section">
+              <span className="toolbar__menu-label">Shell</span>
+              <div className="toolbar__menu-row">
+                {SHELL_TOOLS.map((tool) => (
+                  <button
+                    key={tool.id}
+                    className="toolbar__menu-pill"
+                    onClick={() => handlePick(tool.id)}
+                  >
+                    {tool.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>

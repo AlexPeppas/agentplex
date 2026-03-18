@@ -85,12 +85,12 @@ You can hover over any session and click the send button to instill the session'
 
 ### Cross-session summarization (optional)
 
-To enable AI-powered context summarization when sending messages between sessions, set your Anthropic API key:
+To enable AI-powered context summarization when sending messages between sessions, set your Anthropic API key using `AGENTPLEX_API_KEY` (not `ANTHROPIC_API_KEY`, which would conflict with Claude CLI's auth):
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...       # macOS/Linux
-set ANTHROPIC_API_KEY=sk-ant-...          # Windows (cmd)
-$env:ANTHROPIC_API_KEY="sk-ant-..."       # Windows (PowerShell)
+export AGENTPLEX_API_KEY=sk-ant-...       # macOS/Linux
+set AGENTPLEX_API_KEY=sk-ant-...          # Windows (cmd)
+$env:AGENTPLEX_API_KEY="sk-ant-..."       # Windows (PowerShell)
 ```
 
 Without this, cross-session messaging still works — it sends raw context instead of a summary.

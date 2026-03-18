@@ -47,10 +47,10 @@ export function registerIpcHandlers() {
   ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { context, sourceLabel }: { context: string; sourceLabel: string }) => {
     console.log(`[summarize] Request for "${sourceLabel}" (${context.length} chars)`);
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.AGENTPLEX_API_KEY;
     if (!apiKey) {
-      console.warn('[summarize] ANTHROPIC_API_KEY not set — skipping summarization');
-      return { summary: null, error: 'ANTHROPIC_API_KEY not set. Set it to enable cross-session summarization.' };
+      console.warn('[summarize] AGENTPLEX_API_KEY not set — skipping summarization');
+      return { summary: null, error: 'AGENTPLEX_API_KEY not set. Set it to enable cross-session summarization.' };
     }
 
     try {
@@ -85,6 +85,14 @@ ${context}
       console.error('[summarize] Failed:', err.message || err);
       return { summary: null, error: err.message || 'Summarization failed' };
     }
+  });
+
+  ipcMain.on(IPC.SESSION_UPDATE_STATE, (_event, { sessionId, displayName }: { sessionId: string; displayName: string }) => {
+    sessionManager.updateDisplayName(sessionId, displayName);
+  });
+
+  ipcMain.handle(IPC.SESSION_RESTORE_ALL, () => {
+    return sessionManager.restoreAll();
   });
 
   ipcMain.handle(IPC.DISPLAY_NAMES_LOAD, () => {
