@@ -28,7 +28,8 @@
       "WebFetch(domain:www.designpieces.com)",
       "WebFetch(domain:dribbble.com)",
       "WebFetch(domain:www.brandcolorcode.com)",
-      "Bash(which convert:*)"
+      "Bash(which convert:*)",
+      "Bash(pnpm:*)"
     ]
   }
 }

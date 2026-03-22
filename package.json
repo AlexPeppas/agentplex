@@ -16,11 +16,21 @@
   "engines": {
     "node": ">=18"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "node-pty",
+      "puppeteer",
+      "sharp"
+    ]
+  },
   "scripts": {
     "generate-icons": "node scripts/generate-icons.mjs",
     "start": "electron-forge start",
-    "package": "npm run generate-icons && electron-forge package",
-    "make": "npm run generate-icons && electron-forge make"
+    "package": "pnpm generate-icons && electron-forge package",
+    "make": "pnpm generate-icons && electron-forge make"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
