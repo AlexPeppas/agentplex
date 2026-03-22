@@ -1,10 +1,19 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
-import { IPC } from '../shared/ipc-channels';
+import { IPC, CLI_TOOLS, SHELL_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
+
+const VALID_CLI_IDS = new Set<string>([
+  ...CLI_TOOLS.map((t) => t.id),
+  ...SHELL_TOOLS.map((t) => t.id),
+  RESUME_TOOL.id,
+]);
+
+const MAX_CONTEXT_LENGTH = 100_000;
 
 export function registerIpcHandlers() {
   ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli }: { cwd?: string; cli?: string } = {}) => {
-    return sessionManager.create(cwd, (cli as any) || 'claude');
+    const safeCli: CliTool = (cli && VALID_CLI_IDS.has(cli) ? cli : 'claude') as CliTool;
+    return sessionManager.create(cwd, safeCli);
   });
 
   ipcMain.handle(IPC.DIALOG_OPEN_DIR, async () => {
@@ -19,14 +28,19 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.on(IPC.SESSION_WRITE, (_event, { id, data }: { id: string; data: string }) => {
+    if (typeof id !== 'string' || typeof data !== 'string') return;
     sessionManager.write(id, data);
   });
 
   ipcMain.on(IPC.SESSION_RESIZE, (_event, { id, cols, rows }: { id: string; cols: number; rows: number }) => {
-    sessionManager.resize(id, cols, rows);
+    if (typeof id !== 'string') return;
+    const safeCols = Math.max(1, Math.min(500, Math.floor(Number(cols) || 80)));
+    const safeRows = Math.max(1, Math.min(200, Math.floor(Number(rows) || 24)));
+    sessionManager.resize(id, safeCols, safeRows);
   });
 
   ipcMain.handle(IPC.SESSION_KILL, (_event, { id }: { id: string }) => {
+    if (typeof id !== 'string') return;
     sessionManager.kill(id);
   });
 
@@ -35,11 +49,17 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle(IPC.SESSION_GET_BUFFER, (_event, { id }: { id: string }) => {
+    if (typeof id !== 'string') return '';
     return sessionManager.getBuffer(id);
   });
 
   ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { context, sourceLabel }: { context: string; sourceLabel: string }) => {
-    console.log(`[summarize] Request for "${sourceLabel}" (${context.length} chars)`);
+    if (typeof context !== 'string' || typeof sourceLabel !== 'string') {
+      return { summary: null, error: 'Invalid parameters' };
+    }
+    const safeContext = context.slice(0, MAX_CONTEXT_LENGTH);
+    const safeLabel = sourceLabel.slice(0, 200);
+    console.log(`[summarize] Request for "${safeLabel}" (${safeContext.length} chars)`);
 
     const apiKey = process.env.AGENTPLEX_API_KEY;
     if (!apiKey) {
@@ -56,7 +76,7 @@ export function registerIpcHandlers() {
         max_tokens: 2000,
         messages: [{
           role: 'user',
-          content: `You are summarizing the recent activity of an AI coding assistant session called "${sourceLabel}". This summary will be sent to another AI assistant session so it can understand what the source session has been working on.
+          content: `You are summarizing the recent activity of an AI coding assistant session called "${safeLabel}". This summary will be sent to another AI assistant session so it can understand what the source session has been working on.
 
 Summarize the following terminal output concisely. Focus on:
 - What task/goal the session is working on
@@ -67,12 +87,12 @@ Summarize the following terminal output concisely. Focus on:
 Keep it under 2000 tokens. Be direct and factual.
 
 <terminal_output>
-${context}
+${safeContext}
 </terminal_output>`,
         }],
       });
       const text = response.content.find((b: any) => b.type === 'text');
-      const summary = text ? (text as any).text : context;
+      const summary = text ? (text as any).text : safeContext;
       console.log(`[summarize] Success — ${summary.length} chars, usage: ${response.usage?.input_tokens}in/${response.usage?.output_tokens}out`);
       return { summary, error: null };
     } catch (err: any) {
@@ -82,7 +102,8 @@ ${context}
   });
 
   ipcMain.on(IPC.SESSION_UPDATE_STATE, (_event, { sessionId, displayName }: { sessionId: string; displayName: string }) => {
-    sessionManager.updateDisplayName(sessionId, displayName);
+    if (typeof sessionId !== 'string' || typeof displayName !== 'string') return;
+    sessionManager.updateDisplayName(sessionId, displayName.slice(0, 200));
   });
 
   ipcMain.handle(IPC.SESSION_RESTORE_ALL, () => {
@@ -93,15 +114,16 @@ ${context}
     return sessionManager.getDisplayNames();
   });
 
-  const THEME_COLORS = {
+  const THEME_COLORS: Record<string, { titleBar: string; symbol: string; bg: string }> = {
     dark: { titleBar: '#1e1c18', symbol: '#ece4d8', bg: '#262420' },
     light: { titleBar: '#ebe5da', symbol: '#3a3428', bg: '#f5f0e8' },
   };
 
-  ipcMain.on(IPC.THEME_CHANGE, (_event, { theme }: { theme: 'dark' | 'light' }) => {
+  ipcMain.on(IPC.THEME_CHANGE, (_event, { theme }: { theme: string }) => {
+    const colors = THEME_COLORS[theme];
+    if (!colors) return;
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return;
-    const colors = THEME_COLORS[theme];
     win.setTitleBarOverlay({
       color: colors.titleBar,
       symbolColor: colors.symbol,

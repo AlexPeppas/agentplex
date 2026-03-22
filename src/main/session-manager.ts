@@ -24,6 +24,25 @@ const PROMPT_PATTERNS = [
 
 const BUFFER_CAP = 512 * 1024; // 512KB per session
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Env vars to strip from PTY sessions to prevent secret leakage */
+const REDACTED_ENV_KEYS = new Set([
+  'AGENTPLEX_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+]);
+
+function getSafeEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && !REDACTED_ENV_KEYS.has(key)) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
 interface Session {
   id: string;
   title: string;
@@ -135,6 +154,11 @@ export class SessionManager {
 
     for (const [oldId, persisted] of Object.entries(state.sessions)) {
       try {
+        // Validate cwd exists before restoring
+        if (!fs.existsSync(persisted.cwd) || !fs.statSync(persisted.cwd).isDirectory()) {
+          console.warn(`[restore] Skipping ${oldId}: cwd "${persisted.cwd}" does not exist`);
+          continue;
+        }
         // Create a new session that resumes the Claude conversation via --session-id
         const info = this.createWithUuid(
           persisted.cwd,
@@ -155,6 +179,9 @@ export class SessionManager {
    * Create a session with a specific Claude session UUID (for restore).
    */
   private createWithUuid(cwd: string, cli: CliTool, claudeSessionUuid: string): SessionInfo {
+    if (!UUID_RE.test(claudeSessionUuid)) {
+      throw new Error(`Invalid session UUID: ${claudeSessionUuid}`);
+    }
     sessionCounter++;
     const id = `session-${sessionCounter}`;
     const workDir = cwd;
@@ -168,7 +195,7 @@ export class SessionManager {
       cols: 120,
       rows: 30,
       cwd: workDir,
-      env: process.env as Record<string, string>,
+      env: getSafeEnv(),
     });
 
     const home = process.env.HOME || process.env.USERPROFILE || '';
@@ -300,7 +327,7 @@ export class SessionManager {
       cols: 120,
       rows: 30,
       cwd: workDir,
-      env: process.env as Record<string, string>,
+      env: getSafeEnv(),
     });
 
     // Set up JSONL watcher for Claude CLI sessions
