@@ -46,6 +46,8 @@ function getSafeEnv(): Record<string, string> {
 interface Session {
   id: string;
   title: string;
+  /** User-facing name (starts as title, updated by rename) */
+  displayName: string;
   cli: CliTool;
   cwd: string;
   claudeSessionUuid: string | null;
@@ -66,7 +68,7 @@ interface PersistedSession {
   displayName: string;
   cwd: string;
   cli: CliTool;
-  claudeSessionUuid: string;
+  claudeSessionUuid: string | null;
 }
 
 export interface PersistedState {
@@ -93,18 +95,12 @@ export class SessionManager {
     }
   }
 
-  /** Save current Claude sessions to disk */
+  /** Persist all sessions in the Map to disk */
   private saveState() {
-    // Read existing state to preserve display names that were set via updateDisplayName
-    const existing = this.loadState();
     const state: PersistedState = { sessions: {} };
     for (const session of this.sessions.values()) {
-      if (session.status === SessionStatus.Killed) continue;
-      if (!session.claudeSessionUuid) continue; // only persist Claude sessions
-      // Preserve existing display name if already saved, otherwise use session title
-      const existingEntry = existing.sessions[session.id];
       state.sessions[session.id] = {
-        displayName: existingEntry?.displayName || session.title,
+        displayName: session.displayName,
         cwd: session.cwd,
         cli: session.cli,
         claudeSessionUuid: session.claudeSessionUuid,
@@ -118,25 +114,12 @@ export class SessionManager {
     }
   }
 
-  /** Update display names in persisted state */
+  /** Update display name in memory and persist */
   updateDisplayName(sessionId: string, displayName: string) {
-    const state = this.loadState();
-    if (state.sessions[sessionId]) {
-      state.sessions[sessionId].displayName = displayName;
-      try {
-        fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
-      } catch { /* ignore */ }
-    }
-  }
-
-  /** Remove a session from persisted state */
-  private removeFromState(sessionId: string) {
-    const state = this.loadState();
-    if (state.sessions[sessionId]) {
-      delete state.sessions[sessionId];
-      try {
-        fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
-      } catch { /* ignore */ }
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.displayName = displayName;
+      this.saveState();
     }
   }
 
@@ -153,13 +136,15 @@ export class SessionManager {
     const results: { info: SessionInfo; displayName: string }[] = [];
 
     for (const [oldId, persisted] of Object.entries(state.sessions)) {
+      // Only Claude sessions with a UUID can be resumed
+      if (!persisted.claudeSessionUuid) continue;
       try {
         // Validate cwd exists before restoring
         if (!fs.existsSync(persisted.cwd) || !fs.statSync(persisted.cwd).isDirectory()) {
           console.warn(`[restore] Skipping ${oldId}: cwd "${persisted.cwd}" does not exist`);
           continue;
         }
-        // Create a new session that resumes the Claude conversation via --session-id
+        // Create a new session that resumes the Claude conversation
         const info = this.createWithUuid(
           persisted.cwd,
           persisted.cli,
@@ -171,6 +156,9 @@ export class SessionManager {
         console.error(`[restore] Failed to restore ${oldId}:`, err.message);
       }
     }
+
+    // Save state once after all sessions are restored (not during each createWithUuid)
+    this.saveState();
 
     return results;
   }
@@ -242,6 +230,7 @@ export class SessionManager {
     const session: Session = {
       id,
       title,
+      displayName: title,
       cli,
       cwd: workDir,
       claudeSessionUuid,
@@ -278,21 +267,24 @@ export class SessionManager {
 
     this.sessions.set(id, session);
 
-    // Resume the previous Claude conversation
-    const command = `${toolDef.command} --resume ${claudeSessionUuid}`;
+    // Use --resume if the JSONL conversation file exists (real conversation to resume),
+    // otherwise --session-id (session was saved but never had a conversation)
+    const hasConversation = fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).size > 0;
+    const command = hasConversation
+      ? `${toolDef.command} --resume ${claudeSessionUuid}`
+      : `${toolDef.command} --session-id ${claudeSessionUuid}`;
     setTimeout(() => {
       try {
         term.write(command + '\r');
       } catch { /* session may have been killed */ }
     }, 1000);
 
-    // Update persisted state with new internal ID
-    this.saveState();
-
     return { id, title, status: SessionStatus.Running, pid: term.pid };
   }
 
   stop() {
+    // Flush state to disk before shutting down
+    this.saveState();
     if (this.statusInterval) {
       clearInterval(this.statusInterval);
       this.statusInterval = null;
@@ -390,6 +382,7 @@ export class SessionManager {
     const session: Session = {
       id,
       title,
+      displayName: title,
       cli,
       cwd: workDir,
       claudeSessionUuid: sessionUuid,
@@ -442,8 +435,7 @@ export class SessionManager {
       }, 1000);
     }
 
-    // Persist state if this is a Claude session
-    if (sessionUuid) this.saveState();
+    this.saveState();
 
     return { id, title, status: SessionStatus.Running, pid: term.pid };
   }
@@ -481,7 +473,8 @@ export class SessionManager {
       }
       session.status = SessionStatus.Killed;
       this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
-      this.removeFromState(id);
+      this.sessions.delete(id);
+      this.saveState();
     }
   }
 
@@ -498,12 +491,11 @@ export class SessionManager {
     }));
   }
 
-  /** Return { sessionId → displayName } from persisted state */
+  /** Return { sessionId → displayName } from in-memory sessions */
   getDisplayNames(): Record<string, string> {
-    const state = this.loadState();
     const names: Record<string, string> = {};
-    for (const [id, entry] of Object.entries(state.sessions)) {
-      if (entry.displayName) names[id] = entry.displayName;
+    for (const session of this.sessions.values()) {
+      names[session.id] = session.displayName;
     }
     return names;
   }
@@ -578,6 +570,13 @@ export class SessionManager {
               const watcher = this.createJsonlWatcher(jsonlPath, sessionId);
               session.jsonlWatcher = watcher;
               watcher.start();
+              // Extract UUID from filename and persist so session can be restored
+              const discoveredUuid = file.replace('.jsonl', '');
+              if (UUID_RE.test(discoveredUuid)) {
+                session.claudeSessionUuid = discoveredUuid;
+                session.cli = 'claude'; // normalize — it's a regular Claude session now
+                this.saveState();
+              }
               clearInterval(poll);
               return;
             }
