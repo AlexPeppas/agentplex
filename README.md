@@ -21,7 +21,9 @@
 
 ## Quick Start
 
-Download **AgentPlex-1.0.0 Setup.exe** from the [latest release](https://github.com/AlexPeppas/agentplex/releases/latest) and run it. That's it.
+Download **AgentPlex.exe** from the [latest release](https://github.com/AlexPeppas/agentplex/releases/latest) and run it. That's it.
+
+> **macOS / Linux**: Pre-built binaries coming soon. For now, [build from source](#build-from-source).
 
 ## Installation
 
@@ -75,11 +77,7 @@ Building from source requires [Node.js](https://nodejs.org/) 18+ and native buil
   <img src="assets/session-graph.png" alt="AgentPlex screenshot" width="800" />
 </p>
 
-> Three concurrent sessions on the graph canvas: **Autonomous Driving** spawned 3 sub-agents and researches Tesla, Uber, Waymo and upcoming deals. **Fine Tuning** is in plan mode and investigates fine tuning techniques. At that moment, it waits for human input (indicated by the **?** badge). Finally **Mortgage** is doing my competitor Greek mortgage loans analysis :).
-<br>
-Each node reflects real-time session status at a glance.
-<br>
-You can hover over any session and click the send button to instill the session's context summary and a prompt/instruction in another active session.
+> Three concurrent sessions on the graph canvas: **Autonomous Driving** spawned 3 sub-agents comparing Tesla, Waymo, and Cruise. **Fine Tuning** is in plan mode working through a structured research plan — it's currently waiting for human input (indicated by the **?** badge). **Mortgage** crawls and looks for the best interest rates. Each node reflects real-time session status at a glance. Hover any session and click the send icon to share context with another session.
 
 ## Configuration
 

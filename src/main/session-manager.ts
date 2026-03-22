@@ -75,13 +75,17 @@ export class SessionManager {
   }
 
   /** Save current Claude sessions to disk */
-  private saveState(displayNames: Record<string, string> = {}) {
+  private saveState() {
+    // Read existing state to preserve display names that were set via updateDisplayName
+    const existing = this.loadState();
     const state: PersistedState = { sessions: {} };
     for (const session of this.sessions.values()) {
       if (session.status === SessionStatus.Killed) continue;
       if (!session.claudeSessionUuid) continue; // only persist Claude sessions
+      // Preserve existing display name if already saved, otherwise use session title
+      const existingEntry = existing.sessions[session.id];
       state.sessions[session.id] = {
-        displayName: displayNames[session.id] || session.title,
+        displayName: existingEntry?.displayName || session.title,
         cwd: session.cwd,
         cli: session.cli,
         claudeSessionUuid: session.claudeSessionUuid,
