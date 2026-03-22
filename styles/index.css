@@ -93,17 +93,22 @@ html, body, #root {
 .app__graph {
   flex: 1;
   min-width: 0;
-  transition: flex 0.2s ease;
-}
-
-.app__graph--split {
-  flex: 0 0 60%;
 }
 
 .app__terminal {
-  flex: 0 0 40%;
   min-width: 0;
-  border-left: 1px solid var(--border);
+}
+
+.app__resize-handle {
+  flex: 0 0 4px;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background 0.12s;
+}
+
+.app__resize-handle:hover,
+.app__resize-handle:active {
+  background: var(--accent);
 }
 
 /* ═══════════════════════════════════════════════════════════

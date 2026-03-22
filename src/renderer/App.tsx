@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { Toolbar } from './components/Toolbar';
 import { GraphCanvas } from './components/GraphCanvas';
@@ -38,6 +38,35 @@ export function App() {
   const prevStatuses = useRef<Map<string, SessionStatus>>(new Map());
 
   const renameSession = useAppStore((s) => s.renameSession);
+
+  const [terminalWidth, setTerminalWidth] = useState(40); // percentage
+  const dragging = useRef(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current || !contentRef.current) return;
+      const rect = contentRef.current.getBoundingClientRect();
+      const pct = ((rect.right - ev.clientX) / rect.width) * 100;
+      setTerminalWidth(Math.max(20, Math.min(80, pct)));
+    };
+
+    const onUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
   // Reconnect to existing sessions on mount (e.g. after renderer reload/crash)
   // and restore persisted Claude sessions from state.json
@@ -154,16 +183,22 @@ export function App() {
   return (
     <div className="app">
       <Toolbar />
-      <div className="app__content">
-        <div className={`app__graph ${selectedSessionId ? 'app__graph--split' : ''}`}>
+      <div className="app__content" ref={contentRef}>
+        <div
+          className="app__graph"
+          style={selectedSessionId ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
+        >
           <ReactFlowProvider>
             <GraphCanvas />
           </ReactFlowProvider>
         </div>
         {selectedSessionId && (
-          <div className="app__terminal">
-            <TerminalPanel />
-          </div>
+          <>
+            <div className="app__resize-handle" onMouseDown={handleResizeStart} />
+            <div className="app__terminal" style={{ flex: `0 0 ${terminalWidth}%` }}>
+              <TerminalPanel />
+            </div>
+          </>
         )}
       </div>
       {sendDialogSourceId && <SendDialog />}
