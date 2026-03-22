@@ -34,28 +34,28 @@ If you prefer to build from source instead of using the installer:
 ```bash
 git clone https://github.com/AlexPeppas/agentplex.git
 cd agentplex
-npm install
-npm start
+pnpm install
+pnpm start
 ```
 
 To build a distributable installer:
 
 ```bash
-npm run make
+pnpm make
 ```
 
 ### Global CLI shortcut (optional)
 
 ```bash
-npm link        # one-time setup
-agentplex       # launch from anywhere
+pnpm link --global   # one-time setup
+agentplex            # launch from anywhere
 ```
 
-To remove: `npm unlink -g agentplex`
+To remove: `pnpm unlink --global agentplex`
 
 ## Dev Requirements
 
-Building from source requires [Node.js](https://nodejs.org/) 18+ and native build tools for `node-pty`:
+Building from source requires [Node.js](https://nodejs.org/) 18+, [pnpm](https://pnpm.io/) (`npm install -g pnpm`), and native build tools for `node-pty`:
 
 - **Windows**: [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
 - **macOS**: `xcode-select --install`
