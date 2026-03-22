@@ -43,31 +43,34 @@ export function App() {
   // and restore persisted Claude sessions from state.json
   useEffect(() => {
     const reconnect = async () => {
-      // Load persisted display names from ~/.agentplex
-      const savedNames = await window.agentPlex.loadDisplayNames();
-      if (Object.keys(savedNames).length > 0) {
-        useAppStore.setState({ displayNames: savedNames });
-      }
-
       // Reconnect to sessions that survived a renderer reload
       const existing = await window.agentPlex.listSessions();
       const knownIds = new Set(Object.keys(useAppStore.getState().sessions));
-      for (const info of existing) {
-        if (knownIds.has(info.id)) continue;
-        addSession(info);
-        updateStatus(info.id, info.status);
-        try {
-          const buffer = await window.agentPlex.getSessionBuffer(info.id);
-          if (buffer) {
-            appendBuffer(info.id, buffer);
-          }
-        } catch {
-          // Handler may not be registered if main process hasn't restarted
-        }
-      }
 
-      // Restore persisted Claude sessions (only on fresh launch, not renderer reload)
-      if (existing.length === 0) {
+      if (existing.length > 0) {
+        // Renderer reload — load display names from state.json (IDs still valid)
+        const savedNames = await window.agentPlex.getDisplayNames();
+        if (Object.keys(savedNames).length > 0) {
+          useAppStore.setState({ displayNames: savedNames });
+        }
+
+        for (const info of existing) {
+          if (knownIds.has(info.id)) continue;
+          addSession(info);
+          updateStatus(info.id, info.status);
+          try {
+            const buffer = await window.agentPlex.getSessionBuffer(info.id);
+            if (buffer) {
+              appendBuffer(info.id, buffer);
+            }
+          } catch {
+            // Handler may not be registered if main process hasn't restarted
+          }
+        }
+      } else {
+        // Fresh launch — don't load old display names (stale IDs would collide
+        // with new session IDs since sessionCounter resets to 0).
+        // The restore loop below will set correct display names for restored sessions.
         try {
           const restored = await window.agentPlex.restoreAllSessions();
           for (const { info, displayName } of restored) {

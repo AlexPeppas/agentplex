@@ -471,6 +471,16 @@ export class SessionManager {
     }));
   }
 
+  /** Return { sessionId → displayName } from persisted state */
+  getDisplayNames(): Record<string, string> {
+    const state = this.loadState();
+    const names: Record<string, string> = {};
+    for (const [id, entry] of Object.entries(state.sessions)) {
+      if (entry.displayName) names[id] = entry.displayName;
+    }
+    return names;
+  }
+
   private createJsonlWatcher(jsonlPath: string, sessionId: string): JsonlSessionWatcher {
     const watcher = new JsonlSessionWatcher(jsonlPath);
 

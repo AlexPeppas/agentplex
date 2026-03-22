@@ -77,8 +77,7 @@ export const IPC = {
   TASK_LIST: 'task:list',
   THEME_CHANGE: 'theme:change',
   SUMMARIZE_CONTEXT: 'summarize:context',
-  DISPLAY_NAMES_LOAD: 'displayNames:load',
-  DISPLAY_NAMES_SAVE: 'displayNames:save',
+  DISPLAY_NAMES_GET: 'displayNames:get',
   SESSION_RESTORE_ALL: 'session:restoreAll',
   SESSION_UPDATE_STATE: 'session:updateState',
 } as const;

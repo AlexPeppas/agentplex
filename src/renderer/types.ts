@@ -21,8 +21,7 @@ export interface AgentPlexAPI {
   updateSessionState: (sessionId: string, displayName: string) => void;
   restoreAllSessions: () => Promise<{ info: SessionInfo; displayName: string }[]>;
   summarizeContext: (context: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
-  loadDisplayNames: () => Promise<Record<string, string>>;
-  saveDisplayNames: (displayNames: Record<string, string>) => void;
+  getDisplayNames: () => Promise<Record<string, string>>;
   setTheme: (theme: 'dark' | 'light') => void;
 }
 

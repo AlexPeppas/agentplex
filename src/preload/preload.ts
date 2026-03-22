@@ -122,12 +122,8 @@ const api = {
     return ipcRenderer.invoke(IPC.SUMMARIZE_CONTEXT, { context, sourceLabel });
   },
 
-  loadDisplayNames: (): Promise<Record<string, string>> => {
-    return ipcRenderer.invoke(IPC.DISPLAY_NAMES_LOAD);
-  },
-
-  saveDisplayNames: (displayNames: Record<string, string>): void => {
-    ipcRenderer.send(IPC.DISPLAY_NAMES_SAVE, { displayNames });
+  getDisplayNames: (): Promise<Record<string, string>> => {
+    return ipcRenderer.invoke(IPC.DISPLAY_NAMES_GET);
   },
 
   setTheme: (theme: 'dark' | 'light'): void => {
