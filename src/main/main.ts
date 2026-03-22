@@ -6,6 +6,11 @@ import { registerIpcHandlers } from './ipc-handlers';
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
+// Prevent remote debugging port from being opened (blocks --remote-debugging-port flag)
+app.commandLine.appendSwitch('remote-debugging-port', '0');
+// Disable exposing the app over any network interface
+app.commandLine.appendSwitch('remote-allow-origins', '');
+
 // Handle Squirrel install/update/uninstall events immediately — skip app startup
 if (process.platform === 'win32') {
   const cmd = process.argv[1];
