@@ -342,29 +342,61 @@ html, body, #root {
   font-family: inherit;
 }
 
-.session-node__kill {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
+/* Delete confirmation popover */
+.session-node__confirm {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  color: var(--error);
-  font-size: 14px;
-  line-height: 1;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+.session-node__confirm-text {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.session-node__confirm-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.session-node__confirm-delete {
+  flex: 1;
+  padding: 4px 0;
+  background: var(--error);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s, background 0.15s;
+  transition: opacity 0.12s;
 }
 
-.session-node:hover .session-node__kill {
-  opacity: 1;
+.session-node__confirm-delete:hover {
+  opacity: 0.85;
 }
 
-.session-node__kill:hover {
-  background: var(--error-subtle);
+.session-node__confirm-cancel {
+  flex: 1;
+  padding: 4px 0;
+  background: var(--border);
+  color: var(--text-primary);
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.session-node__confirm-cancel:hover {
+  background: var(--border-strong);
 }
 
 /* Attention badge (waiting for input) */

@@ -11,7 +11,6 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const renameSession = useAppStore((s) => s.renameSession);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
-  // Subscribe directly to store status so React Flow's memo diffing can't block re-renders
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const isSelected = selectedSessionId === nodeData.sessionId;
   const isKilled = status === SessionStatus.Killed;
@@ -19,11 +18,25 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
   }, [editing]);
+
+  // Close confirm popover on outside click
+  useEffect(() => {
+    if (!confirmingDelete) return;
+    const handler = (e: MouseEvent) => {
+      if (confirmRef.current && !confirmRef.current.contains(e.target as Node)) {
+        setConfirmingDelete(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [confirmingDelete]);
 
   const commit = useCallback(() => {
     const trimmed = draft.trim();
@@ -44,22 +57,36 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     selectSession(nodeData.sessionId);
   };
 
-  const handleKill = (e: React.MouseEvent) => {
+  const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setConfirmingDelete(true);
+  };
+
+  const handleConfirmDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmingDelete(false);
     if (!isKilled) {
       window.agentPlex.killSession(nodeData.sessionId);
     }
+    removeSession(nodeData.sessionId);
   };
 
-  const handleRemove = (e: React.MouseEvent) => {
+  const handleCancelDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    removeSession(nodeData.sessionId);
+    setConfirmingDelete(false);
   };
 
   const handleSend = (e: React.MouseEvent) => {
     e.stopPropagation();
     openSendDialog(nodeData.sessionId);
   };
+
+  const trashIcon = (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
 
   return (
     <div
@@ -91,39 +118,36 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
             {nodeData.label}
           </span>
         )}
-        {isKilled ? (
+        {!isKilled && (
           <button
-            className="session-node__remove"
-            onClick={handleRemove}
-            title="Remove from field"
+            className="session-node__send"
+            onClick={handleSend}
+            title="Send message to session"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
             </svg>
           </button>
-        ) : (
-          <>
-            <button
-              className="session-node__send"
-              onClick={handleSend}
-              title="Send message to session"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
-            <button
-              className="session-node__kill"
-              onClick={handleKill}
-              title="Kill session"
-            >
-              ×
-            </button>
-          </>
         )}
+        <button
+          className="session-node__remove"
+          onClick={handleDeleteClick}
+          title="Delete session"
+        >
+          {trashIcon}
+        </button>
       </div>
+
+      {confirmingDelete && (
+        <div className="session-node__confirm" ref={confirmRef} onClick={(e) => e.stopPropagation()}>
+          <span className="session-node__confirm-text">Delete this session?</span>
+          <div className="session-node__confirm-actions">
+            <button className="session-node__confirm-delete" onClick={handleConfirmDelete}>Delete</button>
+            <button className="session-node__confirm-cancel" onClick={handleCancelDelete}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {nodeData.mode === 'plan' && (
         <div className="session-node__plan-badge">
