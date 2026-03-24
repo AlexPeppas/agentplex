@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, session } from 'electron';
 import path from 'node:path';
 import { sessionManager } from './session-manager';
 import { registerIpcHandlers } from './ipc-handlers';
@@ -77,6 +77,20 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Apply strict CSP in production only (Vite dev server needs unsafe-eval for HMR)
+  if (!MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
+          ],
+        },
+      });
+    });
+  }
+
   registerIpcHandlers();
   sessionManager.start();
   createWindow();
