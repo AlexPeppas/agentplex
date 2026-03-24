@@ -83,12 +83,21 @@ Building from source requires [Node.js](https://nodejs.org/) 18+, [pnpm](https:/
 
 ### Cross-session summarization (optional)
 
-To enable AI-powered context summarization when sending messages between sessions, set your Anthropic API key using `AGENTPLEX_API_KEY` (not `ANTHROPIC_API_KEY`, which would conflict with Claude CLI's auth):
+To enable AI-powered context summarization when sending messages between sessions, set your Anthropic API key using `AGENTPLEX_API_KEY` (not `ANTHROPIC_API_KEY`, which would conflict with Claude CLI's auth).
+
+**Set it persistently (recommended):**
 
 ```bash
-export AGENTPLEX_API_KEY=sk-ant-...       # macOS/Linux
+export AGENTPLEX_API_KEY=sk-ant-...       # macOS/Linux (~/.bashrc or ~/.zshrc)
 set AGENTPLEX_API_KEY=sk-ant-...          # Windows (cmd)
 $env:AGENTPLEX_API_KEY="sk-ant-..."       # Windows (PowerShell)
+```
+
+**Or inline when launching from source:**
+
+```bash
+AGENTPLEX_API_KEY=sk-ant-... pnpm start                          # macOS/Linux
+$env:AGENTPLEX_API_KEY="sk-ant-..."; pnpm start                  # Windows (PowerShell)
 ```
 
 Without this, cross-session messaging still works — it sends raw context instead of a summary.
