@@ -79,14 +79,15 @@ export function App() {
       if (existing.length > 0) {
         // Renderer reload — load display names from state.json (IDs still valid)
         const savedNames = await window.agentPlex.getDisplayNames();
-        if (Object.keys(savedNames).length > 0) {
-          useAppStore.setState({ displayNames: savedNames });
-        }
 
         for (const info of existing) {
           if (knownIds.has(info.id)) continue;
           addSession(info);
           updateStatus(info.id, info.status);
+          // Apply persisted display name to node label
+          if (savedNames[info.id]) {
+            renameSession(info.id, savedNames[info.id]);
+          }
           try {
             const buffer = await window.agentPlex.getSessionBuffer(info.id);
             if (buffer) {
