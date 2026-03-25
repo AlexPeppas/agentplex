@@ -4,6 +4,7 @@ import { Toolbar } from './components/Toolbar';
 import { GraphCanvas } from './components/GraphCanvas';
 import { TerminalPanel } from './components/TerminalPanel';
 import { SendDialog } from './components/SendDialog';
+import { ProjectLauncher } from './components/ProjectLauncher';
 import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
@@ -25,6 +26,7 @@ function playBell() {
 export function App() {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const sendDialogSourceId = useAppStore((s) => s.sendDialogSourceId);
+  const launcherOpen = useAppStore((s) => s.launcherOpen);
   const addSession = useAppStore((s) => s.addSession);
   const appendBuffer = useAppStore((s) => s.appendBuffer);
   const updateStatus = useAppStore((s) => s.updateStatus);
@@ -203,6 +205,7 @@ export function App() {
         )}
       </div>
       {sendDialogSourceId && <SendDialog />}
+      {launcherOpen && <ProjectLauncher />}
     </div>
   );
 }

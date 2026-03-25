@@ -174,7 +174,7 @@ html, body, #root {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 4px;
-  min-width: 160px;
+  min-width: 220px;
   box-shadow: 0 8px 24px var(--shadow-heavy);
   z-index: 100;
 }
@@ -238,6 +238,39 @@ html, body, #root {
   height: 1px;
   background: var(--border);
   margin: 4px 0;
+}
+
+.toolbar__default-indicator {
+  color: #f0c040;
+}
+
+.toolbar__context-menu {
+  z-index: 1000;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px var(--shadow-heavy);
+}
+
+.toolbar__context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+
+.toolbar__context-menu-item:hover {
+  background: var(--border);
 }
 
 /* Theme toggle */
@@ -994,6 +1027,268 @@ html, body, #root {
 .send-dialog__send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Project launcher
+   ═══════════════════════════════════════════════════════════ */
+.project-launcher__backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.project-launcher {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  width: 600px;
+  max-width: 90vw;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px var(--shadow-heavy);
+}
+
+.project-launcher__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.project-launcher__back {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.project-launcher__back:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.project-launcher__search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 16px;
+}
+
+.project-launcher__search {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.project-launcher__search::placeholder {
+  color: var(--text-muted);
+}
+
+.project-launcher__search:focus {
+  border-color: var(--accent);
+}
+
+.project-launcher__browse-icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.project-launcher__browse-icon:hover {
+  background: var(--border);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.project-launcher__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
+.project-launcher__section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 8px 4px;
+}
+
+.project-launcher__empty {
+  padding: 20px 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Project rows */
+.project-launcher__project-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.project-launcher__project-row:hover {
+  background: var(--border);
+}
+
+.project-launcher__pin-star {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color 0.12s;
+}
+
+.project-launcher__pin-star:hover {
+  color: var(--warning);
+}
+
+.project-launcher__pin-star--active {
+  color: var(--warning);
+}
+
+.project-launcher__project-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-launcher__project-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-launcher__project-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-launcher__project-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.project-launcher__session-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.project-launcher__project-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Session list */
+.project-launcher__session-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 4px 8px 8px;
+}
+
+.project-launcher__session-row {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.project-launcher__session-row:hover {
+  background: var(--border);
+}
+
+.project-launcher__session-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-launcher__session-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.project-launcher__branch-badge {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-launcher__session-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.project-launcher__session-preview {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ═══════════════════════════════════════════════════════════

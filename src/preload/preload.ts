@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession } from '../shared/ipc-channels';
+import { IPC, type CliTool, type DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, type DiscoveredProject, type DiscoveredSession, type PinnedProject } from '../shared/ipc-channels';
 
 const api = {
-  createSession: (cwd?: string, cli?: CliTool): Promise<SessionInfo> => {
-    return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli });
+  createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli, resumeSessionId });
   },
 
   pickDirectory: (): Promise<string | null> => {
@@ -134,8 +134,40 @@ const api = {
     return ipcRenderer.invoke(IPC.ADOPT_EXTERNAL, { sessionUuid, cwd });
   },
 
+  scanProjects: (): Promise<DiscoveredProject[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_PROJECTS);
+  },
+
+  scanSessions: (encodedPath: string): Promise<DiscoveredSession[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_SESSIONS, { encodedPath });
+  },
+
+  getPinnedProjects: (): Promise<PinnedProject[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_GET_PINS);
+  },
+
+  updatePinnedProjects: (pins: PinnedProject[]): Promise<void> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_UPDATE_PINS, { pins });
+  },
+
+  resolveProjectPath: (encodedPath: string): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_RESOLVE_PATH, { encodedPath });
+  },
+
   setTheme: (theme: 'dark' | 'light'): void => {
     ipcRenderer.send(IPC.THEME_CHANGE, { theme });
+  },
+
+  getShells: (): Promise<DetectedShell[]> => {
+    return ipcRenderer.invoke(IPC.SHELL_LIST);
+  },
+
+  getDefaultShell: (): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_GET_DEFAULT_SHELL);
+  },
+
+  setDefaultShell: (id: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_SET_DEFAULT_SHELL, { id });
   },
 };
 
