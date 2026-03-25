@@ -300,7 +300,15 @@ export class SessionManager {
     this.sessions.clear();
   }
 
-  create(cwd?: string, cli: CliTool = 'claude'): SessionInfo {
+  create(cwd?: string, cli: CliTool = 'claude', resumeSessionId?: string): SessionInfo {
+    // Direct resume by UUID — delegate to createWithUuid which handles --resume <uuid>
+    if (resumeSessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resumeSessionId)) {
+      const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
+      const info = this.createWithUuid(workDir, 'claude', resumeSessionId);
+      this.saveState();
+      return info;
+    }
+
     sessionCounter++;
     const id = `session-${sessionCounter}`;
     const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';

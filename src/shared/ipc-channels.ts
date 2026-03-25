@@ -57,6 +57,29 @@ export interface TaskListInfo {
   tasks: { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }[];
 }
 
+export interface DiscoveredProject {
+  encodedPath: string;
+  realPath: string;
+  dirName: string;
+  sessionCount: number;
+  lastActivity: string;
+  isPinned: boolean;
+}
+
+export interface DiscoveredSession {
+  sessionId: string;
+  projectPath: string;
+  customTitle: string | null;
+  firstUserMessage: string | null;
+  gitBranch: string | null;
+  lastTimestamp: string | null;
+}
+
+export interface PinnedProject {
+  path: string;
+  label?: string;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -80,4 +103,9 @@ export const IPC = {
   DISPLAY_NAMES_GET: 'displayNames:get',
   SESSION_RESTORE_ALL: 'session:restoreAll',
   SESSION_UPDATE_STATE: 'session:updateState',
+  LAUNCHER_SCAN_PROJECTS: 'launcher:scanProjects',
+  LAUNCHER_SCAN_SESSIONS: 'launcher:scanSessions',
+  LAUNCHER_GET_PINS: 'launcher:getPins',
+  LAUNCHER_UPDATE_PINS: 'launcher:updatePins',
+  LAUNCHER_RESOLVE_PATH: 'launcher:resolvePath',
 } as const;

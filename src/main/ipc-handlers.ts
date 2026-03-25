@@ -1,6 +1,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
-import { IPC, CLI_TOOLS, SHELL_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
+import { IPC, CLI_TOOLS, SHELL_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
+import { scanProjects, scanSessionsForProject, getPinnedProjects, updatePinnedProjects, resolveProjectPath } from './claude-session-scanner';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
@@ -11,9 +12,9 @@ const VALID_CLI_IDS = new Set<string>([
 const MAX_CONTEXT_LENGTH = 100_000;
 
 export function registerIpcHandlers() {
-  ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli }: { cwd?: string; cli?: string } = {}) => {
+  ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli, resumeSessionId }: { cwd?: string; cli?: string; resumeSessionId?: string } = {}) => {
     const safeCli: CliTool = (cli && VALID_CLI_IDS.has(cli) ? cli : 'claude') as CliTool;
-    return sessionManager.create(cwd, safeCli);
+    return sessionManager.create(cwd, safeCli, resumeSessionId);
   });
 
   ipcMain.handle(IPC.DIALOG_OPEN_DIR, async () => {
@@ -118,6 +119,37 @@ ${safeContext}
     dark: { titleBar: '#1e1c18', symbol: '#ece4d8', bg: '#262420' },
     light: { titleBar: '#ebe5da', symbol: '#3a3428', bg: '#f5f0e8' },
   };
+
+  ipcMain.handle(IPC.LAUNCHER_SCAN_PROJECTS, async () => {
+    console.log('[launcher] scanProjects called');
+    try {
+      const result = await scanProjects();
+      console.log('[launcher] scanProjects done:', result.length, 'projects');
+      return result;
+    } catch (err) {
+      console.error('[launcher] scanProjects error:', err);
+      return [];
+    }
+  });
+
+  ipcMain.handle(IPC.LAUNCHER_SCAN_SESSIONS, async (_event, { encodedPath }: { encodedPath: string }) => {
+    if (typeof encodedPath !== 'string') return [];
+    return scanSessionsForProject(encodedPath);
+  });
+
+  ipcMain.handle(IPC.LAUNCHER_GET_PINS, () => {
+    return getPinnedProjects();
+  });
+
+  ipcMain.handle(IPC.LAUNCHER_UPDATE_PINS, (_event, { pins }: { pins: PinnedProject[] }) => {
+    if (!Array.isArray(pins)) return;
+    updatePinnedProjects(pins);
+  });
+
+  ipcMain.handle(IPC.LAUNCHER_RESOLVE_PATH, async (_event, { encodedPath }: { encodedPath: string }) => {
+    if (typeof encodedPath !== 'string') return null;
+    return resolveProjectPath(encodedPath);
+  });
 
   ipcMain.on(IPC.THEME_CHANGE, (_event, { theme }: { theme: string }) => {
     const colors = THEME_COLORS[theme];

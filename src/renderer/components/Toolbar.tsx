@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
-import { CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../../shared/ipc-channels';
+import { CLI_TOOLS, SHELL_TOOLS, type CliTool } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
 
 function getInitialTheme(): 'dark' | 'light' {
@@ -11,6 +11,7 @@ function getInitialTheme(): 'dark' | 'light' {
 
 export function Toolbar() {
   const addSession = useAppStore((s) => s.addSession);
+  const openLauncher = useAppStore((s) => s.openLauncher);
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -26,19 +27,22 @@ export function Toolbar() {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
   }, []);
 
+  const handleNewClaude = useCallback(() => {
+    setMenuOpen(false);
+    openLauncher('new', 'claude');
+  }, [openLauncher]);
+
+  const handleResume = useCallback(() => {
+    setMenuOpen(false);
+    openLauncher('resume', 'claude');
+  }, [openLauncher]);
+
+  // Non-Claude tools still use the folder picker
   const handlePick = useCallback(async (cli: CliTool) => {
     setMenuOpen(false);
     const cwd = await window.agentPlex.pickDirectory();
     if (!cwd) return;
     const info = await window.agentPlex.createSession(cwd, cli);
-    addSession(info);
-  }, [addSession]);
-
-  const handleResume = useCallback(async () => {
-    setMenuOpen(false);
-    const cwd = await window.agentPlex.pickDirectory();
-    if (!cwd) return;
-    const info = await window.agentPlex.createSession(cwd, RESUME_TOOL.id);
     addSession(info);
   }, [addSession]);
 
@@ -89,7 +93,7 @@ export function Toolbar() {
               <div className="toolbar__menu-row">
                 <button
                   className="toolbar__menu-pill"
-                  onClick={() => handlePick('claude')}
+                  onClick={handleNewClaude}
                 >
                   New
                 </button>
