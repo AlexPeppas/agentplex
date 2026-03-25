@@ -2,6 +2,7 @@ import { useAppStore } from '../store';
 import { PlaceholderPanel } from './panels/PlaceholderPanel';
 import { ExplorerPanel } from './panels/ExplorerPanel';
 import { SessionExplorerPanel } from './panels/SessionExplorerPanel';
+import { SearchPanel } from './panels/SearchPanel';
 
 export function SidePanel() {
   const activePanelId = useAppStore((s) => s.activePanelId);
@@ -22,11 +23,7 @@ export function SidePanel() {
       <div className="side-panel__content">
         {activePanelId === 'explorer' && <ExplorerPanel />}
         {activePanelId === 'sessions' && <SessionExplorerPanel />}
-        {activePanelId === 'search' && (
-          <div className="placeholder-panel">
-            <span className="placeholder-panel__text">Search — wired in Task 9</span>
-          </div>
-        )}
+        {activePanelId === 'search' && <SearchPanel />}
         {activePanelId === 'git' && (
           <PlaceholderPanel icon={'\u2442'} label="Git" />
         )}
