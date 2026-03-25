@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
-import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../shared/ipc-channels';
+import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool, type ExternalSession } from '../shared/ipc-channels';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { PlanTaskDetector } from './plan-task-detector';
@@ -584,6 +584,78 @@ export class SessionManager {
         }
       } catch { /* dir doesn't exist yet */ }
     }, 500);
+  }
+
+  /**
+   * Scan ~/.claude/sessions/*.json for externally-running Claude sessions
+   * that are not already managed by AgentPlex.
+   */
+  discoverExternal(): ExternalSession[] {
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const sessionsDir = path.join(home, '.claude', 'sessions');
+
+    let files: string[];
+    try {
+      files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith('.json'));
+    } catch {
+      return [];
+    }
+
+    // Collect UUIDs already managed by AgentPlex
+    const managedUuids = new Set<string>();
+    for (const s of this.sessions.values()) {
+      if (s.claudeSessionUuid) managedUuids.add(s.claudeSessionUuid);
+    }
+
+    const results: ExternalSession[] = [];
+
+    for (const file of files) {
+      try {
+        const filePath = path.join(sessionsDir, file);
+        const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const pid = raw.pid as number;
+        const sessionId = raw.sessionId as string;
+        const cwd = raw.cwd as string;
+        const startedAt = raw.startedAt as number;
+        const name = raw.name as string | undefined;
+
+        if (!pid || !sessionId || !cwd) continue;
+
+        // Skip sessions already managed by AgentPlex
+        if (managedUuids.has(sessionId)) continue;
+
+        // Check if the process is still alive
+        try {
+          process.kill(pid, 0); // signal 0 = existence check, doesn't kill
+        } catch {
+          continue; // process is dead
+        }
+
+        results.push({ pid, sessionId, cwd, startedAt, name });
+      } catch {
+        continue;
+      }
+    }
+
+    // Sort by startedAt descending (most recent first)
+    results.sort((a, b) => b.startedAt - a.startedAt);
+    return results;
+  }
+
+  /**
+   * Adopt an externally-running Claude session into AgentPlex.
+   * Spawns a new PTY that resumes the session via `claude --resume <uuid>`.
+   */
+  adoptExternal(sessionUuid: string, cwd: string): SessionInfo {
+    if (!UUID_RE.test(sessionUuid)) {
+      throw new Error(`Invalid session UUID: ${sessionUuid}`);
+    }
+    if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
+      throw new Error(`Working directory does not exist: ${cwd}`);
+    }
+    const info = this.createWithUuid(cwd, 'claude', sessionUuid);
+    this.saveState();
+    return info;
   }
 
   private checkStatuses() {

@@ -110,6 +110,17 @@ ${safeContext}
     return sessionManager.restoreAll();
   });
 
+  ipcMain.handle(IPC.DISCOVER_EXTERNAL, () => {
+    return sessionManager.discoverExternal();
+  });
+
+  ipcMain.handle(IPC.ADOPT_EXTERNAL, (_event, { sessionUuid, cwd }: { sessionUuid: string; cwd: string }) => {
+    if (typeof sessionUuid !== 'string' || typeof cwd !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    return sessionManager.adoptExternal(sessionUuid, cwd);
+  });
+
   ipcMain.handle(IPC.DISPLAY_NAMES_GET, () => {
     return sessionManager.getDisplayNames();
   });

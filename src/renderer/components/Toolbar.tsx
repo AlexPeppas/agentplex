@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
-import { CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../../shared/ipc-channels';
+import { CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool, type ExternalSession } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
 
 function getInitialTheme(): 'dark' | 'light' {
@@ -9,11 +9,35 @@ function getInitialTheme(): 'dark' | 'light' {
   return 'dark';
 }
 
+function formatTimeAgo(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function shortenPath(cwd: string): string {
+  const home = cwd.match(/^\/home\/[^/]+/)?.[0] || '';
+  if (home && cwd.startsWith(home)) {
+    return '~' + cwd.slice(home.length);
+  }
+  return cwd;
+}
+
 export function Toolbar() {
   const addSession = useAppStore((s) => s.addSession);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [discoverOpen, setDiscoverOpen] = useState(false);
+  const [externalSessions, setExternalSessions] = useState<ExternalSession[]>([]);
+  const [discovering, setDiscovering] = useState(false);
+  const [adoptingId, setAdoptingId] = useState<string | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
   const menuRef = useRef<HTMLDivElement>(null);
+  const discoverRef = useRef<HTMLDivElement>(null);
 
   // Apply theme to document and notify main process for titlebar
   useEffect(() => {
@@ -42,6 +66,38 @@ export function Toolbar() {
     addSession(info);
   }, [addSession]);
 
+  const handleDiscover = useCallback(async () => {
+    setDiscoverOpen(true);
+    setDiscovering(true);
+    try {
+      const sessions = await window.agentPlex.discoverExternal();
+      setExternalSessions(sessions);
+    } catch (err) {
+      console.error('[discover] Failed:', err);
+      setExternalSessions([]);
+    } finally {
+      setDiscovering(false);
+    }
+  }, []);
+
+  const handleAdopt = useCallback(async (ext: ExternalSession) => {
+    setAdoptingId(ext.sessionId);
+    try {
+      const info = await window.agentPlex.adoptExternal(ext.sessionId, ext.cwd);
+      addSession(info);
+      const dirName = ext.cwd.split('/').pop() || ext.cwd;
+      const label = ext.name || dirName;
+      const renameSession = useAppStore.getState().renameSession;
+      renameSession(info.id, label);
+      // Remove adopted session from the list
+      setExternalSessions((prev) => prev.filter((s) => s.sessionId !== ext.sessionId));
+    } catch (err) {
+      console.error('[adopt] Failed:', err);
+    } finally {
+      setAdoptingId(null);
+    }
+  }, [addSession]);
+
   // Close menu on outside click
   useEffect(() => {
     if (!menuOpen) return;
@@ -56,13 +112,28 @@ export function Toolbar() {
 
   // Close on Escape
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !discoverOpen) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        setDiscoverOpen(false);
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [menuOpen]);
+  }, [menuOpen, discoverOpen]);
+
+  // Close discover panel on outside click
+  useEffect(() => {
+    if (!discoverOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (discoverRef.current && !discoverRef.current.contains(e.target as Node)) {
+        setDiscoverOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [discoverOpen]);
 
   return (
     <div className="toolbar">
@@ -75,6 +146,47 @@ export function Toolbar() {
       >
         {theme === 'dark' ? '\u2600' : '\u263E'}
       </button>
+      <div className="toolbar__new-wrapper" ref={discoverRef}>
+        <button
+          className="toolbar__button toolbar__button--secondary"
+          onClick={handleDiscover}
+          title="Find running Claude sessions not managed by AgentPlex"
+        >
+          Discover
+        </button>
+        {discoverOpen && (
+          <div className="toolbar__menu toolbar__discover-panel">
+            {discovering ? (
+              <div className="toolbar__discover-empty">Scanning...</div>
+            ) : externalSessions.length === 0 ? (
+              <div className="toolbar__discover-empty">No external Claude sessions found</div>
+            ) : (
+              externalSessions.map((ext) => (
+                <div key={ext.sessionId} className="toolbar__discover-item">
+                  <div className="toolbar__discover-info">
+                    <span className="toolbar__discover-name">
+                      {ext.name || ext.cwd.split('/').pop() || 'Claude'}
+                    </span>
+                    <span className="toolbar__discover-meta">
+                      PID {ext.pid} &middot; {formatTimeAgo(ext.startedAt)}
+                    </span>
+                    <span className="toolbar__discover-path" title={ext.cwd}>
+                      {shortenPath(ext.cwd)}
+                    </span>
+                  </div>
+                  <button
+                    className="toolbar__menu-pill"
+                    onClick={() => handleAdopt(ext)}
+                    disabled={adoptingId === ext.sessionId}
+                  >
+                    {adoptingId === ext.sessionId ? '...' : 'Adopt'}
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
       <div className="toolbar__new-wrapper" ref={menuRef}>
         <button
           className="toolbar__button"

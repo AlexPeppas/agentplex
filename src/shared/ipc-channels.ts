@@ -57,6 +57,14 @@ export interface TaskListInfo {
   tasks: { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }[];
 }
 
+export interface ExternalSession {
+  pid: number;
+  sessionId: string;
+  cwd: string;
+  startedAt: number;
+  name?: string;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -80,4 +88,6 @@ export const IPC = {
   DISPLAY_NAMES_GET: 'displayNames:get',
   SESSION_RESTORE_ALL: 'session:restoreAll',
   SESSION_UPDATE_STATE: 'session:updateState',
+  DISCOVER_EXTERNAL: 'session:discoverExternal',
+  ADOPT_EXTERNAL: 'session:adoptExternal',
 } as const;

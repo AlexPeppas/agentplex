@@ -1,4 +1,4 @@
-import type { CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
+import type { CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   createSession: (cwd?: string, cli?: CliTool) => Promise<SessionInfo>;
@@ -22,6 +22,8 @@ export interface AgentPlexAPI {
   restoreAllSessions: () => Promise<{ info: SessionInfo; displayName: string }[]>;
   summarizeContext: (context: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
   getDisplayNames: () => Promise<Record<string, string>>;
+  discoverExternal: () => Promise<ExternalSession[]>;
+  adoptExternal: (sessionUuid: string, cwd: string) => Promise<SessionInfo>;
   setTheme: (theme: 'dark' | 'light') => void;
 }
 

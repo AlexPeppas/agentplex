@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
+import { IPC, type CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession } from '../shared/ipc-channels';
 
 const api = {
   createSession: (cwd?: string, cli?: CliTool): Promise<SessionInfo> => {
@@ -124,6 +124,14 @@ const api = {
 
   getDisplayNames: (): Promise<Record<string, string>> => {
     return ipcRenderer.invoke(IPC.DISPLAY_NAMES_GET);
+  },
+
+  discoverExternal: (): Promise<ExternalSession[]> => {
+    return ipcRenderer.invoke(IPC.DISCOVER_EXTERNAL);
+  },
+
+  adoptExternal: (sessionUuid: string, cwd: string): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.ADOPT_EXTERNAL, { sessionUuid, cwd });
   },
 
   setTheme: (theme: 'dark' | 'light'): void => {
