@@ -7,6 +7,7 @@ import { homedir } from 'os';
 import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type ExternalSession } from '../shared/ipc-channels';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
+import { renderJsonlTranscript } from './claude-session-scanner';
 import { PlanTaskDetector } from './plan-task-detector';
 
 const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
@@ -266,6 +267,15 @@ export class SessionManager {
     });
 
     this.sessions.set(id, session);
+
+    // Pre-populate the terminal with the JSONL transcript so the user sees
+    // the familiar conversation history before the --resume recap.
+    if (forceResume) {
+      const transcript = renderJsonlTranscript(jsonlPath);
+      if (transcript) {
+        this.send(IPC.SESSION_DATA, { id, data: transcript });
+      }
+    }
 
     // Use --resume if we know this is a real conversation to resume (forceResume from
     // smart-resume flow, or JSONL file exists on disk). Fall back to --session-id only

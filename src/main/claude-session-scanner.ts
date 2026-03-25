@@ -278,3 +278,98 @@ export async function scanSessionsForProject(encodedPath: string): Promise<Disco
 
   return sessions;
 }
+
+// ── ANSI helpers ──────────────────────────────────────────────────────────────
+const RESET = '\x1b[0m';
+const BOLD = '\x1b[1m';
+const DIM = '\x1b[2m';
+const CYAN = '\x1b[36m';
+const GREEN = '\x1b[32m';
+const YELLOW = '\x1b[33m';
+const MAGENTA = '\x1b[35m';
+
+/** Max bytes to read from the JSONL file for the transcript preview. */
+const TRANSCRIPT_MAX_BYTES = 512 * 1024; // 512KB
+
+/**
+ * Read a session JSONL file and render a human-readable, ANSI-coloured
+ * transcript suitable for writing into an xterm terminal.
+ *
+ * Returns the rendered string (with \r\n line endings for the PTY) or an
+ * empty string if the file cannot be read.
+ */
+export function renderJsonlTranscript(jsonlPath: string): string {
+  let text: string;
+  try {
+    const stat = fs.statSync(jsonlPath);
+    const bytesToRead = Math.min(stat.size, TRANSCRIPT_MAX_BYTES);
+    const fd = fs.openSync(jsonlPath, 'r');
+    const buf = Buffer.alloc(bytesToRead);
+    fs.readSync(fd, buf, 0, bytesToRead, 0);
+    fs.closeSync(fd);
+    text = buf.toString('utf-8');
+  } catch {
+    return '';
+  }
+
+  const lines: string[] = [];
+
+  for (const raw of text.split('\n')) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+
+    let record: any;
+    try {
+      record = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    const type = record.type as string | undefined;
+    const content = record.message?.content;
+
+    // Skip non-message records
+    if (type !== 'user' && type !== 'assistant') continue;
+
+    if (type === 'user') {
+      // Extract user text (skip tool_result blocks)
+      if (typeof content === 'string') {
+        lines.push(`${BOLD}${GREEN}> You${RESET}`);
+        lines.push(content);
+        lines.push('');
+      } else if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'text' && block.text) {
+            lines.push(`${BOLD}${GREEN}> You${RESET}`);
+            lines.push(block.text);
+            lines.push('');
+          }
+          // skip tool_result blocks — they're verbose and not useful for the recap
+        }
+      }
+    } else if (type === 'assistant' && Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === 'text' && block.text) {
+          lines.push(`${BOLD}${CYAN}Claude${RESET}`);
+          lines.push(block.text);
+          lines.push('');
+        } else if (block.type === 'tool_use') {
+          const toolName = block.name || 'tool';
+          const desc = block.input?.description || block.input?.command || block.input?.pattern || '';
+          const preview = typeof desc === 'string' ? desc.slice(0, 120) : '';
+          lines.push(`${DIM}${MAGENTA}  ⚙ ${toolName}${preview ? ': ' + preview : ''}${RESET}`);
+        }
+        // skip thinking blocks
+      }
+    }
+  }
+
+  if (lines.length === 0) return '';
+
+  const separator = `${DIM}${YELLOW}${'─'.repeat(60)}${RESET}`;
+  const header = `${DIM}${YELLOW}  Session transcript (from JSONL)${RESET}`;
+  const footer = `${DIM}${YELLOW}  Resuming session…${RESET}`;
+
+  const output = [separator, header, separator, '', ...lines, separator, footer, separator, ''].join('\r\n');
+  return output;
+}
