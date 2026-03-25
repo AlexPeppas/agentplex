@@ -23,6 +23,7 @@ export interface AgentPlexAPI {
   summarizeContext: (context: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
   getDisplayNames: () => Promise<Record<string, string>>;
   setTheme: (theme: 'dark' | 'light') => void;
+  searchFiles: (query: string, cwd: string) => Promise<{ file: string; line: number; text: string }[]>;
 }
 
 declare global {

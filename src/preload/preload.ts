@@ -129,6 +129,10 @@ const api = {
   setTheme: (theme: 'dark' | 'light'): void => {
     ipcRenderer.send(IPC.THEME_CHANGE, { theme });
   },
+
+  searchFiles: (query: string, cwd: string): Promise<{ file: string; line: number; text: string }[]> => {
+    return ipcRenderer.invoke(IPC.SEARCH_FILES, { query, cwd });
+  },
 };
 
 contextBridge.exposeInMainWorld('agentPlex', api);

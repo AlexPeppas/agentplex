@@ -1,6 +1,8 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
 import { IPC, CLI_TOOLS, SHELL_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
@@ -129,5 +131,53 @@ ${safeContext}
       symbolColor: colors.symbol,
     });
     win.setBackgroundColor(colors.bg);
+  });
+
+  ipcMain.handle(IPC.SEARCH_FILES, async (_event, { query, cwd }: { query: string; cwd: string }) => {
+    if (!query || !cwd) return [];
+    const results: { file: string; line: number; text: string }[] = [];
+    const IGNORE = new Set(['node_modules', '.git', 'dist', 'out', '.vite', '.next', '__pycache__']);
+    const MAX_RESULTS = 100;
+    const MAX_FILE_SIZE = 1024 * 1024; // 1MB
+
+    function walk(dir: string) {
+      if (results.length >= MAX_RESULTS) return;
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (results.length >= MAX_RESULTS) return;
+        if (IGNORE.has(entry.name) || entry.name.startsWith('.')) continue;
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile()) {
+          try {
+            const stat = fs.statSync(full);
+            if (stat.size > MAX_FILE_SIZE) continue;
+            const content = fs.readFileSync(full, 'utf-8');
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (results.length >= MAX_RESULTS) break;
+              if (lines[i].toLowerCase().includes(query.toLowerCase())) {
+                results.push({
+                  file: path.relative(cwd, full).replace(/\\/g, '/'),
+                  line: i + 1,
+                  text: lines[i].trim().slice(0, 200),
+                });
+              }
+            }
+          } catch {
+            // skip binary or unreadable files
+          }
+        }
+      }
+    }
+
+    walk(cwd);
+    return results;
   });
 }

@@ -81,4 +81,11 @@ export const IPC = {
   DISPLAY_NAMES_GET: 'displayNames:get',
   SESSION_RESTORE_ALL: 'session:restoreAll',
   SESSION_UPDATE_STATE: 'session:updateState',
+  SEARCH_FILES: 'search:files',
 } as const;
+
+export interface FileSearchResult {
+  file: string;
+  line: number;
+  text: string;
+}
