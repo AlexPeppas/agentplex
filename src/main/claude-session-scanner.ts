@@ -23,20 +23,24 @@ export async function resolveProjectPath(encodedPath: string): Promise<string | 
     const files = (await fs.promises.readdir(projectDir)).filter((f) => f.endsWith('.jsonl'));
     if (files.length === 0) return null;
 
-    // Just read the first JSONL file found — don't sort by mtime
-    const filePath = path.join(projectDir, files[0]);
-    const handle = await fs.promises.open(filePath, 'r');
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const { bytesRead } = await handle.read(buf, 0, HEAD_BYTES, 0);
-    await handle.close();
-
-    const text = buf.slice(0, bytesRead).toString('utf-8');
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
+    // Try files until we find one with a cwd field (some sessions are tiny stubs)
+    for (const file of files.slice(0, 10)) {
       try {
-        const obj = JSON.parse(line);
-        if (obj.cwd && typeof obj.cwd === 'string') return obj.cwd;
-      } catch { /* skip */ }
+        const filePath = path.join(projectDir, file);
+        const handle = await fs.promises.open(filePath, 'r');
+        const buf = Buffer.alloc(HEAD_BYTES);
+        const { bytesRead } = await handle.read(buf, 0, HEAD_BYTES, 0);
+        await handle.close();
+
+        const text = buf.slice(0, bytesRead).toString('utf-8');
+        for (const line of text.split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            if (obj.cwd && typeof obj.cwd === 'string') return obj.cwd;
+          } catch { /* skip */ }
+        }
+      } catch { /* skip file */ }
     }
   } catch { /* skip */ }
   return null;
