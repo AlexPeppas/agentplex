@@ -1,7 +1,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
 import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
-import { getCachedShells } from './shell-detector';
+import { detectShells, getCachedShells } from './shell-detector';
 import { getDefaultShellId, setDefaultShellId } from './settings-manager';
 
 const VALID_CLI_IDS = new Set<string>([
@@ -136,8 +136,8 @@ ${safeContext}
     win.setBackgroundColor(colors.bg);
   });
 
-  ipcMain.handle(IPC.SHELL_LIST, () => {
-    return getCachedShells();
+  ipcMain.handle(IPC.SHELL_LIST, async () => {
+    return await detectShells();
   });
 
   ipcMain.handle(IPC.SETTINGS_GET_DEFAULT_SHELL, () => {
