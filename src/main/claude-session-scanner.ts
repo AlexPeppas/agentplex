@@ -242,6 +242,9 @@ export async function scanSessionsForProject(encodedPath: string): Promise<Disco
     return [];
   }
 
+  // Resolve the real project path once — used as fallback when a session has no cwd
+  const resolvedPath = await resolveProjectPath(encodedPath);
+
   // Sort by mtime descending, cap at MAX_SESSIONS
   const withMtime: { file: string; mtime: number }[] = [];
   for (const f of files) {
@@ -265,7 +268,7 @@ export async function scanSessionsForProject(encodedPath: string): Promise<Disco
 
     sessions.push({
       sessionId,
-      projectPath: head.cwd || encodedPath,
+      projectPath: head.cwd || resolvedPath || encodedPath,
       customTitle: head.customTitle,
       firstUserMessage: head.firstUserMessage,
       gitBranch: head.gitBranch,
