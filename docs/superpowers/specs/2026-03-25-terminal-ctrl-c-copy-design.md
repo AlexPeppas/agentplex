@@ -18,12 +18,18 @@ Add a Ctrl+C intercept in the existing `attachCustomKeyEventHandler` in `src/ren
 
 ### Logic
 
-In the custom key event handler, before the existing zoom handling:
+In the custom key event handler, after the `!e.ctrlKey` early-return guard (line 94) but before the zoom size logic:
 
-1. Check if `e.ctrlKey && e.key === 'c' && e.type === 'keydown'`
+1. Check if `e.key === 'c'` (ctrlKey and keydown are already guarded)
 2. If true, check `term.hasSelection()`
-3. **Selection exists:** copy `term.getSelection()` to clipboard via `navigator.clipboard.writeText()`, call `term.clearSelection()`, call `e.preventDefault()`, return `false` (suppress keystroke)
+3. **Selection exists:** copy `term.getSelection()` to clipboard via `navigator.clipboard.writeText().catch(() => {})` (fire-and-forget with silent error handling since the handler must return synchronously), call `term.clearSelection()`, call `e.preventDefault()`, return `false` (suppress keystroke)
 4. **No selection:** return `true` (pass through to PTY as SIGINT)
+
+### Out of Scope
+
+- **Ctrl+Shift+C:** Not handled; this is primarily a Windows/Mac Electron app where Ctrl+C is the standard copy shortcut.
+- **Right-click context menu copy:** Separate concern handled by xterm.js/Electron natively.
+- **Keyboard-based selection (Shift+arrow):** Requires xterm.js addon not currently in use.
 
 ### Behavior
 
@@ -44,10 +50,22 @@ No other files are modified. The Edit menu `{ role: 'copy' }` remains for non-te
 
 ### Testing
 
-1. Open a terminal session
-2. Run a command that produces output (e.g., `dir` or `ls`)
-3. Select text with the mouse
-4. Press Ctrl+C — verify text is copied to clipboard and selection clears
-5. Press Ctrl+C again (no selection) — verify `^C` / SIGINT is sent to the shell
-6. Run a long-running command (e.g., `ping localhost`)
-7. Without selecting text, press Ctrl+C — verify the process is interrupted
+**Basic copy flow:**
+1. Open a terminal session, run a command that produces output (e.g., `dir`)
+2. Select text with the mouse
+3. Press Ctrl+C — verify text is copied to clipboard (paste into Notepad to confirm), selection clears
+4. Press Ctrl+C again (no selection) — verify `^C` / SIGINT is sent to the shell
+
+**SIGINT flow:**
+5. Run a long-running command (e.g., `ping localhost`)
+6. Without selecting text, press Ctrl+C — verify the process is interrupted
+
+**Multi-line selection:**
+7. Select text spanning multiple terminal lines
+8. Press Ctrl+C — paste into Notepad and verify line breaks are preserved
+
+**Word selection:**
+9. Double-click a word to select it, press Ctrl+C — verify word is copied
+
+**Rapid repeat:**
+10. Select text, press Ctrl+C twice quickly — first copies, second sends SIGINT (no race condition)
