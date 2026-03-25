@@ -1,5 +1,7 @@
 import { useAppStore } from '../store';
 import { PlaceholderPanel } from './panels/PlaceholderPanel';
+import { ExplorerPanel } from './panels/ExplorerPanel';
+import { SessionExplorerPanel } from './panels/SessionExplorerPanel';
 
 export function SidePanel() {
   const activePanelId = useAppStore((s) => s.activePanelId);
@@ -18,16 +20,8 @@ export function SidePanel() {
         {panelTitle[activePanelId || ''] || ''}
       </div>
       <div className="side-panel__content">
-        {activePanelId === 'explorer' && (
-          <div className="placeholder-panel">
-            <span className="placeholder-panel__text">Explorer — wired in Task 6</span>
-          </div>
-        )}
-        {activePanelId === 'sessions' && (
-          <div className="placeholder-panel">
-            <span className="placeholder-panel__text">Sessions — wired in Task 7</span>
-          </div>
-        )}
+        {activePanelId === 'explorer' && <ExplorerPanel />}
+        {activePanelId === 'sessions' && <SessionExplorerPanel />}
         {activePanelId === 'search' && (
           <div className="placeholder-panel">
             <span className="placeholder-panel__text">Search — wired in Task 9</span>
