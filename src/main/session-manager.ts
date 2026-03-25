@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
-import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../shared/ipc-channels';
+import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { PlanTaskDetector } from './plan-task-detector';
@@ -318,7 +318,7 @@ export class SessionManager {
     const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
     const isRawShell = cli === 'powershell' || cli === 'bash';
-    const allTools = [...CLI_TOOLS, RESUME_TOOL, ...SHELL_TOOLS];
+    const allTools = [...CLI_TOOLS, RESUME_TOOL];
     const toolDef = allTools.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
