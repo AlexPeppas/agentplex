@@ -27,6 +27,7 @@ export interface SessionInfo {
   title: string;
   status: SessionStatus;
   pid: number;
+  cwd: string;
 }
 
 export interface SubagentInfo {
