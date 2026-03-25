@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, nativeImage, session } from 'electron';
 import path from 'node:path';
 import { sessionManager } from './session-manager';
 import { registerIpcHandlers } from './ipc-handlers';
+import { detectShells } from './shell-detector';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -109,6 +110,8 @@ app.whenReady().then(() => {
     });
   }
 
+  // Fire detection early — don't await, so window creation isn't blocked.
+  detectShells().catch((err) => console.error('[shell-detector] Detection failed:', err));
   registerIpcHandlers();
   sessionManager.start();
   createWindow();

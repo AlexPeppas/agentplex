@@ -1,4 +1,4 @@
-export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | 'powershell' | 'bash';
+export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | (string & {});
 
 export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'claude', label: 'Claude', command: 'claude' },
@@ -6,10 +6,12 @@ export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'copilot', label: 'GitHub Copilot', command: 'gh copilot' },
 ];
 
-export const SHELL_TOOLS: { id: CliTool; label: string; command: string }[] = [
-  { id: 'powershell', label: 'PowerShell', command: '' },
-  { id: 'bash', label: 'Bash', command: '' },
-];
+export interface DetectedShell {
+  id: string;
+  label: string;
+  path: string;
+  type: 'powershell' | 'bash';
+}
 
 export const RESUME_TOOL: { id: CliTool; label: string; command: string } = {
   id: 'claude-resume', label: 'Claude Resume', command: 'claude --resume',
@@ -80,4 +82,7 @@ export const IPC = {
   DISPLAY_NAMES_GET: 'displayNames:get',
   SESSION_RESTORE_ALL: 'session:restoreAll',
   SESSION_UPDATE_STATE: 'session:updateState',
+  SHELL_LIST: 'shell:list',
+  SETTINGS_GET_DEFAULT_SHELL: 'settings:getDefaultShell',
+  SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
 } as const;

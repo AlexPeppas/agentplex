@@ -4,7 +4,9 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
-import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../shared/ipc-channels';
+import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
+import { getShellById, getCachedShells } from './shell-detector';
+import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { PlanTaskDetector } from './plan-task-detector';
@@ -41,6 +43,30 @@ function getSafeEnv(): Record<string, string> {
     }
   }
   return env;
+}
+
+/** Resolve the executable path for a shell, with fallback logic. */
+function resolveShellPath(shellId?: string): string {
+  // Try the requested shell ID first
+  if (shellId) {
+    const detected = getShellById(shellId);
+    if (detected) return detected.path;
+  }
+
+  // Try the default shell from settings
+  const defaultId = getDefaultShellId();
+  if (defaultId) {
+    const detected = getShellById(defaultId);
+    if (detected) return detected.path;
+  }
+
+  // Fallback: first available PowerShell on Windows, bash on Unix
+  if (process.platform === 'win32') {
+    const shells = getCachedShells();
+    const ps = shells.find((s) => s.type === 'powershell');
+    return ps ? ps.path : 'powershell.exe';
+  }
+  return 'bash';
 }
 
 interface Session {
@@ -177,7 +203,7 @@ export class SessionManager {
     const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    const shell = resolveShellPath();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -305,15 +331,15 @@ export class SessionManager {
     const id = `session-${sessionCounter}`;
     const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
-    const isRawShell = cli === 'powershell' || cli === 'bash';
-    const allTools = [...CLI_TOOLS, RESUME_TOOL, ...SHELL_TOOLS];
+    const detectedShell = getShellById(cli);
+    const isRawShell = !!detectedShell;
+    const allTools = [...CLI_TOOLS, RESUME_TOOL];
     const toolDef = allTools.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = cli === 'bash'
-      ? (process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash')
-      : cli === 'powershell' ? 'powershell.exe'
-      : process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    const shell = detectedShell
+      ? detectedShell.path
+      : resolveShellPath();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
