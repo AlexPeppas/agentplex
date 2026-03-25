@@ -111,7 +111,7 @@ app.whenReady().then(() => {
   }
 
   // Fire detection early — don't await, so window creation isn't blocked.
-  detectShells();
+  detectShells().catch((err) => console.error('[shell-detector] Detection failed:', err));
   registerIpcHandlers();
   sessionManager.start();
   createWindow();
