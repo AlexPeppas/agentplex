@@ -43,9 +43,15 @@ function buildTerminalTheme() {
   };
 }
 
+const DEFAULT_FONT_SIZE = 14;
+const MIN_FONT_SIZE = 8;
+const MAX_FONT_SIZE = 32;
+let terminalFontSize = DEFAULT_FONT_SIZE;
+
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const termRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || !selectedSessionId) return;
@@ -53,13 +59,14 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     // Create terminal
     const term = new Terminal({
       theme: buildTerminalTheme(),
-      fontSize: 14,
+      fontSize: terminalFontSize,
       fontFamily: 'Cascadia Code, Consolas, monospace',
       cursorBlink: true,
       convertEol: true,
     });
 
     const fitAddon = new FitAddon();
+    fitAddonRef.current = fitAddon;
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
 
@@ -80,6 +87,32 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
 
     termRef.current = term;
+
+    // Ctrl+Plus / Ctrl+Minus / Ctrl+0 to zoom terminal font
+    const sessionId_ = selectedSessionId;
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.type !== 'keydown') return true;
+      let newSize = terminalFontSize;
+      if (e.key === '=' || e.key === '+') {
+        newSize = Math.min(terminalFontSize + 2, MAX_FONT_SIZE);
+      } else if (e.key === '-') {
+        newSize = Math.max(terminalFontSize - 2, MIN_FONT_SIZE);
+      } else if (e.key === '0') {
+        newSize = DEFAULT_FONT_SIZE;
+      } else {
+        return true;
+      }
+      if (newSize !== terminalFontSize) {
+        terminalFontSize = newSize;
+        term.options.fontSize = newSize;
+        try {
+          fitAddon.fit();
+          window.agentPlex.resizeSession(sessionId_, term.cols, term.rows);
+        } catch { /* ignore */ }
+      }
+      e.preventDefault();
+      return false;
+    });
 
     // Update terminal theme when data-theme attribute changes
     const observer = new MutationObserver(() => {
@@ -128,6 +161,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       cleanup();
       term.dispose();
       termRef.current = null;
+      fitAddonRef.current = null;
     };
   }, [selectedSessionId]); // intentionally only depend on session change
 }
