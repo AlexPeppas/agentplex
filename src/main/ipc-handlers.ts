@@ -1,10 +1,10 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
-import { IPC, CLI_TOOLS, SHELL_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
+import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
+import { getAvailableShells } from './shell-discovery';
 
-const VALID_CLI_IDS = new Set<string>([
+const STATIC_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
-  ...SHELL_TOOLS.map((t) => t.id),
   RESUME_TOOL.id,
 ]);
 
@@ -12,8 +12,15 @@ const MAX_CONTEXT_LENGTH = 100_000;
 
 export function registerIpcHandlers() {
   ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli }: { cwd?: string; cli?: string } = {}) => {
-    const safeCli: CliTool = (cli && VALID_CLI_IDS.has(cli) ? cli : 'claude') as CliTool;
+    // Accept known CLI tools and any discovered shell id
+    const shellIds = new Set(getAvailableShells().map((s) => s.id));
+    const isValid = cli && (STATIC_CLI_IDS.has(cli) || shellIds.has(cli));
+    const safeCli: CliTool = (isValid ? cli : 'claude') as CliTool;
     return sessionManager.create(cwd, safeCli);
+  });
+
+  ipcMain.handle(IPC.GET_AVAILABLE_SHELLS, () => {
+    return getAvailableShells();
   });
 
   ipcMain.handle(IPC.DIALOG_OPEN_DIR, async () => {
@@ -124,10 +131,12 @@ ${safeContext}
     if (!colors) return;
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return;
-    win.setTitleBarOverlay({
-      color: colors.titleBar,
-      symbolColor: colors.symbol,
-    });
+    if (process.platform === 'win32') {
+      win.setTitleBarOverlay({
+        color: colors.titleBar,
+        symbolColor: colors.symbol,
+      });
+    }
     win.setBackgroundColor(colors.bg);
   });
 }

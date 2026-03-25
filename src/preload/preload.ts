@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
+import { IPC, type CliTool, type ShellInfo, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
 
 const api = {
+  platform: process.platform,
+
   createSession: (cwd?: string, cli?: CliTool): Promise<SessionInfo> => {
     return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli });
   },
@@ -128,6 +130,10 @@ const api = {
 
   setTheme: (theme: 'dark' | 'light'): void => {
     ipcRenderer.send(IPC.THEME_CHANGE, { theme });
+  },
+
+  getAvailableShells: (): Promise<ShellInfo[]> => {
+    return ipcRenderer.invoke(IPC.GET_AVAILABLE_SHELLS);
   },
 };
 

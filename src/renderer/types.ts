@@ -1,6 +1,7 @@
-import type { CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
+import type { CliTool, ShellInfo, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
+  platform: string;
   createSession: (cwd?: string, cli?: CliTool) => Promise<SessionInfo>;
   pickDirectory: () => Promise<string | null>;
   writeSession: (id: string, data: string) => void;
@@ -23,6 +24,7 @@ export interface AgentPlexAPI {
   summarizeContext: (context: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
   getDisplayNames: () => Promise<Record<string, string>>;
   setTheme: (theme: 'dark' | 'light') => void;
+  getAvailableShells: () => Promise<ShellInfo[]>;
 }
 
 declare global {
