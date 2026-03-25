@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, nativeImage, session } from 'electron';
 import path from 'node:path';
 import { sessionManager } from './session-manager';
 import { registerIpcHandlers } from './ipc-handlers';
+import { detectShells } from './shell-detector';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -64,7 +65,25 @@ function createWindow() {
   // Show window as soon as the renderer is ready — avoids white flash
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
-  Menu.setApplicationMenu(null);
+  // Preserve a minimal Edit menu so native clipboard accelerators (Ctrl+V paste,
+  // Ctrl+C copy, etc.) keep working inside xterm.js terminals. Setting the menu
+  // to null removes all default accelerators and silently breaks paste.
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' },
+        ],
+      },
+    ])
+  );
   sessionManager.setWindow(mainWindow);
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -91,6 +110,8 @@ app.whenReady().then(() => {
     });
   }
 
+  // Fire detection early — don't await, so window creation isn't blocked.
+  detectShells().catch((err) => console.error('[shell-detector] Detection failed:', err));
   registerIpcHandlers();
   sessionManager.start();
   createWindow();

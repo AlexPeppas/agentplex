@@ -1,19 +1,24 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
-import { IPC, CLI_TOOLS, SHELL_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject } from '../shared/ipc-channels';
+import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
+import { detectShells, getCachedShells } from './shell-detector';
+import { getDefaultShellId, setDefaultShellId } from './settings-manager';
 import { scanProjects, scanSessionsForProject, getPinnedProjects, updatePinnedProjects, resolveProjectPath } from './claude-session-scanner';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
-  ...SHELL_TOOLS.map((t) => t.id),
   RESUME_TOOL.id,
 ]);
+
+function isValidCli(id: string): boolean {
+  return VALID_CLI_IDS.has(id) || getCachedShells().some((s) => s.id === id);
+}
 
 const MAX_CONTEXT_LENGTH = 100_000;
 
 export function registerIpcHandlers() {
   ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli, resumeSessionId }: { cwd?: string; cli?: string; resumeSessionId?: string } = {}) => {
-    const safeCli: CliTool = (cli && VALID_CLI_IDS.has(cli) ? cli : 'claude') as CliTool;
+    const safeCli: CliTool = (cli && isValidCli(cli) ? cli : 'claude') as CliTool;
     return sessionManager.create(cwd, safeCli, resumeSessionId);
   });
 
@@ -161,5 +166,19 @@ ${safeContext}
       symbolColor: colors.symbol,
     });
     win.setBackgroundColor(colors.bg);
+  });
+
+  ipcMain.handle(IPC.SHELL_LIST, async () => {
+    return await detectShells();
+  });
+
+  ipcMain.handle(IPC.SETTINGS_GET_DEFAULT_SHELL, () => {
+    return getDefaultShellId() || null;
+  });
+
+  ipcMain.handle(IPC.SETTINGS_SET_DEFAULT_SHELL, (_event, { id }: { id: string }) => {
+    if (typeof id !== 'string') return;
+    if (!getCachedShells().some((s) => s.id === id)) return;
+    setDefaultShellId(id);
   });
 }

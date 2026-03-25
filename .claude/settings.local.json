@@ -29,7 +29,27 @@
       "WebFetch(domain:dribbble.com)",
       "WebFetch(domain:www.brandcolorcode.com)",
       "Bash(which convert:*)",
-      "Bash(pnpm:*)"
+      "Bash(pnpm:*)",
+      "Bash(which cc:*)",
+      "Bash(command -v cc)",
+      "Read(//c/Users/kenli/**)",
+      "Bash(powershell.exe -Command \"Get-Command cc -ErrorAction SilentlyContinue | Format-List; Get-Alias cc -ErrorAction SilentlyContinue; Get-Content \\\\$PROFILE 2>\\\\$null | Select-String -Pattern 'cc|claude' -CaseSensitive\")",
+      "Bash(powershell.exe -Command 'Get-ChildItem \"$env:USERPROFILE\\\\*PowerShell*\" -Recurse -Filter \"*profile*\" 2>$null | ForEach-Object { $_.FullName }')",
+      "Bash(powershell.exe -Command '$profiles = @\\($PROFILE.AllUsersAllHosts, $PROFILE.AllUsersCurrentHost, $PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost\\); foreach \\($p in $profiles\\) { if \\(Test-Path $p\\) { echo \"=== $p ===\"; Get-Content $p } }')",
+      "Bash(powershell.exe -Command \"Get-Process | Where-Object { \\\\$_.ProcessName -match 'electron|agentplex' } | Select-Object Id, ProcessName\" 2>/dev/null)",
+      "Bash(taskkill //F //IM electron.exe 2>/dev/null; taskkill //F //IM node.exe 2>/dev/null; sleep 2; powershell.exe -Command 'Start-Process powershell -ArgumentList \"-NoExit\", \"-Command\", \"cd C:\\\\src\\\\agentplex; pnpm start\"')",
+      "Bash(curl -s http://localhost:5173/)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_install",
+      "mcp__playwright__browser_console_messages",
+      "Bash(gh repo:*)",
+      "Bash(gh auth:*)",
+      "Bash(GH_HOST=github.com gh repo fork AlexPeppas/agentplex --clone=false)",
+      "Bash(GH_HOST=github.com gh pr create --repo AlexPeppas/agentplex --head KennyTurtle:feature/project-launcher-smart-resume --base master --title \"Add project launcher and smart resume\" --body \"$\\(cat <<''EOF'':*)",
+      "Read(//c/src/agentplex/$LOCALAPPDATA/AgentPlex/**)",
+      "Read(//c/src/agentplex/$LOCALAPPDATA/agentplex/**)",
+      "Bash(where.exe AgentPlex)",
+      "Bash(powershell.exe -Command 'Start-Process \"C:\\\\Users\\\\kenli\\\\AppData\\\\Local\\\\AgentPlex\\\\AgentPlex.exe\"')"
     ]
   }
 }

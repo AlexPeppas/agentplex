@@ -174,7 +174,7 @@ html, body, #root {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 4px;
-  min-width: 160px;
+  min-width: 220px;
   box-shadow: 0 8px 24px var(--shadow-heavy);
   z-index: 100;
 }
@@ -238,6 +238,39 @@ html, body, #root {
   height: 1px;
   background: var(--border);
   margin: 4px 0;
+}
+
+.toolbar__default-indicator {
+  color: #f0c040;
+}
+
+.toolbar__context-menu {
+  z-index: 1000;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px var(--shadow-heavy);
+}
+
+.toolbar__context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+
+.toolbar__context-menu-item:hover {
+  background: var(--border);
 }
 
 /* Theme toggle */

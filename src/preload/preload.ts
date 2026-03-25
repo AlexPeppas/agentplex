@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, type DiscoveredProject, type DiscoveredSession, type PinnedProject } from '../shared/ipc-channels';
+import { IPC, type CliTool, type DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, type DiscoveredProject, type DiscoveredSession, type PinnedProject } from '../shared/ipc-channels';
 
 const api = {
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string): Promise<SessionInfo> => {
@@ -148,6 +148,18 @@ const api = {
 
   setTheme: (theme: 'dark' | 'light'): void => {
     ipcRenderer.send(IPC.THEME_CHANGE, { theme });
+  },
+
+  getShells: (): Promise<DetectedShell[]> => {
+    return ipcRenderer.invoke(IPC.SHELL_LIST);
+  },
+
+  getDefaultShell: (): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_GET_DEFAULT_SHELL);
+  },
+
+  setDefaultShell: (id: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_SET_DEFAULT_SHELL, { id });
   },
 };
 
