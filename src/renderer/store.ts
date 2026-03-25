@@ -10,6 +10,8 @@ import {
 import { SessionStatus, type SessionInfo } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 
+export type PanelId = 'explorer' | 'sessions' | 'search' | 'git' | 'extensions';
+
 function getAccentColor(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#d18a7a';
 }
@@ -93,6 +95,12 @@ export interface AppState {
   openSendDialog: (sourceSessionId: string) => void;
   closeSendDialog: () => void;
 
+  // Side panel
+  activePanelId: PanelId | null;
+  sidePanelWidth: number;
+  togglePanel: (panelId: PanelId) => void;
+  setSidePanelWidth: (width: number) => void;
+
   // Grouping
   createGroup: (nodeIdA: string, nodeIdB: string) => void;
   addToGroup: (groupId: string, nodeId: string) => void;
@@ -118,6 +126,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   displayNames: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
+  activePanelId: null,
+  sidePanelWidth: 240,
 
   addSession: (info: SessionInfo) => {
     const { nodes, nodeCounter } = get();
@@ -405,6 +415,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closeSendDialog: () => {
     set({ sendDialogSourceId: null });
+  },
+
+  togglePanel: (panelId: PanelId) => {
+    const current = get().activePanelId;
+    set({ activePanelId: current === panelId ? null : panelId });
+  },
+
+  setSidePanelWidth: (width: number) => {
+    set({ sidePanelWidth: Math.max(160, Math.min(400, width)) });
   },
 
   onNodesChange: (changes) => {
