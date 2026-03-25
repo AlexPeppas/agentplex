@@ -6,3 +6,5 @@ out/
 .env
 .env.*
 *.pem
+.playwright-mcp/
+.claude/settings.local.json

@@ -7,7 +7,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
 } from '@xyflow/react';
-import { SessionStatus, type SessionInfo } from '../shared/ipc-channels';
+import { SessionStatus, type SessionInfo, type CliTool } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 
 function getAccentColor(): string {
@@ -102,6 +102,13 @@ export interface AppState {
 
   // Message flash
   flashMessageEdge: (sourceId: string, targetId: string) => void;
+
+  // Project launcher
+  launcherOpen: boolean;
+  launcherMode: 'new' | 'resume';
+  launcherCli: CliTool;
+  openLauncher: (mode: 'new' | 'resume', cli?: CliTool) => void;
+  closeLauncher: () => void;
 }
 
 let groupCounter = 0;
@@ -118,6 +125,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   displayNames: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
+  launcherOpen: false,
+  launcherMode: 'new' as const,
+  launcherCli: 'claude' as CliTool,
+
+  openLauncher: (mode: 'new' | 'resume', cli: CliTool = 'claude') => {
+    set({ launcherOpen: true, launcherMode: mode, launcherCli: cli });
+  },
+
+  closeLauncher: () => {
+    set({ launcherOpen: false });
+  },
 
   addSession: (info: SessionInfo) => {
     const { nodes, nodeCounter } = get();
