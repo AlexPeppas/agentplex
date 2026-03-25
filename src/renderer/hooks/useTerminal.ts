@@ -60,7 +60,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     const term = new Terminal({
       theme: buildTerminalTheme(),
       fontSize: terminalFontSize,
-      fontFamily: 'Cascadia Code, Consolas, monospace',
+      fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
       cursorBlink: true,
       convertEol: true,
     });
@@ -90,8 +90,10 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Ctrl+Plus / Ctrl+Minus / Ctrl+0 to zoom terminal font
     const sessionId_ = selectedSessionId;
+    const isMac = window.agentPlex.platform === 'darwin';
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.type !== 'keydown') return true;
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+      if (!modKey || e.type !== 'keydown') return true;
       let newSize = terminalFontSize;
       if (e.key === '=' || e.key === '+') {
         newSize = Math.min(terminalFontSize + 2, MAX_FONT_SIZE);
