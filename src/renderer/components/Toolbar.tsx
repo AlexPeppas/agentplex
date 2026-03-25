@@ -145,25 +145,20 @@ export function Toolbar() {
             {shells.length > 0 && (
               <>
                 <div className="toolbar__menu-divider" />
-                <div className="toolbar__menu-section">
-                  <span className="toolbar__menu-label">Shell</span>
-                  <div className="toolbar__menu-row">
-                    {shells.map((shell) => (
-                      <button
-                        key={shell.id}
-                        className="toolbar__menu-pill"
-                        onClick={() => handlePick(shell.id as CliTool)}
-                        onContextMenu={(e) => handleShellContextMenu(e, shell.id)}
-                        title={`Left-click to launch, right-click to set as default`}
-                      >
-                        {shell.id === defaultShellId && (
-                          <span className="toolbar__default-indicator">{'\u2605'} </span>
-                        )}
-                        {shell.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {shells.map((shell) => (
+                  <button
+                    key={shell.id}
+                    className="toolbar__menu-item"
+                    onClick={() => handlePick(shell.id as CliTool)}
+                    onContextMenu={(e) => handleShellContextMenu(e, shell.id)}
+                    title={`Right-click to set as default`}
+                  >
+                    {shell.id === defaultShellId && (
+                      <span className="toolbar__default-indicator">{'\u2605'} </span>
+                    )}
+                    {shell.label}
+                  </button>
+                ))}
               </>
             )}
           </div>

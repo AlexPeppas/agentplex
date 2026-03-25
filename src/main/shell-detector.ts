@@ -32,9 +32,15 @@ async function getVersion(exe: string, args: string[]): Promise<string | null> {
   }
 }
 
-function parsePwshVersion(output: string): string {
-  // "PowerShell 7.5.1" → "7.5.1"
-  const match = output.match(/(\d+\.\d+\.\d+)/);
+function parsePwshMajorVersion(output: string): string {
+  // "PowerShell 7.5.1" → "7"
+  const match = output.match(/(\d+)\.\d+/);
+  return match ? match[1] : '';
+}
+
+function parseWinPsMajorVersion(output: string): string {
+  // "5.1.26100.7462" → "5"
+  const match = output.match(/^(\d+)\./);
   return match ? match[1] : '';
 }
 
@@ -76,7 +82,7 @@ async function detectWindows(): Promise<DetectedShell[]> {
   ]);
 
   if (pwshPath) {
-    const ver = pwshVersionRaw ? parsePwshVersion(pwshVersionRaw) : '';
+    const ver = pwshVersionRaw ? parsePwshMajorVersion(pwshVersionRaw) : '';
     shells.push({
       id: 'pwsh',
       label: ver ? `PowerShell ${ver}` : 'PowerShell 7',
@@ -86,9 +92,10 @@ async function detectWindows(): Promise<DetectedShell[]> {
   }
 
   if (psVersionRaw) {
+    const ver = parseWinPsMajorVersion(psVersionRaw);
     shells.push({
       id: 'powershell',
-      label: psVersionRaw ? `Windows PowerShell ${psVersionRaw}` : 'Windows PowerShell',
+      label: ver ? `Windows PowerShell ${ver}` : 'Windows PowerShell',
       path: powershellPath,
       type: 'powershell',
     });
@@ -122,7 +129,7 @@ async function detectUnix(): Promise<DetectedShell[]> {
     const pwshPath = (await execAsync('which', ['pwsh'])).trim();
     if (pwshPath) {
       const versionRaw = await getVersion(pwshPath, ['--version']);
-      const ver = versionRaw ? parsePwshVersion(versionRaw) : '';
+      const ver = versionRaw ? parsePwshMajorVersion(versionRaw) : '';
       shells.push({
         id: 'pwsh',
         label: ver ? `PowerShell ${ver}` : 'PowerShell 7',
