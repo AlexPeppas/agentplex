@@ -174,7 +174,7 @@ html, body, #root {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 4px;
-  min-width: 160px;
+  min-width: 220px;
   box-shadow: 0 8px 24px var(--shadow-heavy);
   z-index: 100;
 }
