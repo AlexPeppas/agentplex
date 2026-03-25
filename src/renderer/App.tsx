@@ -4,6 +4,8 @@ import { Toolbar } from './components/Toolbar';
 import { GraphCanvas } from './components/GraphCanvas';
 import { TerminalPanel } from './components/TerminalPanel';
 import { SendDialog } from './components/SendDialog';
+import { ActivityBar } from './components/ActivityBar';
+import { SidePanel } from './components/SidePanel';
 import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
@@ -25,6 +27,9 @@ function playBell() {
 export function App() {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const sendDialogSourceId = useAppStore((s) => s.sendDialogSourceId);
+  const activePanelId = useAppStore((s) => s.activePanelId);
+  const sidePanelWidth = useAppStore((s) => s.sidePanelWidth);
+  const setSidePanelWidth = useAppStore((s) => s.setSidePanelWidth);
   const addSession = useAppStore((s) => s.addSession);
   const appendBuffer = useAppStore((s) => s.appendBuffer);
   const updateStatus = useAppStore((s) => s.updateStatus);
@@ -67,6 +72,32 @@ export function App() {
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }, []);
+
+  const handleSidePanelResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current || !contentRef.current) return;
+      const rect = contentRef.current.getBoundingClientRect();
+      // 48px for activity bar width
+      const px = ev.clientX - rect.left - 48;
+      setSidePanelWidth(px);
+    };
+
+    const onUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [setSidePanelWidth]);
 
   // Reconnect to existing sessions on mount (e.g. after renderer reload/crash)
   // and restore persisted Claude sessions from state.json
@@ -185,6 +216,15 @@ export function App() {
     <div className="app">
       <Toolbar />
       <div className="app__content" ref={contentRef}>
+        <ActivityBar />
+        {activePanelId && (
+          <>
+            <div className="app__side-panel" style={{ width: sidePanelWidth }}>
+              <SidePanel />
+            </div>
+            <div className="app__resize-handle" onMouseDown={handleSidePanelResizeStart} />
+          </>
+        )}
         <div
           className="app__graph"
           style={selectedSessionId ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
