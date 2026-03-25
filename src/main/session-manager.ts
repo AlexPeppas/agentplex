@@ -4,7 +4,8 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
-import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../shared/ipc-channels';
+import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
+import { getDefaultShell, findShellById } from './shell-discovery';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { PlanTaskDetector } from './plan-task-detector';
@@ -177,7 +178,7 @@ export class SessionManager {
     const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    const shell = getDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -305,15 +306,17 @@ export class SessionManager {
     const id = `session-${sessionCounter}`;
     const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
-    const isRawShell = cli === 'powershell' || cli === 'bash';
-    const allTools = [...CLI_TOOLS, RESUME_TOOL, ...SHELL_TOOLS];
-    const toolDef = allTools.find((t) => t.id === cli) || CLI_TOOLS[0];
+    const cliTools = [...CLI_TOOLS, RESUME_TOOL];
+    const matchedCliTool = cliTools.find((t) => t.id === cli);
+    const isRawShell = !matchedCliTool;
+    const toolDef = matchedCliTool || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = cli === 'bash'
-      ? (process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash')
-      : cli === 'powershell' ? 'powershell.exe'
-      : process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    // If the cli id matches a discovered shell, use its full path; otherwise use the user's default shell
+    const discoveredShell = findShellById(cli);
+    const shell = isRawShell
+      ? (discoveredShell?.path || getDefaultShell())
+      : getDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,

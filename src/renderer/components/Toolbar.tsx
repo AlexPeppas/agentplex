@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
-import { CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../../shared/ipc-channels';
+import { CLI_TOOLS, RESUME_TOOL, type CliTool, type ShellInfo } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
 
 function getInitialTheme(): 'dark' | 'light' {
@@ -13,7 +13,13 @@ export function Toolbar() {
   const addSession = useAppStore((s) => s.addSession);
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
+  const [shells, setShells] = useState<ShellInfo[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Fetch available shells once on mount
+  useEffect(() => {
+    window.agentPlex.getAvailableShells().then(setShells);
+  }, []);
 
   // Apply theme to document and notify main process for titlebar
   useEffect(() => {
@@ -111,21 +117,25 @@ export function Toolbar() {
                 {tool.label}
               </button>
             ))}
-            <div className="toolbar__menu-divider" />
-            <div className="toolbar__menu-section">
-              <span className="toolbar__menu-label">Shell</span>
-              <div className="toolbar__menu-row">
-                {SHELL_TOOLS.map((tool) => (
-                  <button
-                    key={tool.id}
-                    className="toolbar__menu-pill"
-                    onClick={() => handlePick(tool.id)}
-                  >
-                    {tool.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {shells.length > 0 && (
+              <>
+                <div className="toolbar__menu-divider" />
+                <div className="toolbar__menu-section">
+                  <span className="toolbar__menu-label">Shell</span>
+                  <div className="toolbar__menu-row">
+                    {shells.map((shell) => (
+                      <button
+                        key={shell.id}
+                        className="toolbar__menu-pill"
+                        onClick={() => handlePick(shell.id)}
+                      >
+                        {shell.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
