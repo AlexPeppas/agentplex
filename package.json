@@ -13,7 +13,7 @@
     "type": "git",
     "url": "https://github.com/anthropics/agentplex.git"
   },
-  "packageManager": "pnpm@10.32.1",
+  "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20"
   },
@@ -28,6 +28,7 @@
   "scripts": {
     "generate-icons": "node scripts/generate-icons.mjs",
     "postinstall": "node -e \"try{require('fs').chmodSync(require('path').join('node_modules','node-pty','prebuilds',process.platform+'-'+process.arch,'spawn-helper'),0o755)}catch{}\"",
+    "lint": "eslint src/",
     "start": "electron-forge start",
     "package": "pnpm generate-icons && electron-forge package",
     "make": "pnpm generate-icons && electron-forge make"
@@ -39,8 +40,8 @@
     "@xyflow/react": "^12.10.1",
     "node-pty": "^1.1.0",
     "puppeteer-core": "^24.40.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -49,13 +50,17 @@
     "@electron-forge/maker-zip": "^7.11.1",
     "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
     "@electron-forge/plugin-vite": "^7.11.1",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
-    "electron": "^35.7.5",
+    "electron": "^41.0.4",
+    "eslint": "^10.1.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
     "puppeteer": "^24.40.0",
     "sharp": "^0.34.5",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.57.2",
     "vite": "^8.0.3"
   }
 }

@@ -6,7 +6,7 @@ import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
 import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL } from '../shared/ipc-channels';
 import type { SessionInfo, CliTool } from '../shared/ipc-channels';
-import { getCachedShells, getShellById } from './shell-detector';
+import { getShellById } from './shell-detector';
 import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
