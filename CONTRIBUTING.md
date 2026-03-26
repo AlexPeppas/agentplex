@@ -6,9 +6,10 @@ Thanks for your interest in contributing! Here's how to get started.
 
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/<your-username>/agentplex.git`
-3. Install dependencies: `npm install`
-4. Create a feature branch: `git checkout -b my-feature`
-5. Run the app: `npm start`
+3. Enable corepack (auto-installs pinned pnpm): `corepack enable`
+4. Install dependencies: `pnpm install`
+5. Create a feature branch: `git checkout -b my-feature`
+6. Run the app: `pnpm start`
 
 ## Submitting Changes
 

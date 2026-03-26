@@ -55,11 +55,13 @@ To remove: `pnpm unlink --global agentplex`
 
 ## Dev Requirements
 
-Building from source requires [Node.js](https://nodejs.org/) 18+, [pnpm](https://pnpm.io/) (`npm install -g pnpm`), and native build tools for `node-pty`:
+Building from source requires [Node.js](https://nodejs.org/) 20+ and native build tools for `node-pty`:
 
 - **Windows**: [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
 - **macOS**: `xcode-select --install`
 - **Linux**: `sudo apt install build-essential python3`
+
+pnpm is pinned via `packageManager` in package.json. If you have [corepack](https://nodejs.org/api/corepack.html) enabled (`corepack enable`), it will auto-install the correct version. Otherwise install pnpm directly: `npm install -g pnpm`.
 
 ## Features
 
@@ -143,7 +145,7 @@ agentplex/
 ├── styles/
 │   └── index.css             # Global styles
 ├── bin/
-│   └── agentplex.js          # CLI entry point
+│   └── agentplex.mjs         # CLI entry point
 └── package.json
 ```
 

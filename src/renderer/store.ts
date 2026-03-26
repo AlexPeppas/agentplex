@@ -7,7 +7,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
 } from '@xyflow/react';
-import { SessionStatus, type SessionInfo } from '../shared/ipc-channels';
+import { SessionStatus, type SessionInfo, type CliTool } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 
 export type PanelId = 'explorer' | 'search' | 'git' | 'extensions';
@@ -95,12 +95,6 @@ export interface AppState {
   openSendDialog: (sourceSessionId: string) => void;
   closeSendDialog: () => void;
 
-  // Side panel
-  activePanelId: PanelId | null;
-  sidePanelWidth: number;
-  togglePanel: (panelId: PanelId) => void;
-  setSidePanelWidth: (width: number) => void;
-
   // Grouping
   createGroup: (nodeIdA: string, nodeIdB: string) => void;
   addToGroup: (groupId: string, nodeId: string) => void;
@@ -110,6 +104,19 @@ export interface AppState {
 
   // Message flash
   flashMessageEdge: (sourceId: string, targetId: string) => void;
+
+  // Project launcher
+  launcherOpen: boolean;
+  launcherMode: 'new' | 'resume';
+  launcherCli: CliTool;
+  openLauncher: (mode: 'new' | 'resume', cli?: CliTool) => void;
+  closeLauncher: () => void;
+
+  // Side panel
+  activePanelId: PanelId | null;
+  sidePanelWidth: number;
+  togglePanel: (panelId: PanelId) => void;
+  setSidePanelWidth: (width: number) => void;
 }
 
 let groupCounter = 0;
@@ -126,8 +133,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   displayNames: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
+  launcherOpen: false,
+  launcherMode: 'new' as const,
+  launcherCli: 'claude' as CliTool,
   activePanelId: null,
   sidePanelWidth: 240,
+
+  openLauncher: (mode: 'new' | 'resume', cli: CliTool = 'claude') => {
+    set({ launcherOpen: true, launcherMode: mode, launcherCli: cli });
+  },
+
+  closeLauncher: () => {
+    set({ launcherOpen: false });
+  },
+
+  togglePanel: (panelId: PanelId) => {
+    const current = get().activePanelId;
+    set({ activePanelId: current === panelId ? null : panelId });
+  },
+
+  setSidePanelWidth: (width: number) => {
+    set({ sidePanelWidth: Math.max(160, Math.min(400, width)) });
+  },
 
   addSession: (info: SessionInfo) => {
     const { nodes, nodeCounter } = get();
@@ -415,15 +442,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closeSendDialog: () => {
     set({ sendDialogSourceId: null });
-  },
-
-  togglePanel: (panelId: PanelId) => {
-    const current = get().activePanelId;
-    set({ activePanelId: current === panelId ? null : panelId });
-  },
-
-  setSidePanelWidth: (width: number) => {
-    set({ sidePanelWidth: Math.max(160, Math.min(400, width)) });
   },
 
   onNodesChange: (changes) => {

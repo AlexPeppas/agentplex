@@ -109,7 +109,7 @@ export function SendDialog() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         closeSendDialog();
-      } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      } else if (e.key === 'Enter' && (window.agentPlex.platform === 'darwin' ? e.metaKey : e.ctrlKey)) {
         handleSend();
       }
     };

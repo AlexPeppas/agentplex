@@ -1,9 +1,12 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type CliTool, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
+import { contextBridge, ipcRenderer, clipboard } from 'electron';
+import { IPC, SessionStatus } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
 
 const api = {
-  createSession: (cwd?: string, cli?: CliTool): Promise<SessionInfo> => {
-    return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli });
+  platform: process.platform,
+
+  createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli, resumeSessionId });
   },
 
   pickDirectory: (): Promise<string | null> => {
@@ -126,12 +129,60 @@ const api = {
     return ipcRenderer.invoke(IPC.DISPLAY_NAMES_GET);
   },
 
+  discoverExternal: (): Promise<ExternalSession[]> => {
+    return ipcRenderer.invoke(IPC.DISCOVER_EXTERNAL);
+  },
+
+  adoptExternal: (sessionUuid: string, cwd: string): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.ADOPT_EXTERNAL, { sessionUuid, cwd });
+  },
+
+  scanProjects: (): Promise<DiscoveredProject[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_PROJECTS);
+  },
+
+  scanSessions: (encodedPath: string): Promise<DiscoveredSession[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_SESSIONS, { encodedPath });
+  },
+
+  getPinnedProjects: (): Promise<PinnedProject[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_GET_PINS);
+  },
+
+  updatePinnedProjects: (pins: PinnedProject[]): Promise<void> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_UPDATE_PINS, { pins });
+  },
+
+  resolveProjectPath: (encodedPath: string): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_RESOLVE_PATH, { encodedPath });
+  },
+
   setTheme: (theme: 'dark' | 'light'): void => {
     ipcRenderer.send(IPC.THEME_CHANGE, { theme });
   },
 
   searchFiles: (query: string, cwd: string): Promise<{ file: string; line: number; text: string }[]> => {
     return ipcRenderer.invoke(IPC.SEARCH_FILES, { query, cwd });
+  },
+
+  getShells: (): Promise<DetectedShell[]> => {
+    return ipcRenderer.invoke(IPC.SHELL_LIST);
+  },
+
+  getDefaultShell: (): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_GET_DEFAULT_SHELL);
+  },
+
+  setDefaultShell: (id: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_SET_DEFAULT_SHELL, { id });
+  },
+
+  clipboardWriteText: (text: string): void => {
+    clipboard.writeText(text);
+  },
+
+  clipboardReadText: (): string => {
+    return clipboard.readText();
   },
 };
 

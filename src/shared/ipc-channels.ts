@@ -1,4 +1,4 @@
-export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | 'powershell' | 'bash';
+export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | (string & {});
 
 export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'claude', label: 'Claude', command: 'claude' },
@@ -6,10 +6,12 @@ export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'copilot', label: 'GitHub Copilot', command: 'gh copilot' },
 ];
 
-export const SHELL_TOOLS: { id: CliTool; label: string; command: string }[] = [
-  { id: 'powershell', label: 'PowerShell', command: '' },
-  { id: 'bash', label: 'Bash', command: '' },
-];
+export interface DetectedShell {
+  id: string;
+  label: string;
+  path: string;
+  type: 'powershell' | 'bash';
+}
 
 export const RESUME_TOOL: { id: CliTool; label: string; command: string } = {
   id: 'claude-resume', label: 'Claude Resume', command: 'claude --resume',
@@ -58,6 +60,37 @@ export interface TaskListInfo {
   tasks: { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }[];
 }
 
+export interface ExternalSession {
+  pid: number;
+  sessionId: string;
+  cwd: string;
+  startedAt: number;
+  name?: string;
+}
+
+export interface DiscoveredProject {
+  encodedPath: string;
+  realPath: string;
+  dirName: string;
+  sessionCount: number;
+  lastActivity: string;
+  isPinned: boolean;
+}
+
+export interface DiscoveredSession {
+  sessionId: string;
+  projectPath: string;
+  customTitle: string | null;
+  firstUserMessage: string | null;
+  gitBranch: string | null;
+  lastTimestamp: string | null;
+}
+
+export interface PinnedProject {
+  path: string;
+  label?: string;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -82,6 +115,16 @@ export const IPC = {
   SESSION_RESTORE_ALL: 'session:restoreAll',
   SESSION_UPDATE_STATE: 'session:updateState',
   SEARCH_FILES: 'search:files',
+  DISCOVER_EXTERNAL: 'session:discoverExternal',
+  ADOPT_EXTERNAL: 'session:adoptExternal',
+  LAUNCHER_SCAN_PROJECTS: 'launcher:scanProjects',
+  LAUNCHER_SCAN_SESSIONS: 'launcher:scanSessions',
+  LAUNCHER_GET_PINS: 'launcher:getPins',
+  LAUNCHER_UPDATE_PINS: 'launcher:updatePins',
+  LAUNCHER_RESOLVE_PATH: 'launcher:resolvePath',
+  SHELL_LIST: 'shell:list',
+  SETTINGS_GET_DEFAULT_SHELL: 'settings:getDefaultShell',
+  SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
 } as const;
 
 export interface FileSearchResult {

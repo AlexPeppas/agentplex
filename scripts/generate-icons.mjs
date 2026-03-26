@@ -1,7 +1,8 @@
 import sharp from 'sharp';
-import { writeFileSync } from 'fs';
+import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { execFileSync } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const assets = join(__dirname, '..', 'assets');
@@ -54,3 +55,29 @@ for (const { size, buf } of pngBuffers) {
 const ico = Buffer.concat([header, ...entries, ...pngBuffers.map(p => p.buf)]);
 writeFileSync(join(assets, 'logo.ico'), ico);
 console.log('logo.ico created (' + sizes.join(', ') + 'px)');
+
+// macOS .icns — requires iconutil (ships with macOS)
+if (process.platform === 'darwin') {
+  const iconsetDir = join(assets, 'logo.iconset');
+  mkdirSync(iconsetDir, { recursive: true });
+
+  const icnsSizes = [16, 32, 64, 128, 256, 512];
+  for (const size of icnsSizes) {
+    await sharp(svg, { density: 400 })
+      .resize(size, size)
+      .png()
+      .toFile(join(iconsetDir, `icon_${size}x${size}.png`));
+    // @2x variants (up to 256 -> 512@2x)
+    if (size <= 256) {
+      await sharp(svg, { density: 400 })
+        .resize(size * 2, size * 2)
+        .png()
+        .toFile(join(iconsetDir, `icon_${size}x${size}@2x.png`));
+    }
+  }
+
+  const icnsPath = join(assets, 'logo.icns');
+  execFileSync('iconutil', ['-c', 'icns', iconsetDir, '-o', icnsPath]);
+  rmSync(iconsetDir, { recursive: true });
+  console.log('logo.icns created');
+}

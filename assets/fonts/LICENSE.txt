@@ -1,0 +1,6 @@
+Meslo LGS Nerd Font
+Based on Meslo LG by André Berg (Apache License 2.0)
+Nerd Fonts patcher by Ryan McIntyre (MIT)
+
+Licensed under the Apache License, Version 2.0.
+https://www.apache.org/licenses/LICENSE-2.0

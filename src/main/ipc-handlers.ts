@@ -1,21 +1,27 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
-import { IPC, CLI_TOOLS, SHELL_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
+import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
 import * as fs from 'fs';
 import * as path from 'path';
+import { detectShells, getCachedShells } from './shell-detector';
+import { getDefaultShellId, setDefaultShellId } from './settings-manager';
+import { scanProjects, scanSessionsForProject, getPinnedProjects, updatePinnedProjects, resolveProjectPath } from './claude-session-scanner';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
-  ...SHELL_TOOLS.map((t) => t.id),
   RESUME_TOOL.id,
 ]);
+
+function isValidCli(id: string): boolean {
+  return VALID_CLI_IDS.has(id) || getCachedShells().some((s) => s.id === id);
+}
 
 const MAX_CONTEXT_LENGTH = 100_000;
 
 export function registerIpcHandlers() {
-  ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli }: { cwd?: string; cli?: string } = {}) => {
-    const safeCli: CliTool = (cli && VALID_CLI_IDS.has(cli) ? cli : 'claude') as CliTool;
-    return sessionManager.create(cwd, safeCli);
+  ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli, resumeSessionId }: { cwd?: string; cli?: string; resumeSessionId?: string } = {}) => {
+    const safeCli: CliTool = (cli && isValidCli(cli) ? cli : 'claude') as CliTool;
+    return sessionManager.create(cwd, safeCli, resumeSessionId);
   });
 
   ipcMain.handle(IPC.DIALOG_OPEN_DIR, async () => {
@@ -112,6 +118,17 @@ ${safeContext}
     return sessionManager.restoreAll();
   });
 
+  ipcMain.handle(IPC.DISCOVER_EXTERNAL, () => {
+    return sessionManager.discoverExternal();
+  });
+
+  ipcMain.handle(IPC.ADOPT_EXTERNAL, (_event, { sessionUuid, cwd }: { sessionUuid: string; cwd: string }) => {
+    if (typeof sessionUuid !== 'string' || typeof cwd !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    return sessionManager.adoptExternal(sessionUuid, cwd);
+  });
+
   ipcMain.handle(IPC.DISPLAY_NAMES_GET, () => {
     return sessionManager.getDisplayNames();
   });
@@ -121,15 +138,48 @@ ${safeContext}
     light: { titleBar: '#ebe5da', symbol: '#3a3428', bg: '#f5f0e8' },
   };
 
+  ipcMain.handle(IPC.LAUNCHER_SCAN_PROJECTS, async () => {
+    console.log('[launcher] scanProjects called');
+    try {
+      const result = await scanProjects();
+      console.log('[launcher] scanProjects done:', result.length, 'projects');
+      return result;
+    } catch (err) {
+      console.error('[launcher] scanProjects error:', err);
+      return [];
+    }
+  });
+
+  ipcMain.handle(IPC.LAUNCHER_SCAN_SESSIONS, async (_event, { encodedPath }: { encodedPath: string }) => {
+    if (typeof encodedPath !== 'string') return [];
+    return scanSessionsForProject(encodedPath);
+  });
+
+  ipcMain.handle(IPC.LAUNCHER_GET_PINS, () => {
+    return getPinnedProjects();
+  });
+
+  ipcMain.handle(IPC.LAUNCHER_UPDATE_PINS, (_event, { pins }: { pins: PinnedProject[] }) => {
+    if (!Array.isArray(pins)) return;
+    updatePinnedProjects(pins);
+  });
+
+  ipcMain.handle(IPC.LAUNCHER_RESOLVE_PATH, async (_event, { encodedPath }: { encodedPath: string }) => {
+    if (typeof encodedPath !== 'string') return null;
+    return resolveProjectPath(encodedPath);
+  });
+
   ipcMain.on(IPC.THEME_CHANGE, (_event, { theme }: { theme: string }) => {
     const colors = THEME_COLORS[theme];
     if (!colors) return;
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return;
-    win.setTitleBarOverlay({
-      color: colors.titleBar,
-      symbolColor: colors.symbol,
-    });
+    if (process.platform === 'win32') {
+      win.setTitleBarOverlay({
+        color: colors.titleBar,
+        symbolColor: colors.symbol,
+      });
+    }
     win.setBackgroundColor(colors.bg);
   });
 
@@ -179,5 +229,19 @@ ${safeContext}
 
     walk(cwd);
     return results;
+  });
+
+  ipcMain.handle(IPC.SHELL_LIST, async () => {
+    return await detectShells();
+  });
+
+  ipcMain.handle(IPC.SETTINGS_GET_DEFAULT_SHELL, () => {
+    return getDefaultShellId() || null;
+  });
+
+  ipcMain.handle(IPC.SETTINGS_SET_DEFAULT_SHELL, (_event, { id }: { id: string }) => {
+    if (typeof id !== 'string') return;
+    if (!getCachedShells().some((s) => s.id === id)) return;
+    setDefaultShellId(id);
   });
 }

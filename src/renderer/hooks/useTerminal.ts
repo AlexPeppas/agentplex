@@ -60,7 +60,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     const term = new Terminal({
       theme: buildTerminalTheme(),
       fontSize: terminalFontSize,
-      fontFamily: 'Cascadia Code, Consolas, monospace',
+      fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
       cursorBlink: true,
       convertEol: true,
     });
@@ -88,11 +88,35 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     termRef.current = term;
 
-    // Ctrl+Plus / Ctrl+Minus / Ctrl+0 to zoom terminal font
+    // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
     const sessionId_ = selectedSessionId;
+    const isMac = window.agentPlex.platform === 'darwin';
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.type !== 'keydown') return true;
-      let newSize = terminalFontSize;
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+      if (!modKey || e.type !== 'keydown') return true;
+
+      // Cmd/Ctrl+C: copy selected text or fall through as SIGINT
+      if (e.key === 'c') {
+        if (term.hasSelection()) {
+          window.agentPlex.clipboardWriteText(term.getSelection());
+          term.clearSelection();
+          e.preventDefault();
+          return false;
+        }
+        return true;
+      }
+
+      // Cmd/Ctrl+V: paste from clipboard into terminal
+      if (e.key === 'v') {
+        const text = window.agentPlex.clipboardReadText();
+        if (text) {
+          term.paste(text);
+        }
+        e.preventDefault();
+        return false;
+      }
+
+      let newSize: number;
       if (e.key === '=' || e.key === '+') {
         newSize = Math.min(terminalFontSize + 2, MAX_FONT_SIZE);
       } else if (e.key === '-') {
@@ -155,7 +179,19 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
     resizeObserver.observe(containerRef.current);
 
+    // Right-click to paste
+    const container = containerRef.current;
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      const text = window.agentPlex.clipboardReadText();
+      if (text) {
+        term.paste(text);
+      }
+    };
+    container.addEventListener('contextmenu', handleContextMenu);
+
     return () => {
+      container.removeEventListener('contextmenu', handleContextMenu);
       observer.disconnect();
       resizeObserver.disconnect();
       cleanup();

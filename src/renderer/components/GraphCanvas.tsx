@@ -4,7 +4,7 @@ import {
   Background,
   Controls,
   type Node,
-  type NodeDragHandler,
+  type OnNodeDrag,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { SessionNode } from './SessionNode';
@@ -29,11 +29,11 @@ export function GraphCanvas() {
   const removeFromGroup = useAppStore((s) => s.removeFromGroup);
   const dragStartParent = useRef<string | undefined>(undefined);
 
-  const onNodeDragStart: NodeDragHandler = useCallback((_event, node) => {
+  const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     dragStartParent.current = node.parentId;
   }, []);
 
-  const onNodeDragStop: NodeDragHandler = useCallback(
+  const onNodeDragStop: OnNodeDrag = useCallback(
     (_event, draggedNode) => {
       // Only handle session nodes
       if (draggedNode.type !== 'sessionNode') return;

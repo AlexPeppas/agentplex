@@ -6,6 +6,7 @@ import { TerminalPanel } from './components/TerminalPanel';
 import { SendDialog } from './components/SendDialog';
 import { ActivityBar } from './components/ActivityBar';
 import { SidePanel } from './components/SidePanel';
+import { ProjectLauncher } from './components/ProjectLauncher';
 import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
@@ -30,6 +31,7 @@ export function App() {
   const activePanelId = useAppStore((s) => s.activePanelId);
   const sidePanelWidth = useAppStore((s) => s.sidePanelWidth);
   const setSidePanelWidth = useAppStore((s) => s.setSidePanelWidth);
+  const launcherOpen = useAppStore((s) => s.launcherOpen);
   const addSession = useAppStore((s) => s.addSession);
   const appendBuffer = useAppStore((s) => s.appendBuffer);
   const updateStatus = useAppStore((s) => s.updateStatus);
@@ -243,6 +245,7 @@ export function App() {
         )}
       </div>
       {sendDialogSourceId && <SendDialog />}
+      {launcherOpen && <ProjectLauncher />}
     </div>
   );
 }

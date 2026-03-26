@@ -4,9 +4,13 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
-import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, SHELL_TOOLS, type CliTool } from '../shared/ipc-channels';
+import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL } from '../shared/ipc-channels';
+import type { SessionInfo, CliTool, ExternalSession } from '../shared/ipc-channels';
+import { getShellById } from './shell-detector';
+import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
+import { renderJsonlTranscript } from './claude-session-scanner';
 import { PlanTaskDetector } from './plan-task-detector';
 
 const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
@@ -41,6 +45,17 @@ function getSafeEnv(): Record<string, string> {
     }
   }
   return env;
+}
+
+/** Resolve the user's default shell from settings or detection, with safe fallbacks. */
+function resolveDefaultShell(): string {
+  const savedId = getDefaultShellId();
+  if (savedId) {
+    const saved = getShellById(savedId);
+    if (saved) return saved.path;
+  }
+  if (process.platform === 'win32') return 'powershell.exe';
+  return process.env.SHELL || '/bin/zsh';
 }
 
 interface Session {
@@ -166,7 +181,7 @@ export class SessionManager {
   /**
    * Create a session with a specific Claude session UUID (for restore).
    */
-  private createWithUuid(cwd: string, cli: CliTool, claudeSessionUuid: string): SessionInfo {
+  private createWithUuid(cwd: string, cli: CliTool, claudeSessionUuid: string, forceResume = false): SessionInfo {
     if (!UUID_RE.test(claudeSessionUuid)) {
       throw new Error(`Invalid session UUID: ${claudeSessionUuid}`);
     }
@@ -177,7 +192,7 @@ export class SessionManager {
     const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    const shell = resolveDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -186,7 +201,7 @@ export class SessionManager {
       env: getSafeEnv(),
     });
 
-    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const home = homedir();
     const encodedPath = encodeProjectPath(workDir);
     const jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${claudeSessionUuid}.jsonl`);
     const jsonlWatcher = this.createJsonlWatcher(jsonlPath, id);
@@ -267,9 +282,19 @@ export class SessionManager {
 
     this.sessions.set(id, session);
 
-    // Use --resume if the JSONL conversation file exists (real conversation to resume),
-    // otherwise --session-id (session was saved but never had a conversation)
-    const hasConversation = fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).size > 0;
+    // Pre-populate the terminal with the JSONL transcript so the user sees
+    // the familiar conversation history before the --resume recap.
+    if (forceResume) {
+      const transcript = renderJsonlTranscript(jsonlPath);
+      if (transcript) {
+        this.send(IPC.SESSION_DATA, { id, data: transcript });
+      }
+    }
+
+    // Use --resume if we know this is a real conversation to resume (forceResume from
+    // smart-resume flow, or JSONL file exists on disk). Fall back to --session-id only
+    // when restoring a session that was saved but never had a conversation.
+    const hasConversation = forceResume || (fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).size > 0);
     const command = hasConversation
       ? `${toolDef.command} --resume ${claudeSessionUuid}`
       : `${toolDef.command} --session-id ${claudeSessionUuid}`;
@@ -300,20 +325,33 @@ export class SessionManager {
     this.sessions.clear();
   }
 
-  create(cwd?: string, cli: CliTool = 'claude'): SessionInfo {
+  create(cwd?: string, cli: CliTool = 'claude', resumeSessionId?: string): SessionInfo {
+    // Direct resume by UUID — delegate to createWithUuid which handles --resume <uuid>.
+    // forceResume=true because the session was picked from the scanner, so we know
+    // the JSONL exists — avoids a path-encoding mismatch that could cause a fallback
+    // to --session-id instead of --resume.
+    if (resumeSessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resumeSessionId)) {
+      const workDir = cwd || homedir();
+      const info = this.createWithUuid(workDir, 'claude', resumeSessionId, true);
+      this.saveState();
+      return info;
+    }
+
     sessionCounter++;
     const id = `session-${sessionCounter}`;
-    const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
+    const workDir = cwd || homedir();
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
-    const isRawShell = cli === 'powershell' || cli === 'bash';
-    const allTools = [...CLI_TOOLS, RESUME_TOOL, ...SHELL_TOOLS];
-    const toolDef = allTools.find((t) => t.id === cli) || CLI_TOOLS[0];
+    const cliTools = [...CLI_TOOLS, RESUME_TOOL];
+    const matchedCliTool = cliTools.find((t) => t.id === cli);
+    const isRawShell = !matchedCliTool;
+    const toolDef = matchedCliTool || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = cli === 'bash'
-      ? (process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash')
-      : cli === 'powershell' ? 'powershell.exe'
-      : process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    // Use detected shell path if available, otherwise user's default
+    const detected = getShellById(cli);
+    const shell = isRawShell
+      ? (detected?.path || resolveDefaultShell())
+      : resolveDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -325,7 +363,7 @@ export class SessionManager {
     // Set up JSONL watcher for Claude CLI sessions
     let jsonlWatcher: JsonlSessionWatcher | null = null;
     let sessionUuid: string | null = null;
-    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const home = homedir();
     const encodedPath = encodeProjectPath(workDir);
 
     if (cli === 'claude') {
@@ -346,7 +384,7 @@ export class SessionManager {
           let planTitle = 'Plan Mode';
           if (event.planSlug) {
             try {
-              const home = process.env.HOME || process.env.USERPROFILE || '';
+              const home = homedir();
               const planPath = path.join(home, '.claude', 'plans', `${event.planSlug}.md`);
               const content = fs.readFileSync(planPath, 'utf-8');
               const headingMatch = content.match(/^#\s+(.+)/m);
@@ -585,6 +623,78 @@ export class SessionManager {
         }
       } catch { /* dir doesn't exist yet */ }
     }, 500);
+  }
+
+  /**
+   * Scan ~/.claude/sessions/*.json for externally-running Claude sessions
+   * that are not already managed by AgentPlex.
+   */
+  discoverExternal(): ExternalSession[] {
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const sessionsDir = path.join(home, '.claude', 'sessions');
+
+    let files: string[];
+    try {
+      files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith('.json'));
+    } catch {
+      return [];
+    }
+
+    // Collect UUIDs already managed by AgentPlex
+    const managedUuids = new Set<string>();
+    for (const s of this.sessions.values()) {
+      if (s.claudeSessionUuid) managedUuids.add(s.claudeSessionUuid);
+    }
+
+    const results: ExternalSession[] = [];
+
+    for (const file of files) {
+      try {
+        const filePath = path.join(sessionsDir, file);
+        const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const pid = raw.pid as number;
+        const sessionId = raw.sessionId as string;
+        const cwd = raw.cwd as string;
+        const startedAt = raw.startedAt as number;
+        const name = raw.name as string | undefined;
+
+        if (!pid || !sessionId || !cwd) continue;
+
+        // Skip sessions already managed by AgentPlex
+        if (managedUuids.has(sessionId)) continue;
+
+        // Check if the process is still alive
+        try {
+          process.kill(pid, 0); // signal 0 = existence check, doesn't kill
+        } catch {
+          continue; // process is dead
+        }
+
+        results.push({ pid, sessionId, cwd, startedAt, name });
+      } catch {
+        continue;
+      }
+    }
+
+    // Sort by startedAt descending (most recent first)
+    results.sort((a, b) => b.startedAt - a.startedAt);
+    return results;
+  }
+
+  /**
+   * Adopt an externally-running Claude session into AgentPlex.
+   * Spawns a new PTY that resumes the session via `claude --resume <uuid>`.
+   */
+  adoptExternal(sessionUuid: string, cwd: string): SessionInfo {
+    if (!UUID_RE.test(sessionUuid)) {
+      throw new Error(`Invalid session UUID: ${sessionUuid}`);
+    }
+    if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
+      throw new Error(`Working directory does not exist: ${cwd}`);
+    }
+    const info = this.createWithUuid(cwd, 'claude', sessionUuid);
+    this.saveState();
+    return info;
   }
 
   private checkStatuses() {
