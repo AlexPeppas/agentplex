@@ -163,6 +163,14 @@ const api = {
   setDefaultShell: (id: string): Promise<void> => {
     return ipcRenderer.invoke(IPC.SETTINGS_SET_DEFAULT_SHELL, { id });
   },
+
+  openSettings: (): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_OPEN_GLOBAL);
+  },
+
+  openProjectConfig: (cwd: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_OPEN_PROJECT, { cwd });
+  },
 };
 
 contextBridge.exposeInMainWorld('agentPlex', api);
