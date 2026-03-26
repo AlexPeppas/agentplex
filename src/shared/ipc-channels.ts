@@ -10,7 +10,8 @@ export interface DetectedShell {
   id: string;
   label: string;
   path: string;
-  type: 'powershell' | 'bash';
+  type: string;
+  isDefault: boolean;
 }
 
 export const RESUME_TOOL: { id: CliTool; label: string; command: string } = {
