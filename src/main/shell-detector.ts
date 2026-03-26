@@ -72,8 +72,13 @@ async function detectWindows(): Promise<DetectedShell[]> {
   // Detect powershell.exe (always present on Windows)
   const powershellPath = 'powershell.exe';
 
-  // Detect Git Bash
-  const gitBashPath = 'C:\\Program Files\\Git\\bin\\bash.exe';
+  // Detect Git Bash — check multiple install locations
+  const gitBashCandidates = [
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'bin', 'bash.exe'),
+  ];
+  const gitBashPath = gitBashCandidates.find(fileExists) || null;
 
   // Query versions in parallel
   const [pwshVersionRaw, psVersionRaw] = await Promise.all([
@@ -109,13 +114,30 @@ async function detectWindows(): Promise<DetectedShell[]> {
     });
   }
 
-  if (fileExists(gitBashPath)) {
+  if (gitBashPath) {
     shells.push({
       id: 'gitbash',
-      label: 'Bash',
+      label: 'Git Bash',
       path: gitBashPath,
       type: 'bash',
     });
+  } else {
+    // Fallback: try to find bash via where.exe
+    try {
+      const whereBash = (await execAsync('where.exe', ['bash'])).split('\n')[0].trim();
+      if (whereBash && fileExists(whereBash)) {
+        shells.push({ id: 'bash', label: 'Bash', path: whereBash, type: 'bash' });
+      }
+    } catch { /* not found */ }
+  }
+
+  // cmd.exe (always present)
+  shells.push({ id: 'cmd', label: 'Command Prompt', path: 'cmd.exe', type: 'bash' });
+
+  // WSL
+  const wslPath = 'C:\\Windows\\System32\\wsl.exe';
+  if (fileExists(wslPath)) {
+    shells.push({ id: 'wsl', label: 'WSL', path: wslPath, type: 'bash' });
   }
 
   return shells;
