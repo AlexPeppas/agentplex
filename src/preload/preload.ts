@@ -1,7 +1,10 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type CliTool, type DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, type DiscoveredProject, type DiscoveredSession, type PinnedProject } from '../shared/ipc-channels';
+import { contextBridge, ipcRenderer, clipboard } from 'electron';
+import { IPC, SessionStatus } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
 
 const api = {
+  platform: process.platform,
+
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string): Promise<SessionInfo> => {
     return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli, resumeSessionId });
   },
@@ -168,6 +171,14 @@ const api = {
 
   setDefaultShell: (id: string): Promise<void> => {
     return ipcRenderer.invoke(IPC.SETTINGS_SET_DEFAULT_SHELL, { id });
+  },
+
+  clipboardWriteText: (text: string): void => {
+    clipboard.writeText(text);
+  },
+
+  clipboardReadText: (): string => {
+    return clipboard.readText();
   },
 };
 

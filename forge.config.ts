@@ -1,5 +1,6 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
+import { MakerZIP } from '@electron-forge/maker-zip';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 
 const config: ForgeConfig = {
@@ -8,7 +9,7 @@ const config: ForgeConfig = {
       unpack: '**/node_modules/node-pty/**',
     },
     icon: 'assets/logo',
-    extraResource: ['assets/logo.png', 'assets/logo.ico'],
+    extraResource: ['assets/logo.png', 'assets/logo.ico', 'assets/logo.icns'],
   },
   rebuildConfig: {
     // Skip native rebuild — node-pty ships N-API prebuilds that work across Node/Electron
@@ -19,15 +20,20 @@ const config: ForgeConfig = {
       // node-pty is marked external by Vite, so it's not in the bundle.
       // Copy it (with prebuilds) into the packaged app's node_modules.
       const path = await import('path');
-      const fs = await import('fs-extra');
+      const fs = await import('fs/promises');
       const src = path.join(process.cwd(), 'node_modules', 'node-pty');
       const dest = path.join(buildPath, 'node_modules', 'node-pty');
-      if (await fs.pathExists(src)) {
-        await fs.copy(src, dest);
+      try {
+        await fs.cp(src, dest, { recursive: true });
+      } catch {
+        // node-pty not found — skip
       }
     },
   },
-  makers: [new MakerSquirrel({ setupExe: 'AgentPlex.exe', setupIcon: 'assets/logo.ico', loadingGif: 'assets/installer.gif', iconUrl: 'https://raw.githubusercontent.com/AlexPeppas/agentplex/master/assets/logo.ico' })],
+  makers: [
+    new MakerSquirrel({ setupExe: 'AgentPlex.exe', setupIcon: 'assets/logo.ico', loadingGif: 'assets/installer.gif', iconUrl: 'https://raw.githubusercontent.com/AlexPeppas/agentplex/master/assets/logo.ico' }),
+    new MakerZIP({}, ['darwin']),
+  ],
   plugins: [
     new VitePlugin({
       build: [

@@ -1,8 +1,11 @@
 node_modules/
 dist/
 out/
+build/
 .vite/
 *.js.map
+*.d.ts
+!src/**/*.d.ts
 .env
 .env.*
 *.pem

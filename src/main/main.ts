@@ -32,7 +32,8 @@ function getAppIcon() {
   const base = app.isPackaged
     ? path.join(process.resourcesPath)
     : path.resolve(__dirname, '../../');
-  const iconPath = path.join(base, 'assets', process.platform === 'win32' ? 'logo.ico' : 'logo.png');
+  const ext = process.platform === 'win32' ? 'logo.ico' : process.platform === 'darwin' ? 'logo.icns' : 'logo.png';
+  const iconPath = path.join(base, 'assets', ext);
   try {
     return nativeImage.createFromPath(iconPath);
   } catch {
@@ -47,12 +48,14 @@ function createWindow() {
     title: 'AgentPlex',
     icon: getAppIcon(),
     show: false,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#1e1c18',
-      symbolColor: '#ece4d8',
-      height: 48,
-    },
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    ...(process.platform !== 'darwin' && {
+      titleBarOverlay: {
+        color: '#1e1c18',
+        symbolColor: '#ece4d8',
+        height: 48,
+      },
+    }),
     backgroundColor: '#262420',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -65,25 +68,67 @@ function createWindow() {
   // Show window as soon as the renderer is ready — avoids white flash
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
-  // Preserve a minimal Edit menu so native clipboard accelerators (Ctrl+V paste,
-  // Ctrl+C copy, etc.) keep working inside xterm.js terminals. Setting the menu
-  // to null removes all default accelerators and silently breaks paste.
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      {
-        label: 'Edit',
-        submenu: [
-          { role: 'undo' },
-          { role: 'redo' },
-          { type: 'separator' },
-          { role: 'cut' },
-          { role: 'copy' },
-          { role: 'paste' },
-          { role: 'selectAll' },
-        ],
-      },
-    ])
-  );
+  // Build a platform-appropriate application menu.
+  // macOS needs App/File/Edit/View/Window for standard Cmd shortcuts.
+  // Windows/Linux keeps a minimal Edit menu plus View for fullscreen.
+  const template: Electron.MenuItemConstructorOptions[] = [];
+
+  if (process.platform === 'darwin') {
+    template.push({
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    });
+    template.push({
+      label: 'File',
+      submenu: [
+        { role: 'close' },
+      ],
+    });
+  }
+
+  template.push({
+    label: 'Edit',
+    submenu: [
+      { role: 'undo' },
+      { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      { role: 'selectAll' },
+    ],
+  });
+
+  template.push({
+    label: 'View',
+    submenu: [
+      { role: 'togglefullscreen' },
+    ],
+  });
+
+  if (process.platform === 'darwin') {
+    template.push({
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'front' },
+      ],
+    });
+  }
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   sessionManager.setWindow(mainWindow);
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

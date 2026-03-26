@@ -4,7 +4,10 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
-import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type ExternalSession } from '../shared/ipc-channels';
+import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL } from '../shared/ipc-channels';
+import type { SessionInfo, CliTool, ExternalSession } from '../shared/ipc-channels';
+import { getShellById } from './shell-detector';
+import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { renderJsonlTranscript } from './claude-session-scanner';
@@ -42,6 +45,17 @@ function getSafeEnv(): Record<string, string> {
     }
   }
   return env;
+}
+
+/** Resolve the user's default shell from settings or detection, with safe fallbacks. */
+function resolveDefaultShell(): string {
+  const savedId = getDefaultShellId();
+  if (savedId) {
+    const saved = getShellById(savedId);
+    if (saved) return saved.path;
+  }
+  if (process.platform === 'win32') return 'powershell.exe';
+  return process.env.SHELL || '/bin/zsh';
 }
 
 interface Session {
@@ -178,7 +192,7 @@ export class SessionManager {
     const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    const shell = resolveDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -187,7 +201,7 @@ export class SessionManager {
       env: getSafeEnv(),
     });
 
-    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const home = homedir();
     const encodedPath = encodeProjectPath(workDir);
     const jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${claudeSessionUuid}.jsonl`);
     const jsonlWatcher = this.createJsonlWatcher(jsonlPath, id);
@@ -317,7 +331,7 @@ export class SessionManager {
     // the JSONL exists — avoids a path-encoding mismatch that could cause a fallback
     // to --session-id instead of --resume.
     if (resumeSessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resumeSessionId)) {
-      const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
+      const workDir = cwd || homedir();
       const info = this.createWithUuid(workDir, 'claude', resumeSessionId, true);
       this.saveState();
       return info;
@@ -325,17 +339,19 @@ export class SessionManager {
 
     sessionCounter++;
     const id = `session-${sessionCounter}`;
-    const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
+    const workDir = cwd || homedir();
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
-    const isRawShell = cli === 'powershell' || cli === 'bash';
-    const allTools = [...CLI_TOOLS, RESUME_TOOL];
-    const toolDef = allTools.find((t) => t.id === cli) || CLI_TOOLS[0];
+    const cliTools = [...CLI_TOOLS, RESUME_TOOL];
+    const matchedCliTool = cliTools.find((t) => t.id === cli);
+    const isRawShell = !matchedCliTool;
+    const toolDef = matchedCliTool || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = cli === 'bash'
-      ? (process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash')
-      : cli === 'powershell' ? 'powershell.exe'
-      : process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    // Use detected shell path if available, otherwise user's default
+    const detected = getShellById(cli);
+    const shell = isRawShell
+      ? (detected?.path || resolveDefaultShell())
+      : resolveDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -347,7 +363,7 @@ export class SessionManager {
     // Set up JSONL watcher for Claude CLI sessions
     let jsonlWatcher: JsonlSessionWatcher | null = null;
     let sessionUuid: string | null = null;
-    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const home = homedir();
     const encodedPath = encodeProjectPath(workDir);
 
     if (cli === 'claude') {
@@ -368,7 +384,7 @@ export class SessionManager {
           let planTitle = 'Plan Mode';
           if (event.planSlug) {
             try {
-              const home = process.env.HOME || process.env.USERPROFILE || '';
+              const home = homedir();
               const planPath = path.join(home, '.claude', 'plans', `${event.planSlug}.md`);
               const content = fs.readFileSync(planPath, 'utf-8');
               const headingMatch = content.match(/^#\s+(.+)/m);

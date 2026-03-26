@@ -235,7 +235,7 @@ function getLastTimestamp(filePath: string): string | null {
 export async function scanSessionsForProject(encodedPath: string): Promise<DiscoveredSession[]> {
   const projectDir = path.join(CLAUDE_PROJECTS_DIR, encodedPath);
 
-  let files: string[] = [];
+  let files: string[];
   try {
     files = (await fs.promises.readdir(projectDir)).filter((f) => f.endsWith('.jsonl'));
   } catch {
