@@ -522,6 +522,10 @@ export class SessionManager {
     return this.sessions.get(id)?.buffer || '';
   }
 
+  getCwd(id: string): string | null {
+    return this.sessions.get(id)?.cwd ?? null;
+  }
+
   list(): SessionInfo[] {
     return Array.from(this.sessions.values()).map((s) => ({
       id: s.id,

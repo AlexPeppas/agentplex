@@ -21,6 +21,8 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
+  const [projectMenu, setProjectMenu] = useState<{ x: number; y: number } | null>(null);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -37,6 +39,17 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [confirmingDelete]);
+
+  useEffect(() => {
+    if (!projectMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
+        setProjectMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [projectMenu]);
 
   const commit = useCallback(() => {
     const trimmed = draft.trim();
@@ -81,6 +94,20 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     openSendDialog(nodeData.sessionId);
   };
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setProjectMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleOpenProjectConfig = useCallback(async () => {
+    setProjectMenu(null);
+    const cwd = await window.agentPlex.getSessionCwd(nodeData.sessionId);
+    if (cwd) {
+      window.agentPlex.openProjectConfig(cwd);
+    }
+  }, [nodeData.sessionId]);
+
   const trashIcon = (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="3 6 5 6 21 6" />
@@ -92,6 +119,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     <div
       className={`session-node ${isSelected ? 'session-node--selected' : ''} ${isKilled ? 'session-node--killed' : ''}`}
       onClick={handleClick}
+      onContextMenu={handleContextMenu}
     >
       {isWaiting && <span className="session-node__attention">?</span>}
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
@@ -146,6 +174,22 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
             <button className="session-node__confirm-delete" onClick={handleConfirmDelete}>Delete</button>
             <button className="session-node__confirm-cancel" onClick={handleCancelDelete}>Cancel</button>
           </div>
+        </div>
+      )}
+
+      {projectMenu && (
+        <div
+          ref={projectMenuRef}
+          className="session-node__context-menu"
+          style={{ position: 'fixed', left: projectMenu.x, top: projectMenu.y, zIndex: 1000 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="session-node__context-menu-item"
+            onClick={handleOpenProjectConfig}
+          >
+            Open Project Settings
+          </button>
         </div>
       )}
 
