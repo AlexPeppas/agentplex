@@ -16,6 +16,7 @@ function execAsync(cmd: string, args: string[]): Promise<string> {
   });
 }
 
+/** On Windows, X_OK isn't meaningful (all files are "executable"), so stat-only is correct. */
 function fileExists(p: string): boolean {
   try { return fs.statSync(p).isFile(); } catch { return false; }
 }
@@ -54,7 +55,7 @@ const VERSION_ARGS: Record<string, string[]> = {
 async function detectWindows(): Promise<DetectedShell[]> {
   const shells: DetectedShell[] = [];
 
-  // pwsh.exe (PowerShell 7+)
+  // pwsh.exe (PowerShell 7+) — treated as default over Windows PowerShell when present
   let pwshPath: string | null = null;
   for (const candidate of [
     path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'pwsh.exe'),
@@ -80,19 +81,23 @@ async function detectWindows(): Promise<DetectedShell[]> {
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'bin', 'bash.exe'),
   ];
   let gitBashPath = gitBashCandidates.find(fileExists) || null;
-  if (!gitBashPath) {
-    try {
-      const p = (await execAsync('where.exe', ['bash.exe'])).split('\n')[0].trim();
-      if (p && fileExists(p)) gitBashPath = p;
-    } catch { /* not found */ }
-  }
 
-  // Nushell
+  // Nushell — no well-known install path, rely on where.exe
   let nuPath: string | null = null;
-  try {
-    const p = (await execAsync('where.exe', ['nu.exe'])).split('\n')[0].trim();
+
+  // Resolve Git Bash and Nushell via where.exe in parallel
+  const [gitBashWhere, nuWhere] = await Promise.allSettled([
+    gitBashPath ? Promise.resolve(null) : execAsync('where.exe', ['bash.exe']),
+    execAsync('where.exe', ['nu.exe']),
+  ]);
+  if (!gitBashPath && gitBashWhere.status === 'fulfilled' && gitBashWhere.value) {
+    const p = gitBashWhere.value.split('\n')[0].trim();
+    if (p && fileExists(p)) gitBashPath = p;
+  }
+  if (nuWhere.status === 'fulfilled' && nuWhere.value) {
+    const p = nuWhere.value.split('\n')[0].trim();
     if (p && fileExists(p)) nuPath = p;
-  } catch { /* not found */ }
+  }
 
   // Fetch versions in parallel
   const [pwshVer, psVer, gitBashVer, nuVer] = await Promise.all([
@@ -217,8 +222,8 @@ async function detectUnix(): Promise<DetectedShell[]> {
     }
   }
 
-  // Fetch versions in parallel
-  const results = await Promise.allSettled(
+  // Fetch versions in parallel — mutates shell.label in place before the sort below
+  await Promise.allSettled(
     versionPromises.map(async ({ shell, exe }) => {
       const args = VERSION_ARGS[shell.id] || ['--version'];
       const raw = await getVersion(exe, args);

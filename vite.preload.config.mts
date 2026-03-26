@@ -9,6 +9,7 @@ const fixDeprecatedInlineDynamicImports: Plugin = {
     if (output && !Array.isArray(output) && output.inlineDynamicImports) {
       delete output.inlineDynamicImports;
       config.build ??= {};
+      // Vite 8 internal option, not yet in public BuildOptions types
       (config.build as Record<string, unknown>).codeSplitting = false;
     }
   },
