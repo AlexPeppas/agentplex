@@ -4,8 +4,9 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
-import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
-import { getCachedShells, getShellById } from './shell-detector';
+import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL } from '../shared/ipc-channels';
+import type { SessionInfo, CliTool } from '../shared/ipc-channels';
+import { getShellById } from './shell-detector';
 import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
@@ -199,7 +200,7 @@ export class SessionManager {
       env: getSafeEnv(),
     });
 
-    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const home = homedir();
     const encodedPath = encodeProjectPath(workDir);
     const jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${claudeSessionUuid}.jsonl`);
     const jsonlWatcher = this.createJsonlWatcher(jsonlPath, id);
@@ -320,7 +321,7 @@ export class SessionManager {
     // the JSONL exists — avoids a path-encoding mismatch that could cause a fallback
     // to --session-id instead of --resume.
     if (resumeSessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resumeSessionId)) {
-      const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
+      const workDir = cwd || homedir();
       const info = this.createWithUuid(workDir, 'claude', resumeSessionId, true);
       this.saveState();
       return info;
@@ -328,7 +329,7 @@ export class SessionManager {
 
     sessionCounter++;
     const id = `session-${sessionCounter}`;
-    const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
+    const workDir = cwd || homedir();
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
     const cliTools = [...CLI_TOOLS, RESUME_TOOL];
     const matchedCliTool = cliTools.find((t) => t.id === cli);
@@ -352,7 +353,7 @@ export class SessionManager {
     // Set up JSONL watcher for Claude CLI sessions
     let jsonlWatcher: JsonlSessionWatcher | null = null;
     let sessionUuid: string | null = null;
-    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const home = homedir();
     const encodedPath = encodeProjectPath(workDir);
 
     if (cli === 'claude') {
@@ -373,7 +374,7 @@ export class SessionManager {
           let planTitle = 'Plan Mode';
           if (event.planSlug) {
             try {
-              const home = process.env.HOME || process.env.USERPROFILE || '';
+              const home = homedir();
               const planPath = path.join(home, '.claude', 'plans', `${event.planSlug}.md`);
               const content = fs.readFileSync(planPath, 'utf-8');
               const headingMatch = content.match(/^#\s+(.+)/m);
