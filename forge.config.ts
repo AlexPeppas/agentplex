@@ -20,11 +20,13 @@ const config: ForgeConfig = {
       // node-pty is marked external by Vite, so it's not in the bundle.
       // Copy it (with prebuilds) into the packaged app's node_modules.
       const path = await import('path');
-      const fs = await import('fs-extra');
+      const fs = await import('fs/promises');
       const src = path.join(process.cwd(), 'node_modules', 'node-pty');
       const dest = path.join(buildPath, 'node_modules', 'node-pty');
-      if (await fs.pathExists(src)) {
-        await fs.copy(src, dest);
+      try {
+        await fs.cp(src, dest, { recursive: true });
+      } catch {
+        // node-pty not found — skip
       }
     },
   },

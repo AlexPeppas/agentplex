@@ -26,6 +26,7 @@
   },
   "scripts": {
     "generate-icons": "node scripts/generate-icons.mjs",
+    "postinstall": "node -e \"try{require('fs').chmodSync(require('path').join('node_modules','node-pty','prebuilds',process.platform+'-'+process.arch,'spawn-helper'),0o755)}catch{}\"",
     "start": "electron-forge start",
     "package": "pnpm generate-icons && electron-forge package",
     "make": "pnpm generate-icons && electron-forge make"
