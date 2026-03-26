@@ -66,6 +66,10 @@ export function Toolbar() {
     setContextMenu(null);
   }, []);
 
+  const handleOpenSettings = useCallback(() => {
+    window.agentPlex.openSettings();
+  }, []);
+
   useEffect(() => {
     if (!contextMenu) return;
     const handleClick = (e: MouseEvent) => {
@@ -103,6 +107,13 @@ export function Toolbar() {
     <div className="toolbar">
       <img className="toolbar__logo" src={logoSvg} alt="AgentPlex" />
       <span className="toolbar__title">AgentPlex</span>
+      <button
+        className="toolbar__theme-toggle"
+        onClick={handleOpenSettings}
+        title="Open settings"
+      >
+        {'\u2699'}
+      </button>
       <button
         className="toolbar__theme-toggle"
         onClick={toggleTheme}
