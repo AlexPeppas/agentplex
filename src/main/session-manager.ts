@@ -640,17 +640,14 @@ export class SessionManager {
       return [];
     }
 
-    // Collect UUIDs and cwds already managed by AgentPlex (in-memory + persisted)
+    // Collect UUIDs already managed by AgentPlex (in-memory + persisted)
     const managedUuids = new Set<string>();
-    const managedCwds = new Set<string>();
     for (const s of this.sessions.values()) {
       if (s.claudeSessionUuid) managedUuids.add(s.claudeSessionUuid);
-      managedCwds.add(s.cwd);
     }
     const persisted = this.loadState();
     for (const ps of Object.values(persisted.sessions)) {
       if (ps.claudeSessionUuid) managedUuids.add(ps.claudeSessionUuid);
-      managedCwds.add(ps.cwd);
     }
 
     const results: ExternalSession[] = [];
@@ -667,9 +664,8 @@ export class SessionManager {
 
         if (!pid || !sessionId || !cwd) continue;
 
-        // Skip sessions already managed by AgentPlex (by UUID or cwd)
+        // Skip sessions already managed by AgentPlex
         if (managedUuids.has(sessionId)) continue;
-        if (managedCwds.has(cwd)) continue;
 
         // Check if the process is still alive
         try {
