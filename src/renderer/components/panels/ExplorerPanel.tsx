@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useAppStore } from '../../store';
 import { StatusIndicator } from '../StatusIndicator';
 import type { SessionInfo } from '../../../shared/ipc-channels';
@@ -19,22 +19,15 @@ export function ExplorerPanel() {
   }, [sessions]);
 
   const cwds = Object.keys(tree);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(cwds.map((cwd) => [cwd, true]))
-  );
 
-  // Expand newly-appeared directories
-  useEffect(() => {
-    for (const cwd of cwds) {
-      if (!(cwd in expanded)) {
-        setExpanded((prev) => ({ ...prev, [cwd]: true }));
-      }
-    }
-  }, [cwds.join(',')]);
+  // Track collapsed state — directories are expanded by default
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const toggleDir = (cwd: string) => {
-    setExpanded((prev) => ({ ...prev, [cwd]: !prev[cwd] }));
+    setCollapsed((prev) => ({ ...prev, [cwd]: !prev[cwd] }));
   };
+
+  const isExpanded = (cwd: string) => !collapsed[cwd];
 
   const dirName = (cwd: string) => cwd.replace(/\\/g, '/').split('/').pop() || cwd;
 
@@ -51,10 +44,10 @@ export function ExplorerPanel() {
             title={cwd}
             onClick={() => toggleDir(cwd)}
           >
-            <span className="tree-item__arrow">{expanded[cwd] ? '\u25BE' : '\u25B8'}</span>
+            <span className="tree-item__arrow">{isExpanded(cwd) ? '\u25BE' : '\u25B8'}</span>
             <span className="tree-item__label">{dirName(cwd)}</span>
           </div>
-          {expanded[cwd] &&
+          {isExpanded(cwd) &&
             tree[cwd].map((session) => (
               <div
                 key={session.id}
