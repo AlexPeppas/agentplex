@@ -1,5 +1,6 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron';
+import { ipcMain, dialog, BrowserWindow, shell } from 'electron';
 import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject } from '../shared/ipc-channels';
+import { ensureGlobalConfig, ensureProjectConfig } from './config-loader';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
 import { getDefaultShellId, setDefaultShellId } from './settings-manager';
@@ -182,5 +183,16 @@ ${safeContext}
     if (typeof id !== 'string') return;
     if (!getCachedShells().some((s) => s.id === id)) return;
     setDefaultShellId(id);
+  });
+
+  ipcMain.handle(IPC.SETTINGS_OPEN_GLOBAL, async () => {
+    const configPath = ensureGlobalConfig();
+    await shell.openPath(configPath);
+  });
+
+  ipcMain.handle(IPC.SETTINGS_OPEN_PROJECT, async (_event, { cwd }: { cwd: string }) => {
+    if (typeof cwd !== 'string') return;
+    const configPath = ensureProjectConfig(cwd);
+    await shell.openPath(configPath);
   });
 }
