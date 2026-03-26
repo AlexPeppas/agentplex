@@ -190,6 +190,8 @@ export function Toolbar() {
           Discover
         </button>
         {discoverOpen && (
+          <>
+          <div className="toolbar__backdrop" onClick={() => setDiscoverOpen(false)} />
           <div className="toolbar__menu toolbar__discover-panel">
             {discovering ? (
               <div className="toolbar__discover-empty">Scanning...</div>
@@ -220,6 +222,7 @@ export function Toolbar() {
               ))
             )}
           </div>
+          </>
         )}
       </div>
       <div className="toolbar__new-wrapper" ref={menuRef}>

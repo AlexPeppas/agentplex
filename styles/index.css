@@ -345,10 +345,18 @@ html, body, #root {
 }
 
 /* Discover panel */
+.toolbar__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  -webkit-app-region: no-drag;
+}
+
 .toolbar__discover-panel {
   min-width: 300px;
   max-height: 360px;
   overflow-y: auto;
+  z-index: 100;
 }
 
 .toolbar__discover-empty {

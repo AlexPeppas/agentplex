@@ -303,11 +303,17 @@ export function renderJsonlTranscript(jsonlPath: string): string {
   try {
     const stat = fs.statSync(jsonlPath);
     const bytesToRead = Math.min(stat.size, TRANSCRIPT_MAX_BYTES);
+    const offset = Math.max(0, stat.size - bytesToRead);
     const fd = fs.openSync(jsonlPath, 'r');
     const buf = Buffer.alloc(bytesToRead);
-    fs.readSync(fd, buf, 0, bytesToRead, 0);
+    fs.readSync(fd, buf, 0, bytesToRead, offset);
     fs.closeSync(fd);
     text = buf.toString('utf-8');
+    // If we started mid-file, drop the first (likely partial) line
+    if (offset > 0) {
+      const nl = text.indexOf('\n');
+      if (nl !== -1) text = text.slice(nl + 1);
+    }
   } catch {
     return '';
   }
