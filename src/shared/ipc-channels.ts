@@ -82,6 +82,11 @@ export interface PinnedProject {
   label?: string;
 }
 
+export interface ClaudeConfig {
+  command: string;
+  flags: string[];
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -113,4 +118,6 @@ export const IPC = {
   SHELL_LIST: 'shell:list',
   SETTINGS_GET_DEFAULT_SHELL: 'settings:getDefaultShell',
   SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
+  SETTINGS_OPEN_GLOBAL: 'settings:openGlobal',
+  SETTINGS_OPEN_PROJECT: 'settings:openProject',
 } as const;
