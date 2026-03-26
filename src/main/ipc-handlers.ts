@@ -60,6 +60,11 @@ export function registerIpcHandlers() {
     return sessionManager.getBuffer(id);
   });
 
+  ipcMain.handle(IPC.SESSION_GET_CWD, (_event, { id }: { id: string }) => {
+    if (typeof id !== 'string') return null;
+    return sessionManager.getCwd(id);
+  });
+
   ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { context, sourceLabel }: { context: string; sourceLabel: string }) => {
     if (typeof context !== 'string' || typeof sourceLabel !== 'string') {
       return { summary: null, error: 'Invalid parameters' };

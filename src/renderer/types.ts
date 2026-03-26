@@ -9,6 +9,7 @@ export interface AgentPlexAPI {
   killSession: (id: string) => Promise<void>;
   listSessions: () => Promise<SessionInfo[]>;
   getSessionBuffer: (id: string) => Promise<string>;
+  getSessionCwd: (id: string) => Promise<string | null>;
   onSessionData: (callback: (data: { id: string; data: string }) => void) => () => void;
   onSessionStatus: (callback: (data: { id: string; status: SessionStatus }) => void) => () => void;
   onSessionExit: (callback: (data: { id: string; exitCode: number }) => void) => () => void;
@@ -34,6 +35,8 @@ export interface AgentPlexAPI {
   setDefaultShell: (id: string) => Promise<void>;
   clipboardWriteText: (text: string) => void;
   clipboardReadText: () => string;
+  openSettings: () => Promise<void>;
+  openProjectConfig: (cwd: string) => Promise<void>;
 }
 
 declare global {
