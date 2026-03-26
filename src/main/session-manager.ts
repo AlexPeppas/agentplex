@@ -733,22 +733,27 @@ export class SessionManager {
           // from the end — read enough tail to reliably find them
           const tailSize = Math.min(128 * 1024, stat.size);
           const fd = fs.openSync(filePath, 'r');
-          const buf = Buffer.alloc(tailSize);
-          fs.readSync(fd, buf, 0, tailSize, Math.max(0, stat.size - tailSize));
-          fs.closeSync(fd);
-          const tail = buf.toString('utf-8');
-          const lines = tail.split('\n').filter((l) => l.trim());
-          for (let i = lines.length - 1; i >= 0; i--) {
-            try {
-              const obj = JSON.parse(lines[i]);
-              if ((obj.type === 'user' || obj.type === 'assistant') && obj.timestamp) {
-                if (obj.timestamp > latestMsgTime) {
-                  latestMsgTime = obj.timestamp;
-                  if (UUID_RE.test(uuid)) activeId = uuid;
+          try {
+            const buf = Buffer.alloc(tailSize);
+            fs.readSync(fd, buf, 0, tailSize, Math.max(0, stat.size - tailSize));
+            const tail = buf.toString('utf-8');
+            const lines = tail.split('\n').filter((l) => l.trim());
+            for (let i = lines.length - 1; i >= 0; i--) {
+              try {
+                const obj = JSON.parse(lines[i]);
+                if ((obj.type === 'user' || obj.type === 'assistant') && obj.timestamp) {
+                  if (obj.timestamp > latestMsgTime) {
+                    latestMsgTime = obj.timestamp;
+                    if (UUID_RE.test(uuid)) activeId = uuid;
+                  }
+                  break;
                 }
-                break;
-              }
-            } catch { /* skip */ }
+              } catch { /* skip */ }
+            }
+          } finally {
+            try {
+              fs.closeSync(fd);
+            } catch { /* ignore close errors */ }
           }
         } catch { /* skip */ }
       }
