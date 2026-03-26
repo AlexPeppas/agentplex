@@ -1,8 +1,9 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
+  useReactFlow,
   type Node,
   type NodeDragHandler,
 } from '@xyflow/react';
@@ -27,7 +28,19 @@ export function GraphCanvas() {
   const createGroup = useAppStore((s) => s.createGroup);
   const addToGroup = useAppStore((s) => s.addToGroup);
   const removeFromGroup = useAppStore((s) => s.removeFromGroup);
+  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const { setCenter } = useReactFlow();
   const dragStartParent = useRef<string | undefined>(undefined);
+
+  // Center the graph on the selected node
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    const node = nodes.find((n) => n.id === selectedSessionId);
+    if (!node) return;
+    const x = node.position.x + NODE_WIDTH / 2;
+    const y = node.position.y + NODE_HEIGHT / 2;
+    setCenter(x, y, { duration: 300, zoom: 1 });
+  }, [selectedSessionId]);
 
   const onNodeDragStart: NodeDragHandler = useCallback((_event, node) => {
     dragStartParent.current = node.parentId;
