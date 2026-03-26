@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type CliTool, type DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, type DiscoveredProject, type DiscoveredSession, type PinnedProject } from '../shared/ipc-channels';
+import { IPC, SessionStatus } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,

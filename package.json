@@ -6,7 +6,7 @@
   "author": "Alexandros Peppas",
   "main": ".vite/build/main.js",
   "bin": {
-    "agentplex": "bin/agentplex.js"
+    "agentplex": "bin/agentplex.mjs"
   },
   "license": "MIT",
   "repository": {
@@ -51,10 +51,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.1",
-    "adm-zip": "^0.5.16",
     "electron": "^35.7.5",
-    "gif-encoder-2": "^1.0.5",
-    "png-to-ico": "^3.0.1",
     "puppeteer": "^24.40.0",
     "sharp": "^0.34.5",
     "typescript": "^5.9.3",

@@ -60,18 +60,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6.0.1
         version: 6.0.1(vite@8.0.3(@types/node@25.5.0)(jiti@2.6.1)(terser@5.46.1))
-      adm-zip:
-        specifier: ^0.5.16
-        version: 0.5.16
       electron:
         specifier: ^35.7.5
         version: 35.7.5
-      gif-encoder-2:
-        specifier: ^1.0.5
-        version: 1.0.5
-      png-to-ico:
-        specifier: ^3.0.1
-        version: 3.0.1
       puppeteer:
         specifier: ^24.40.0
         version: 24.40.0(typescript@5.9.3)
@@ -791,10 +782,6 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  adm-zip@0.5.16:
-    resolution: {integrity: sha512-TGw5yVi4saajsSEgz25grObGHEUaDrniwvA2qwSC060KfqGPdglhvPMA2lPIoxs3PQIItj2iag35fONcQqgUaQ==}
-    engines: {node: '>=12.0'}
-
   agent-base@6.0.2:
     resolution: {integrity: sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==}
     engines: {node: '>= 6.0.0'}
@@ -1428,9 +1415,6 @@ packages:
   get-uri@6.0.5:
     resolution: {integrity: sha512-b1O07XYq8eRuVzBNgJLstU6FYc1tS6wnMtF1I1D9lE8LxZSOGZ7LhxN54yPP6mGw5f2CkXY2BQUL9Fx41qvcIg==}
     engines: {node: '>= 14'}
-
-  gif-encoder-2@1.0.5:
-    resolution: {integrity: sha512-fsRAKbZuUoZ7FYGjpFElmflTkKwsn/CzAmL/xDl4558aTAgysIDCUF6AXWO8dmai/ApfZACbPVAM+vPezJXlFg==}
 
   glob-parent@5.1.2:
     resolution: {integrity: sha512-AOIgSQCepiJYwP3ARnGx+5VnTu2HBYdzbGP45eLw1vr3zB3vZLeyed1sC9hnbcOc9/SrMyM5RPQrkGz4aS9Zow==}
@@ -2083,15 +2067,6 @@ packages:
   plist@3.1.0:
     resolution: {integrity: sha512-uysumyrvkUX0rX/dEVqt8gC3sTBzd4zoWfLeS29nb53imdaXVvLINYXTI2GNqzaMuvacNx4uJQ8+b3zXR0pkgQ==}
     engines: {node: '>=10.4.0'}
-
-  png-to-ico@3.0.1:
-    resolution: {integrity: sha512-S8BOAoaGd9gT5uaemQ62arIY3Jzco7Uc7LwUTqRyqJDTsKqOAiyfyN4dSdT0D+Zf8XvgztgpRbM5wnQd7EgYwg==}
-    engines: {node: '>=20'}
-    hasBin: true
-
-  pngjs@7.0.0:
-    resolution: {integrity: sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow==}
-    engines: {node: '>=14.19.0'}
 
   postcss@8.5.8:
     resolution: {integrity: sha512-OW/rX8O/jXnm82Ey1k44pObPtdblfiuWnrd8X7GJ7emImCOstunGbXUpp7HdBrFQX6rJzn3sPT397Wp5aCwCHg==}
@@ -3655,8 +3630,6 @@ snapshots:
 
   acorn@8.16.0: {}
 
-  adm-zip@0.5.16: {}
-
   agent-base@6.0.2:
     dependencies:
       debug: 4.4.3
@@ -4291,8 +4264,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  gif-encoder-2@1.0.5: {}
-
   glob-parent@5.1.2:
     dependencies:
       is-glob: 4.0.3
@@ -4914,14 +4885,6 @@ snapshots:
       '@xmldom/xmldom': 0.8.11
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
-
-  png-to-ico@3.0.1:
-    dependencies:
-      '@types/node': 22.19.15
-      minimist: 1.2.8
-      pngjs: 7.0.0
-
-  pngjs@7.0.0: {}
 
   postcss@8.5.8:
     dependencies:
