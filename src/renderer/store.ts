@@ -10,7 +10,7 @@ import {
 import { SessionStatus, type SessionInfo } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 
-export type PanelId = 'explorer' | 'sessions' | 'search' | 'git' | 'extensions';
+export type PanelId = 'explorer' | 'search' | 'git' | 'extensions';
 
 function getAccentColor(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#d18a7a';

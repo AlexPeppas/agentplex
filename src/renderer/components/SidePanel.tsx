@@ -1,7 +1,6 @@
 import { useAppStore } from '../store';
 import { PlaceholderPanel } from './panels/PlaceholderPanel';
 import { ExplorerPanel } from './panels/ExplorerPanel';
-import { SessionExplorerPanel } from './panels/SessionExplorerPanel';
 import { SearchPanel } from './panels/SearchPanel';
 
 export function SidePanel() {
@@ -9,7 +8,6 @@ export function SidePanel() {
 
   const panelTitle: Record<string, string> = {
     explorer: 'Explorer',
-    sessions: 'Sessions',
     search: 'Search',
     git: 'Git',
     extensions: 'Extensions',
@@ -22,7 +20,6 @@ export function SidePanel() {
       </div>
       <div className="side-panel__content">
         {activePanelId === 'explorer' && <ExplorerPanel />}
-        {activePanelId === 'sessions' && <SessionExplorerPanel />}
         {activePanelId === 'search' && <SearchPanel />}
         {activePanelId === 'git' && (
           <PlaceholderPanel icon={'\u2442'} label="Git" />

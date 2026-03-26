@@ -9,7 +9,6 @@ interface PanelDef {
 
 const PANELS: PanelDef[] = [
   { id: 'explorer', label: 'Explorer', icon: '\u{1F4C1}', enabled: true },
-  { id: 'sessions', label: 'Sessions', icon: '\u{1F5A5}', enabled: true },
   { id: 'search', label: 'Search', icon: '\u{1F50D}', enabled: true },
   { id: 'git', label: 'Git', icon: '\u2442', enabled: false },
   { id: 'extensions', label: 'Extensions', icon: '\u26A1', enabled: false },
