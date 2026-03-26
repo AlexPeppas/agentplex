@@ -1,4 +1,5 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { StatusIndicator } from './StatusIndicator';
 import { useAppStore, type SessionNodeData } from '../store';
@@ -177,7 +178,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
         </div>
       )}
 
-      {projectMenu && (
+      {projectMenu && createPortal(
         <div
           ref={projectMenuRef}
           className="session-node__context-menu"
@@ -190,7 +191,8 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
           >
             Open Project Settings
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {nodeData.mode === 'plan' && (
