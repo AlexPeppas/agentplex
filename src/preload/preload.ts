@@ -172,6 +172,14 @@ const api = {
   clipboardReadText: (): string => {
     return clipboard.readText();
   },
+
+  openSettings: (): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_OPEN_GLOBAL);
+  },
+
+  openProjectConfig: (cwd: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_OPEN_PROJECT, { cwd });
+  },
 };
 
 contextBridge.exposeInMainWorld('agentPlex', api);
