@@ -2,6 +2,7 @@ import * as pty from 'node-pty';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { execSync } from 'child_process';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
 import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL } from '../shared/ipc-channels';
@@ -639,10 +640,14 @@ export class SessionManager {
       return [];
     }
 
-    // Collect UUIDs already managed by AgentPlex
+    // Collect UUIDs already managed by AgentPlex (in-memory + persisted)
     const managedUuids = new Set<string>();
     for (const s of this.sessions.values()) {
       if (s.claudeSessionUuid) managedUuids.add(s.claudeSessionUuid);
+    }
+    const persisted = this.loadState();
+    for (const ps of Object.values(persisted.sessions)) {
+      if (ps.claudeSessionUuid) managedUuids.add(ps.claudeSessionUuid);
     }
 
     const results: ExternalSession[] = [];
@@ -669,7 +674,29 @@ export class SessionManager {
           continue; // process is dead
         }
 
-        results.push({ pid, sessionId, cwd, startedAt, name });
+        // Only show standalone sessions — skip processes launched with
+        // --session-id or --resume (those are AgentPlex-spawned or resumed)
+        try {
+          let cmdline = '';
+          if (process.platform === 'linux') {
+            cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
+          } else if (process.platform === 'darwin') {
+            cmdline = execSync(`ps -p ${pid} -o args=`, { encoding: 'utf-8' });
+          }
+          if (/--session-id|--resume/.test(cmdline)) continue;
+        } catch {
+          // Can't read cmdline — skip to be safe
+          continue;
+        }
+
+        // The session file's sessionId can go stale if the user resumed or
+        // /clear'd within the CLI — resolve the actual active UUID.
+        const activeSessionId = this.resolveActiveSessionId(cwd, sessionId, managedUuids);
+
+        // Re-check managed UUIDs with the resolved active session ID
+        if (managedUuids.has(activeSessionId)) continue;
+
+        results.push({ pid, sessionId: activeSessionId, cwd, startedAt, name });
       } catch {
         continue;
       }
@@ -678,6 +705,60 @@ export class SessionManager {
     // Sort by startedAt descending (most recent first)
     results.sort((a, b) => b.startedAt - a.startedAt);
     return results;
+  }
+
+  /**
+   * Find the JSONL with the most recent user/assistant message in a project
+   * directory. Returns the UUID of that file, or the fallback if none found.
+   * File mtime alone is unreliable because /clear writes file-history-snapshots
+   * to the OLD jsonl after creating the new one.
+   */
+  private resolveActiveSessionId(cwd: string, fallback: string, excludeUuids?: Set<string>): string {
+    const home = homedir();
+    const encodedPath = encodeProjectPath(cwd);
+    const projectDir = path.join(home, '.claude', 'projects', encodedPath);
+    let activeId = fallback;
+    try {
+      const jsonls = fs.readdirSync(projectDir).filter((f) => f.endsWith('.jsonl'));
+      let latestMsgTime = '';
+      for (const jf of jsonls) {
+        // Skip JSONL files belonging to AgentPlex-managed sessions
+        const uuid = jf.replace('.jsonl', '');
+        if (excludeUuids && UUID_RE.test(uuid) && excludeUuids.has(uuid)) continue;
+
+        try {
+          const filePath = path.join(projectDir, jf);
+          const stat = fs.statSync(filePath);
+          // file-history-snapshots after /clear can push messages 100KB+
+          // from the end — read enough tail to reliably find them
+          const tailSize = Math.min(128 * 1024, stat.size);
+          const fd = fs.openSync(filePath, 'r');
+          try {
+            const buf = Buffer.alloc(tailSize);
+            fs.readSync(fd, buf, 0, tailSize, Math.max(0, stat.size - tailSize));
+            const tail = buf.toString('utf-8');
+            const lines = tail.split('\n').filter((l) => l.trim());
+            for (let i = lines.length - 1; i >= 0; i--) {
+              try {
+                const obj = JSON.parse(lines[i]);
+                if ((obj.type === 'user' || obj.type === 'assistant') && obj.timestamp) {
+                  if (obj.timestamp > latestMsgTime) {
+                    latestMsgTime = obj.timestamp;
+                    if (UUID_RE.test(uuid)) activeId = uuid;
+                  }
+                  break;
+                }
+              } catch { /* skip */ }
+            }
+          } finally {
+            try {
+              fs.closeSync(fd);
+            } catch { /* ignore close errors */ }
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* project dir may not exist */ }
+    return activeId;
   }
 
   /**
@@ -691,7 +772,17 @@ export class SessionManager {
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
       throw new Error(`Working directory does not exist: ${cwd}`);
     }
-    const info = this.createWithUuid(cwd, 'claude', sessionUuid);
+    // Re-resolve at adoption time, excluding AgentPlex-managed sessions (in-memory + persisted)
+    const managedUuids = new Set<string>();
+    for (const s of this.sessions.values()) {
+      if (s.claudeSessionUuid) managedUuids.add(s.claudeSessionUuid);
+    }
+    const persisted = this.loadState();
+    for (const ps of Object.values(persisted.sessions)) {
+      if (ps.claudeSessionUuid) managedUuids.add(ps.claudeSessionUuid);
+    }
+    const activeUuid = this.resolveActiveSessionId(cwd, sessionUuid, managedUuids);
+    const info = this.createWithUuid(cwd, 'claude', activeUuid, true);
     this.saveState();
     return info;
   }
