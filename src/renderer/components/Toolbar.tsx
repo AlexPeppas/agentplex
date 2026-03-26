@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store';
-import { CLI_TOOLS, RESUME_TOOL, type CliTool, type ShellInfo } from '../../shared/ipc-channels';
+import { CLI_TOOLS, type CliTool, type DetectedShell } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
 
 function getInitialTheme(): 'dark' | 'light' {
@@ -11,14 +11,18 @@ function getInitialTheme(): 'dark' | 'light' {
 
 export function Toolbar() {
   const addSession = useAppStore((s) => s.addSession);
+  const openLauncher = useAppStore((s) => s.openLauncher);
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
-  const [shells, setShells] = useState<ShellInfo[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [shells, setShells] = useState<DetectedShell[]>([]);
+  const [defaultShellId, setDefaultShellId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; shellId: string } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
-  // Fetch available shells once on mount
   useEffect(() => {
-    window.agentPlex.getAvailableShells().then(setShells);
+    window.agentPlex.getShells().then(setShells);
+    window.agentPlex.getDefaultShell().then(setDefaultShellId);
   }, []);
 
   // Apply theme to document and notify main process for titlebar
@@ -32,6 +36,17 @@ export function Toolbar() {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
   }, []);
 
+  const handleNewClaude = useCallback(() => {
+    setMenuOpen(false);
+    openLauncher('new', 'claude');
+  }, [openLauncher]);
+
+  const handleResume = useCallback(() => {
+    setMenuOpen(false);
+    openLauncher('resume', 'claude');
+  }, [openLauncher]);
+
+  // Non-Claude tools still use the folder picker
   const handlePick = useCallback(async (cli: CliTool) => {
     setMenuOpen(false);
     const cwd = await window.agentPlex.pickDirectory();
@@ -40,13 +55,27 @@ export function Toolbar() {
     addSession(info);
   }, [addSession]);
 
-  const handleResume = useCallback(async () => {
-    setMenuOpen(false);
-    const cwd = await window.agentPlex.pickDirectory();
-    if (!cwd) return;
-    const info = await window.agentPlex.createSession(cwd, RESUME_TOOL.id);
-    addSession(info);
-  }, [addSession]);
+  const handleShellContextMenu = useCallback((e: React.MouseEvent, shellId: string) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, shellId });
+  }, []);
+
+  const handleSetDefault = useCallback(async (shellId: string) => {
+    await window.agentPlex.setDefaultShell(shellId);
+    setDefaultShellId(shellId);
+    setContextMenu(null);
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [contextMenu]);
 
   // Close menu on outside click
   useEffect(() => {
@@ -95,7 +124,7 @@ export function Toolbar() {
               <div className="toolbar__menu-row">
                 <button
                   className="toolbar__menu-pill"
-                  onClick={() => handlePick('claude')}
+                  onClick={handleNewClaude}
                 >
                   New
                 </button>
@@ -120,25 +149,39 @@ export function Toolbar() {
             {shells.length > 0 && (
               <>
                 <div className="toolbar__menu-divider" />
-                <div className="toolbar__menu-section">
-                  <span className="toolbar__menu-label">Shell</span>
-                  <div className="toolbar__menu-row">
-                    {shells.map((shell) => (
-                      <button
-                        key={shell.id}
-                        className="toolbar__menu-pill"
-                        onClick={() => handlePick(shell.id)}
-                      >
-                        {shell.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {shells.map((shell) => (
+                  <button
+                    key={shell.id}
+                    className="toolbar__menu-item"
+                    onClick={() => handlePick(shell.id as CliTool)}
+                    onContextMenu={(e) => handleShellContextMenu(e, shell.id)}
+                    title={`Right-click to set as default`}
+                  >
+                    {shell.id === defaultShellId && (
+                      <span className="toolbar__default-indicator">{'\u2605'} </span>
+                    )}
+                    {shell.label}
+                  </button>
+                ))}
               </>
             )}
           </div>
         )}
       </div>
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="toolbar__context-menu"
+          style={{ position: 'fixed', left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="toolbar__context-menu-item"
+            onClick={() => handleSetDefault(contextMenu.shellId)}
+          >
+            Set as default
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,8 @@
-import type { CliTool, ShellInfo, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   platform: string;
-  createSession: (cwd?: string, cli?: CliTool) => Promise<SessionInfo>;
+  createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string) => Promise<SessionInfo>;
   pickDirectory: () => Promise<string | null>;
   writeSession: (id: string, data: string) => void;
   resizeSession: (id: string, cols: number, rows: number) => void;
@@ -23,8 +23,15 @@ export interface AgentPlexAPI {
   restoreAllSessions: () => Promise<{ info: SessionInfo; displayName: string }[]>;
   summarizeContext: (context: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
   getDisplayNames: () => Promise<Record<string, string>>;
+  scanProjects: () => Promise<DiscoveredProject[]>;
+  scanSessions: (encodedPath: string) => Promise<DiscoveredSession[]>;
+  getPinnedProjects: () => Promise<PinnedProject[]>;
+  updatePinnedProjects: (pins: PinnedProject[]) => Promise<void>;
+  resolveProjectPath: (encodedPath: string) => Promise<string | null>;
   setTheme: (theme: 'dark' | 'light') => void;
-  getAvailableShells: () => Promise<ShellInfo[]>;
+  getShells: () => Promise<DetectedShell[]>;
+  getDefaultShell: () => Promise<string | null>;
+  setDefaultShell: (id: string) => Promise<void>;
 }
 
 declare global {

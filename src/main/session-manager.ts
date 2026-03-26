@@ -5,7 +5,8 @@ import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
 import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
-import { getDefaultShell, findShellById } from './shell-discovery';
+import { getCachedShells, getShellById } from './shell-detector';
+import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { PlanTaskDetector } from './plan-task-detector';
@@ -42,6 +43,17 @@ function getSafeEnv(): Record<string, string> {
     }
   }
   return env;
+}
+
+/** Resolve the user's default shell from settings or detection, with safe fallbacks. */
+function resolveDefaultShell(): string {
+  const savedId = getDefaultShellId();
+  if (savedId) {
+    const saved = getShellById(savedId);
+    if (saved) return saved.path;
+  }
+  if (process.platform === 'win32') return 'powershell.exe';
+  return process.env.SHELL || '/bin/zsh';
 }
 
 interface Session {
@@ -167,7 +179,7 @@ export class SessionManager {
   /**
    * Create a session with a specific Claude session UUID (for restore).
    */
-  private createWithUuid(cwd: string, cli: CliTool, claudeSessionUuid: string): SessionInfo {
+  private createWithUuid(cwd: string, cli: CliTool, claudeSessionUuid: string, forceResume = false): SessionInfo {
     if (!UUID_RE.test(claudeSessionUuid)) {
       throw new Error(`Invalid session UUID: ${claudeSessionUuid}`);
     }
@@ -178,7 +190,7 @@ export class SessionManager {
     const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = getDefaultShell();
+    const shell = resolveDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -268,9 +280,10 @@ export class SessionManager {
 
     this.sessions.set(id, session);
 
-    // Use --resume if the JSONL conversation file exists (real conversation to resume),
-    // otherwise --session-id (session was saved but never had a conversation)
-    const hasConversation = fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).size > 0;
+    // Use --resume if we know this is a real conversation to resume (forceResume from
+    // smart-resume flow, or JSONL file exists on disk). Fall back to --session-id only
+    // when restoring a session that was saved but never had a conversation.
+    const hasConversation = forceResume || (fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).size > 0);
     const command = hasConversation
       ? `${toolDef.command} --resume ${claudeSessionUuid}`
       : `${toolDef.command} --session-id ${claudeSessionUuid}`;
@@ -301,7 +314,18 @@ export class SessionManager {
     this.sessions.clear();
   }
 
-  create(cwd?: string, cli: CliTool = 'claude'): SessionInfo {
+  create(cwd?: string, cli: CliTool = 'claude', resumeSessionId?: string): SessionInfo {
+    // Direct resume by UUID — delegate to createWithUuid which handles --resume <uuid>.
+    // forceResume=true because the session was picked from the scanner, so we know
+    // the JSONL exists — avoids a path-encoding mismatch that could cause a fallback
+    // to --session-id instead of --resume.
+    if (resumeSessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resumeSessionId)) {
+      const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
+      const info = this.createWithUuid(workDir, 'claude', resumeSessionId, true);
+      this.saveState();
+      return info;
+    }
+
     sessionCounter++;
     const id = `session-${sessionCounter}`;
     const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
@@ -312,11 +336,11 @@ export class SessionManager {
     const toolDef = matchedCliTool || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    // If the cli id matches a discovered shell, use its full path; otherwise use the user's default shell
-    const discoveredShell = findShellById(cli);
+    // Use detected shell path if available, otherwise user's default
+    const detected = getShellById(cli);
     const shell = isRawShell
-      ? (discoveredShell?.path || getDefaultShell())
-      : getDefaultShell();
+      ? (detected?.path || resolveDefaultShell())
+      : resolveDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,

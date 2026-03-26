@@ -6,11 +6,11 @@ export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'copilot', label: 'GitHub Copilot', command: 'gh copilot' },
 ];
 
-export interface ShellInfo {
+export interface DetectedShell {
   id: string;
-  name: string;
+  label: string;
   path: string;
-  isDefault: boolean;
+  type: 'powershell' | 'bash';
 }
 
 export const RESUME_TOOL: { id: CliTool; label: string; command: string } = {
@@ -59,6 +59,29 @@ export interface TaskListInfo {
   tasks: { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }[];
 }
 
+export interface DiscoveredProject {
+  encodedPath: string;
+  realPath: string;
+  dirName: string;
+  sessionCount: number;
+  lastActivity: string;
+  isPinned: boolean;
+}
+
+export interface DiscoveredSession {
+  sessionId: string;
+  projectPath: string;
+  customTitle: string | null;
+  firstUserMessage: string | null;
+  gitBranch: string | null;
+  lastTimestamp: string | null;
+}
+
+export interface PinnedProject {
+  path: string;
+  label?: string;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -82,5 +105,12 @@ export const IPC = {
   DISPLAY_NAMES_GET: 'displayNames:get',
   SESSION_RESTORE_ALL: 'session:restoreAll',
   SESSION_UPDATE_STATE: 'session:updateState',
-  GET_AVAILABLE_SHELLS: 'shells:getAvailable',
+  LAUNCHER_SCAN_PROJECTS: 'launcher:scanProjects',
+  LAUNCHER_SCAN_SESSIONS: 'launcher:scanSessions',
+  LAUNCHER_GET_PINS: 'launcher:getPins',
+  LAUNCHER_UPDATE_PINS: 'launcher:updatePins',
+  LAUNCHER_RESOLVE_PATH: 'launcher:resolvePath',
+  SHELL_LIST: 'shell:list',
+  SETTINGS_GET_DEFAULT_SHELL: 'settings:getDefaultShell',
+  SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
 } as const;
