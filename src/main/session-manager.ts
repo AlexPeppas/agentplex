@@ -5,6 +5,8 @@ import * as crypto from 'crypto';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
 import { SessionStatus, SessionInfo, IPC, CLI_TOOLS, RESUME_TOOL, type CliTool } from '../shared/ipc-channels';
+import { getCachedShells, getShellById } from './shell-detector';
+import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { PlanTaskDetector } from './plan-task-detector';
@@ -41,6 +43,17 @@ function getSafeEnv(): Record<string, string> {
     }
   }
   return env;
+}
+
+/** Resolve the user's default shell from settings or detection, with safe fallbacks. */
+function resolveDefaultShell(): string {
+  const savedId = getDefaultShellId();
+  if (savedId) {
+    const saved = getShellById(savedId);
+    if (saved) return saved.path;
+  }
+  if (process.platform === 'win32') return 'powershell.exe';
+  return process.env.SHELL || '/bin/zsh';
 }
 
 interface Session {
@@ -177,7 +190,7 @@ export class SessionManager {
     const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    const shell = resolveDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -317,15 +330,17 @@ export class SessionManager {
     const id = `session-${sessionCounter}`;
     const workDir = cwd || process.env.HOME || process.env.USERPROFILE || '.';
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
-    const isRawShell = cli === 'powershell' || cli === 'bash';
-    const allTools = [...CLI_TOOLS, RESUME_TOOL];
-    const toolDef = allTools.find((t) => t.id === cli) || CLI_TOOLS[0];
+    const cliTools = [...CLI_TOOLS, RESUME_TOOL];
+    const matchedCliTool = cliTools.find((t) => t.id === cli);
+    const isRawShell = !matchedCliTool;
+    const toolDef = matchedCliTool || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
 
-    const shell = cli === 'bash'
-      ? (process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash')
-      : cli === 'powershell' ? 'powershell.exe'
-      : process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    // Use detected shell path if available, otherwise user's default
+    const detected = getShellById(cli);
+    const shell = isRawShell
+      ? (detected?.path || resolveDefaultShell())
+      : resolveDefaultShell();
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,

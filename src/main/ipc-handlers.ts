@@ -161,10 +161,12 @@ ${safeContext}
     if (!colors) return;
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return;
-    win.setTitleBarOverlay({
-      color: colors.titleBar,
-      symbolColor: colors.symbol,
-    });
+    if (process.platform === 'win32') {
+      win.setTitleBarOverlay({
+        color: colors.titleBar,
+        symbolColor: colors.symbol,
+      });
+    }
     win.setBackgroundColor(colors.bg);
   });
 

@@ -1,4 +1,32 @@
 /* ═══════════════════════════════════════════════════════════
+   Bundled Nerd Font (MesloLGS — Apache 2.0 / OFL licensed)
+   ═══════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'MesloLGS Nerd Font Mono';
+  src: url('../assets/fonts/MesloLGSNerdFontMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'MesloLGS Nerd Font Mono';
+  src: url('../assets/fonts/MesloLGSNerdFontMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'MesloLGS Nerd Font Mono';
+  src: url('../assets/fonts/MesloLGSNerdFontMono-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+}
+@font-face {
+  font-family: 'MesloLGS Nerd Font Mono';
+  src: url('../assets/fonts/MesloLGSNerdFontMono-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════════
    Theme tokens
    ═══════════════════════════════════════════════════════════ */
 [data-theme="dark"] {
@@ -70,7 +98,7 @@ html, body, #root {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
 }
@@ -124,6 +152,12 @@ html, body, #root {
   background: var(--bg-inset);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
+}
+
+/* macOS: traffic lights are on the left, no overlay buttons on right */
+[data-platform="darwin"] .toolbar {
+  padding-left: 80px;
+  padding-right: 18px;
 }
 
 .toolbar__logo {
@@ -866,7 +900,7 @@ html, body, #root {
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-muted);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-family: 'Menlo', 'Monaco', 'Cascadia Code', 'Fira Code', monospace;
   font-size: 12px;
   padding: 10px 12px;
   white-space: pre-wrap;
@@ -880,7 +914,7 @@ html, body, #root {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-primary);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-family: 'Menlo', 'Monaco', 'Cascadia Code', 'Fira Code', monospace;
   font-size: 13px;
   padding: 10px 12px;
   resize: vertical;

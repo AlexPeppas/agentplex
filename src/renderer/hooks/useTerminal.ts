@@ -60,7 +60,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     const term = new Terminal({
       theme: buildTerminalTheme(),
       fontSize: terminalFontSize,
-      fontFamily: 'Cascadia Code, Consolas, monospace',
+      fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
       cursorBlink: true,
       convertEol: true,
     });
@@ -88,10 +88,12 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     termRef.current = term;
 
-    // Ctrl+Plus / Ctrl+Minus / Ctrl+0 to zoom terminal font
+    // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
     const sessionId_ = selectedSessionId;
+    const isMac = window.agentPlex.platform === 'darwin';
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.type !== 'keydown') return true;
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+      if (!modKey || e.type !== 'keydown') return true;
 
       // Ctrl+C: copy selected text or fall through as SIGINT
       if (e.key === 'c') {

@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, type CliTool, type DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, type DiscoveredProject, type DiscoveredSession, type PinnedProject } from '../shared/ipc-channels';
 
 const api = {
+  platform: process.platform,
+
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string): Promise<SessionInfo> => {
     return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli, resumeSessionId });
   },
