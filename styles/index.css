@@ -329,6 +329,78 @@ html, body, #root {
   color: var(--text-primary);
 }
 
+/* Discover button (secondary style) */
+.toolbar__button--secondary {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+}
+
+.toolbar__button--secondary:hover {
+  background: var(--border);
+}
+
+.toolbar__button--secondary:active {
+  background: var(--border-strong);
+}
+
+/* Discover panel */
+.toolbar__discover-panel {
+  min-width: 300px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.toolbar__discover-empty {
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.toolbar__discover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  transition: background 0.12s;
+}
+
+.toolbar__discover-item:hover {
+  background: var(--border);
+}
+
+.toolbar__discover-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.toolbar__discover-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar__discover-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.toolbar__discover-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ═══════════════════════════════════════════════════════════
    Graph canvas
    ═══════════════════════════════════════════════════════════ */

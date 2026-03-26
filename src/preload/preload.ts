@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -127,6 +127,14 @@ const api = {
 
   getDisplayNames: (): Promise<Record<string, string>> => {
     return ipcRenderer.invoke(IPC.DISPLAY_NAMES_GET);
+  },
+
+  discoverExternal: (): Promise<ExternalSession[]> => {
+    return ipcRenderer.invoke(IPC.DISCOVER_EXTERNAL);
+  },
+
+  adoptExternal: (sessionUuid: string, cwd: string): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.ADOPT_EXTERNAL, { sessionUuid, cwd });
   },
 
   scanProjects: (): Promise<DiscoveredProject[]> => {

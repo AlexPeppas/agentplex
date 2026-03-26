@@ -59,6 +59,14 @@ export interface TaskListInfo {
   tasks: { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }[];
 }
 
+export interface ExternalSession {
+  pid: number;
+  sessionId: string;
+  cwd: string;
+  startedAt: number;
+  name?: string;
+}
+
 export interface DiscoveredProject {
   encodedPath: string;
   realPath: string;
@@ -105,6 +113,8 @@ export const IPC = {
   DISPLAY_NAMES_GET: 'displayNames:get',
   SESSION_RESTORE_ALL: 'session:restoreAll',
   SESSION_UPDATE_STATE: 'session:updateState',
+  DISCOVER_EXTERNAL: 'session:discoverExternal',
+  ADOPT_EXTERNAL: 'session:adoptExternal',
   LAUNCHER_SCAN_PROJECTS: 'launcher:scanProjects',
   LAUNCHER_SCAN_SESSIONS: 'launcher:scanSessions',
   LAUNCHER_GET_PINS: 'launcher:getPins',
