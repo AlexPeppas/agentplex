@@ -121,30 +121,93 @@ async function detectWindows(): Promise<DetectedShell[]> {
   return shells;
 }
 
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function isExecutable(filePath: string): boolean {
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function detectUnix(): Promise<DetectedShell[]> {
   const shells: DetectedShell[] = [];
+  const userDefault = process.env.SHELL || '';
 
-  // Detect pwsh (PowerShell 7 on macOS/Linux)
+  // Interactive shells we care about (skip sh, csh, tcsh, ksh, dash)
+  const interactiveShells = new Set(['bash', 'zsh', 'fish', 'nu', 'elvish', 'pwsh']);
+  const seenIds = new Set<string>();
+
+  // Read /etc/shells for available shells
   try {
-    const pwshPath = (await execAsync('which', ['pwsh'])).trim();
-    if (pwshPath) {
-      const versionRaw = await getVersion(pwshPath, ['--version']);
-      const ver = versionRaw ? parsePwshMajorVersion(versionRaw) : '';
+    const content = fs.readFileSync('/etc/shells', 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      if (!isExecutable(trimmed)) continue;
+
+      const basename = path.basename(trimmed);
+      if (!interactiveShells.has(basename)) continue;
+      if (seenIds.has(basename)) {
+        // Prefer the path matching $SHELL
+        if (trimmed === userDefault) {
+          const existing = shells.find((s) => s.id === basename);
+          if (existing) existing.path = trimmed;
+        }
+        continue;
+      }
+
+      seenIds.add(basename);
       shells.push({
-        id: 'pwsh',
-        label: ver ? `PowerShell ${ver}` : 'PowerShell 7',
-        path: pwshPath,
-        type: 'powershell',
+        id: basename,
+        label: capitalize(basename),
+        path: trimmed === userDefault ? trimmed : trimmed,
+        type: 'bash',
       });
     }
-  } catch { /* not found */ }
+  } catch {
+    // /etc/shells not readable
+  }
 
-  // Bash uses hardcoded path per requirements
-  shells.push({
-    id: 'bash',
-    label: 'Bash',
-    path: 'bash',
-    type: 'bash',
+  // Ensure $SHELL is included even if not in /etc/shells
+  if (userDefault && isExecutable(userDefault)) {
+    const basename = path.basename(userDefault);
+    if (!seenIds.has(basename) && interactiveShells.has(basename)) {
+      shells.push({
+        id: basename,
+        label: capitalize(basename),
+        path: userDefault,
+        type: 'bash',
+      });
+      seenIds.add(basename);
+    }
+  }
+
+  // Fallback: ensure at least one shell
+  if (shells.length === 0) {
+    for (const fallback of ['/bin/zsh', '/bin/bash']) {
+      if (isExecutable(fallback)) {
+        shells.push({
+          id: path.basename(fallback),
+          label: capitalize(path.basename(fallback)),
+          path: fallback,
+          type: 'bash',
+        });
+        break;
+      }
+    }
+  }
+
+  // Sort: user's default shell first, then alphabetical
+  shells.sort((a, b) => {
+    const aIsDefault = a.path === userDefault || path.basename(userDefault) === a.id;
+    const bIsDefault = b.path === userDefault || path.basename(userDefault) === b.id;
+    if (aIsDefault !== bIsDefault) return aIsDefault ? -1 : 1;
+    return a.label.localeCompare(b.label);
   });
 
   return shells;
