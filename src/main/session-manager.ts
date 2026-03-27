@@ -305,7 +305,7 @@ export class SessionManager {
       } catch { /* session may have been killed */ }
     }, 1000);
 
-    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir };
+    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli };
   }
 
   stop() {
@@ -476,7 +476,7 @@ export class SessionManager {
 
     this.saveState();
 
-    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir };
+    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli };
   }
 
   write(id: string, data: string) {
@@ -528,6 +528,7 @@ export class SessionManager {
       status: s.status,
       pid: s.pty.pid,
       cwd: s.cwd,
+      cli: s.cli,
     }));
   }
 

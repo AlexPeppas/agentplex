@@ -1,12 +1,31 @@
 import { useState, useMemo } from 'react';
-import { ChevronRight, ChevronDown } from 'lucide-react';
+import { ChevronRight, ChevronDown, Terminal } from 'lucide-react';
 import { useAppStore } from '../../store';
-import { StatusIndicator } from '../StatusIndicator';
+import type { CliTool, SessionStatus } from '../../../shared/ipc-channels';
+import claudeLogo from '../../../../assets/claude-logo.svg';
+import codexDark from '../../../../assets/codex-dark.svg';
+import codexLight from '../../../../assets/codex-light.svg';
+import copilotDark from '../../../../assets/githubcopilot-dark.svg';
+import copilotLight from '../../../../assets/githubcopilot-light.svg';
+
+const CLI_ICONS: Record<string, { dark: string; light: string }> = {
+  claude: { dark: claudeLogo, light: claudeLogo },
+  codex: { dark: codexLight, light: codexDark },
+  copilot: { dark: copilotLight, light: copilotDark },
+};
+
+function CliIcon({ cli }: { cli: CliTool }) {
+  const icons = CLI_ICONS[cli];
+  if (!icons) return <Terminal size={13} className="shrink-0 text-fg-muted" />;
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const src = theme === 'dark' ? icons.dark : icons.light;
+  return <img src={src} alt="" className="w-3.5 h-3.5 shrink-0" />;
+}
 
 interface DirEntry {
   cwd: string;
   dirName: string;
-  sessions: { id: string; label: string; status: import('../../../shared/ipc-channels').SessionStatus }[];
+  sessions: { id: string; label: string; status: SessionStatus; cli: CliTool }[];
 }
 
 export function ExplorerPanel() {
@@ -27,6 +46,7 @@ export function ExplorerPanel() {
         id: s.id,
         label: displayNames[s.id] || s.title,
         status: s.status,
+        cli: s.cli,
       });
     }
     return Array.from(dirs.values());
@@ -79,7 +99,7 @@ export function ExplorerPanel() {
                       ? 'bg-accent-subtle border-l-2 border-accent pl-[26px]'
                       : 'hover:bg-elevated'}`}
                 >
-                  <StatusIndicator status={s.status} />
+                  <CliIcon cli={s.cli} />
                   <span className="truncate text-fg">{s.label}</span>
                 </button>
               );

@@ -30,6 +30,7 @@ export interface SessionInfo {
   status: SessionStatus;
   pid: number;
   cwd: string;
+  cli: CliTool;
 }
 
 export interface SubagentInfo {

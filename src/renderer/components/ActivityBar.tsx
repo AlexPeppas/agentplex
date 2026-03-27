@@ -1,4 +1,5 @@
-﻿import { FolderOpen, Search, GitBranch, Puzzle } from 'lucide-react';
+﻿import { useCallback, useEffect, useState } from 'react';
+import { FolderOpen, Search, GitBranch, Puzzle, Sun, Moon } from 'lucide-react';
 import { useAppStore, type PanelId } from '../store';
 
 const PANELS: { id: PanelId; icon: typeof FolderOpen; disabled?: boolean }[] = [
@@ -8,12 +9,29 @@ const PANELS: { id: PanelId; icon: typeof FolderOpen; disabled?: boolean }[] = [
   { id: 'extensions', icon: Puzzle, disabled: true },
 ];
 
+function getInitialTheme(): 'dark' | 'light' {
+  const saved = localStorage.getItem('agentplex-theme');
+  if (saved === 'dark' || saved === 'light') return saved;
+  return 'dark';
+}
+
 export function ActivityBar() {
   const activePanelId = useAppStore((s) => s.activePanelId);
   const togglePanel = useAppStore((s) => s.togglePanel);
+  const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('agentplex-theme', theme);
+    window.agentPlex.setTheme(theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   return (
-    <div className="flex-none w-12 flex flex-col items-center pt-2 gap-1 bg-inset border-r border-border">
+    <div className="flex-none w-12 flex flex-col items-center pt-2 pb-2 gap-1 bg-inset border-r border-border">
       {PANELS.map(({ id, icon: Icon, disabled }) => {
         const isActive = activePanelId === id;
         return (
@@ -32,6 +50,15 @@ export function ActivityBar() {
           </button>
         );
       })}
+      <div className="mt-auto">
+        <button
+          onClick={toggleTheme}
+          className="w-9 h-9 flex items-center justify-center rounded-md text-fg-muted cursor-pointer transition-colors duration-[120ms] hover:bg-elevated hover:text-fg"
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+        >
+          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
+      </div>
     </div>
   );
 }

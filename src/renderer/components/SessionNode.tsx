@@ -1,9 +1,29 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Trash2, Send, ClipboardList, Circle, Check } from 'lucide-react';
+import { Trash2, Send, ClipboardList, Circle, Check, Terminal } from 'lucide-react';
 import { StatusIndicator } from './StatusIndicator';
 import { useAppStore, type SessionNodeData } from '../store';
-import { SessionStatus } from '../../shared/ipc-channels';
+import { SessionStatus, type CliTool } from '../../shared/ipc-channels';
+import claudeLogo from '../../../assets/claude-logo.svg';
+import codexDark from '../../../assets/codex-dark.svg';
+import codexLight from '../../../assets/codex-light.svg';
+import copilotDark from '../../../assets/githubcopilot-dark.svg';
+import copilotLight from '../../../assets/githubcopilot-light.svg';
+
+const CLI_ICONS: Record<string, { dark: string; light: string }> = {
+  claude: { dark: claudeLogo, light: claudeLogo },
+  codex: { dark: codexLight, light: codexDark },
+  copilot: { dark: copilotLight, light: copilotDark },
+};
+
+function CliIcon({ cli, size = 14 }: { cli?: CliTool; size?: number }) {
+  if (!cli) return null;
+  const icons = CLI_ICONS[cli];
+  if (!icons) return <Terminal size={size} className="shrink-0 text-fg-muted" />;
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const src = theme === 'dark' ? icons.dark : icons.light;
+  return <img src={src} alt="" style={{ width: size, height: size }} className="shrink-0" />;
+}
 
 export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const nodeData = data as SessionNodeData;
@@ -13,6 +33,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const renameSession = useAppStore((s) => s.renameSession);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
+  const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
   const isSelected = selectedSessionId === nodeData.sessionId;
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
@@ -88,6 +109,11 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
       className={`group relative py-2.5 px-3.5 bg-elevated border-2 border-border rounded-[10px] min-w-[160px] cursor-pointer transition-[border-color,box-shadow] duration-150 select-none hover:border-border-strong ${isSelected ? 'border-accent shadow-[0_0_12px_var(--accent-subtle-strong)]' : ''} ${isKilled ? 'opacity-60' : ''}`}
       onClick={handleClick}
     >
+      {cli && (
+        <span className="absolute -top-2 -left-2 w-5 h-5 flex items-center justify-center bg-elevated border border-border rounded-full z-10 pointer-events-none">
+          <CliIcon cli={cli} size={12} />
+        </span>
+      )}
       {isWaiting && <span className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center bg-warning-bg text-surface text-xs font-bold rounded-full z-10 pointer-events-none animate-[attention-pulse_1.5s_ease-in-out_infinite]">?</span>}
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
       <div className="flex items-center gap-2">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Sun, Moon, Star, Plus } from 'lucide-react';
+import { Star, Plus, Radar } from 'lucide-react';
 import { useAppStore } from '../store';
 import { CLI_TOOLS, RESUME_TOOL, type CliTool, type ExternalSession, type DetectedShell } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
@@ -13,12 +13,6 @@ const TOOL_ICONS: Record<string, { dark: string; light: string }> = {
   codex: { dark: codexLight, light: codexDark },
   copilot: { dark: copilotLight, light: copilotDark },
 };
-
-function getInitialTheme(): 'dark' | 'light' {
-  const saved = localStorage.getItem('agentplex-theme');
-  if (saved === 'dark' || saved === 'light') return saved;
-  return 'dark';
-}
 
 function formatTimeAgo(timestamp: number): string {
   const diff = Date.now() - timestamp;
@@ -47,7 +41,6 @@ export function Toolbar() {
   const [externalSessions, setExternalSessions] = useState<ExternalSession[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [adoptingId, setAdoptingId] = useState<string | null>(null);
-  const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
   const menuRef = useRef<HTMLDivElement>(null);
   const discoverRef = useRef<HTMLDivElement>(null);
   const [shells, setShells] = useState<DetectedShell[]>([]);
@@ -62,16 +55,6 @@ export function Toolbar() {
     window.agentPlex.getDefaultShell().then(setDefaultShellId);
   }, []);
 
-  // Apply theme to document and notify main process for titlebar
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('agentplex-theme', theme);
-    window.agentPlex.setTheme(theme);
-  }, [theme]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
-  }, []);
 
   const handleNewClaude = useCallback(() => {
     setMenuOpen(false);
@@ -184,28 +167,29 @@ export function Toolbar() {
   }, [discoverOpen]);
 
   return (
-    <div className={`flex items-center gap-2.5 h-12 bg-inset border-b border-border [-webkit-app-region:drag] ${isDarwin ? 'pl-20 pr-[18px]' : 'px-[18px] pr-[140px]'}`}>
-      <img className="w-[34px] h-[34px] shrink-0" src={logoSvg} alt="AgentPlex" />
-      <span className="text-sm font-semibold text-accent tracking-wide flex-1">AgentPlex</span>
-      <button
-        className="[-webkit-app-region:no-drag] w-7 h-7 flex items-center justify-center bg-transparent border border-border rounded-md text-fg-muted text-sm cursor-pointer transition-colors hover:bg-border hover:text-fg"
-        onClick={toggleTheme}
-        title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-      >
-        {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-      </button>
-      <div className="[-webkit-app-region:no-drag] relative" ref={discoverRef}>
-        <button
-          className="[-webkit-app-region:no-drag] px-3.5 py-1.5 bg-elevated text-fg border border-border-strong rounded-md text-[13px] font-semibold cursor-pointer transition-colors hover:bg-border active:bg-border-strong"
-          onClick={handleDiscover}
-          title="Find running Claude sessions not managed by AgentPlex"
-        >
-          Discover
-        </button>
+    <div className={`flex items-center gap-2.5 h-14 bg-inset border-b border-border [-webkit-app-region:drag] ${isDarwin ? 'pl-20 pr-[18px]' : 'px-[18px] pr-[140px]'}`}>
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 shadow-[0_0_8px_var(--accent-subtle-strong)]">
+          <img className="w-full h-full" src={logoSvg} alt="AgentPlex" />
+        </div>
+        <span className="text-[15px] tracking-wide text-fg">
+          <span className="font-normal">Agent</span><span className="font-bold text-accent">Plex</span>
+        </span>
+        <div className="w-px h-5 bg-border ml-1" />
+        <div className="[-webkit-app-region:no-drag] flex items-center gap-1.5">
+        <div className="relative" ref={discoverRef}>
+          <button
+            className="flex items-center gap-1.5 h-8 px-3 rounded-md text-fg-muted text-[13px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"
+            onClick={handleDiscover}
+            title="Find running Claude sessions not managed by AgentPlex"
+          >
+            <Radar size={14} />
+            <span>Discover</span>
+          </button>
         {discoverOpen && (
           <>
           <div className="fixed inset-0 z-[99] [-webkit-app-region:no-drag]" onClick={() => setDiscoverOpen(false)} />
-          <div className="absolute top-[calc(100%+6px)] right-0 bg-elevated border border-border-strong rounded-lg p-1 shadow-[0_8px_24px_var(--shadow-heavy)] z-[100] min-w-[300px] max-h-[360px] overflow-y-auto">
+          <div className="absolute top-[calc(100%+6px)] left-0 bg-elevated border border-border-strong rounded-lg p-1 shadow-[0_8px_24px_var(--shadow-heavy)] z-[100] min-w-[300px] max-h-[360px] overflow-y-auto">
             {discovering ? (
               <div className="py-4 px-3 text-center text-fg-muted text-[13px]">Scanning...</div>
             ) : externalSessions.length === 0 ? (
@@ -237,14 +221,15 @@ export function Toolbar() {
           </div>
           </>
         )}
-      </div>
-      <div className="[-webkit-app-region:no-drag] relative" ref={menuRef}>
-        <button
-          className="[-webkit-app-region:no-drag] px-3.5 py-1.5 bg-accent text-surface border-none rounded-md text-[13px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover active:bg-accent-active"
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          <Plus size={14} className="inline -mt-px" /> New Session
-        </button>
+        </div>
+        <div className="relative" ref={menuRef}>
+          <button
+            className="flex items-center gap-1.5 h-8 px-3 bg-accent-subtle text-accent border border-accent-border rounded-md text-[13px] font-medium cursor-pointer transition-colors hover:bg-accent hover:text-surface active:bg-accent-active active:text-surface"
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <Plus size={14} />
+            <span>New Session</span>
+          </button>
         {menuOpen && (
           <div className="absolute top-[calc(100%+6px)] right-0 bg-elevated border border-border-strong rounded-lg p-1 min-w-[220px] shadow-[0_8px_24px_var(--shadow-heavy)] z-[100]">
             <div className="py-1.5 px-2.5">
@@ -276,7 +261,7 @@ export function Toolbar() {
               >
                 {TOOL_ICONS[tool.id] && (
                   <img
-                    src={theme === 'dark' ? TOOL_ICONS[tool.id].dark : TOOL_ICONS[tool.id].light}
+                    src={(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? TOOL_ICONS[tool.id].dark : TOOL_ICONS[tool.id].light}
                     alt=""
                     className="w-4 h-4"
                   />
@@ -305,6 +290,8 @@ export function Toolbar() {
             )}
           </div>
         )}
+        </div>
+        </div>
       </div>
       {contextMenu && (
         <div
