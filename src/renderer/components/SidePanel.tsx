@@ -1,13 +1,10 @@
 import { useAppStore } from '../store';
 import { ExplorerPanel } from './panels/ExplorerPanel';
 import { SearchPanel } from './panels/SearchPanel';
-import { PlaceholderPanel } from './panels/PlaceholderPanel';
 
 const PANEL_TITLES: Record<string, string> = {
   explorer: 'Explorer',
   search: 'Search',
-  git: 'Source Control',
-  extensions: 'Extensions',
 };
 
 export function SidePanel() {
@@ -29,9 +26,6 @@ export function SidePanel() {
       <div className="flex-1 overflow-y-auto">
         {activePanelId === 'explorer' && <ExplorerPanel />}
         {activePanelId === 'search' && <SearchPanel />}
-        {(activePanelId === 'git' || activePanelId === 'extensions') && (
-          <PlaceholderPanel panelId={activePanelId} />
-        )}
       </div>
     </div>
   );

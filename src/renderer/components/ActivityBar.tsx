@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FolderOpen, Search, GitBranch, Puzzle, Sun, Moon } from 'lucide-react';
+import { FolderOpen, Search, Sun, Moon } from 'lucide-react';
 import { useAppStore, type PanelId } from '../store';
 
-const PANELS: { id: PanelId; icon: typeof FolderOpen; disabled?: boolean }[] = [
+const PANELS: { id: PanelId; icon: typeof FolderOpen }[] = [
   { id: 'explorer', icon: FolderOpen },
   { id: 'search', icon: Search },
-  { id: 'git', icon: GitBranch, disabled: true },
-  { id: 'extensions', icon: Puzzle, disabled: true },
 ];
 
 function getInitialTheme(): 'dark' | 'light' {
@@ -32,14 +30,13 @@ export function ActivityBar() {
 
   return (
     <div className="flex-none w-12 flex flex-col items-center pt-2 pb-2 gap-1 bg-inset border-r border-border">
-      {PANELS.map(({ id, icon: Icon, disabled }) => {
+      {PANELS.map(({ id, icon: Icon }) => {
         const isActive = activePanelId === id;
         return (
           <button
             key={id}
-            onClick={() => !disabled && togglePanel(id)}
-            className={`relative w-9 h-9 flex items-center justify-center rounded-md transition-colors duration-[120ms]
-              ${disabled ? 'opacity-40 pointer-events-none' : 'cursor-pointer'}
+            onClick={() => togglePanel(id)}
+            className={`relative w-9 h-9 flex items-center justify-center rounded-md cursor-pointer transition-colors duration-[120ms]
               ${isActive ? 'bg-elevated text-fg' : 'text-fg-muted hover:bg-elevated hover:text-fg'}`}
             title={id.charAt(0).toUpperCase() + id.slice(1)}
           >

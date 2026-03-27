@@ -187,7 +187,7 @@ export function ExplorerPanel() {
               return (
                 <button
                   key={s.id}
-                  onClick={() => selectSession(s.id)}
+                  onClick={() => selectSession(s.id, true)}
                   onContextMenu={(e) => handleSessionContextMenu(e, s.id)}
                   className={`flex items-center gap-2 w-full h-7 pl-7 pr-3.5 text-xs transition-colors cursor-pointer
                     ${isSelected

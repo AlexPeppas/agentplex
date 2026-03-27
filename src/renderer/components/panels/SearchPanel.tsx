@@ -58,7 +58,7 @@ export function SearchPanel() {
         {results.map((r, i) => (
           <button
             key={`${r.sessionId}-${i}`}
-            onClick={() => selectSession(r.sessionId)}
+            onClick={() => selectSession(r.sessionId, true)}
             className="flex flex-col gap-0.5 w-full px-3.5 py-1.5 text-left hover:bg-elevated transition-colors cursor-pointer"
           >
             <span className="text-fg-muted text-[11px]">{r.sessionLabel}</span>

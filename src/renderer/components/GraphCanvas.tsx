@@ -29,17 +29,17 @@ export function GraphCanvas() {
   const addToGroup = useAppStore((s) => s.addToGroup);
   const removeFromGroup = useAppStore((s) => s.removeFromGroup);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const shouldFocusNode = useAppStore((s) => s.shouldFocusNode);
   const { fitView } = useReactFlow();
   const dragStartParent = useRef<string | undefined>(undefined);
 
   useEffect(() => {
+    if (!shouldFocusNode) return;
     const timer = setTimeout(() => {
       try {
         if (selectedSessionId) {
-          // Center on the selected node
           fitView({ nodes: [{ id: selectedSessionId }], duration: 200, maxZoom: 1.5 });
         } else {
-          // No session selected — fit all nodes
           const currentNodes = useAppStore.getState().nodes;
           if (currentNodes.length > 0) {
             fitView({ duration: 200 });
@@ -50,7 +50,7 @@ export function GraphCanvas() {
       }
     }, 100);
     return () => clearTimeout(timer);
-  }, [selectedSessionId, fitView]);
+  }, [selectedSessionId, shouldFocusNode, fitView]);
 
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     dragStartParent.current = node.parentId;

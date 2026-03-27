@@ -55,7 +55,7 @@ interface SubagentEntry {
   spawnedAt: number;
 }
 
-export type PanelId = 'explorer' | 'search' | 'git' | 'extensions';
+export type PanelId = 'explorer' | 'search';
 
 export interface AppState {
   nodes: Node[];
@@ -63,6 +63,8 @@ export interface AppState {
   sessions: Record<string, SessionInfo>;
   subagents: Record<string, SubagentEntry>;
   selectedSessionId: string | null;
+  /** When true, GraphCanvas should focus/zoom the selected node */
+  shouldFocusNode: boolean;
   sessionBuffers: Record<string, string>;
   displayNames: Record<string, string>;
   nodeCounter: number;
@@ -71,7 +73,7 @@ export interface AppState {
   addSession: (info: SessionInfo) => void;
   removeSession: (id: string) => void;
   updateStatus: (id: string, status: SessionStatus) => void;
-  selectSession: (id: string | null) => void;
+  selectSession: (id: string | null, focus?: boolean) => void;
   appendBuffer: (id: string, data: string) => void;
 
   // Sub-agent actions
@@ -133,6 +135,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessions: {},
   subagents: {},
   selectedSessionId: null,
+  shouldFocusNode: false,
   sessionBuffers: {},
   displayNames: {},
   nodeCounter: 0,
@@ -275,8 +278,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  selectSession: (id: string | null) => {
-    set({ selectedSessionId: id, terminalTab: 'session' });
+  selectSession: (id: string | null, focus = false) => {
+    set({ selectedSessionId: id, shouldFocusNode: focus, terminalTab: 'session' });
   },
 
   appendBuffer: (id: string, data: string) => {
