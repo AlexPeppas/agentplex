@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron';
+import { ipcMain, dialog, shell, BrowserWindow } from 'electron';
 import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
@@ -193,5 +193,10 @@ ${safeContext}
     if (typeof id !== 'string') return;
     if (!getCachedShells().some((s) => s.id === id)) return;
     setDefaultShellId(id);
+  });
+
+  ipcMain.handle(IPC.SHELL_OPEN_PATH, (_event, { path }: { path: string }) => {
+    if (typeof path !== 'string') return;
+    shell.openPath(path);
   });
 }

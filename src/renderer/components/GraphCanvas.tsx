@@ -33,12 +33,17 @@ export function GraphCanvas() {
   const dragStartParent = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    // Small delay to let the layout reflow before fitting
     const timer = setTimeout(() => {
       try {
-        const currentNodes = useAppStore.getState().nodes;
-        if (currentNodes.length > 0) {
-          fitView({ duration: 200 });
+        if (selectedSessionId) {
+          // Center on the selected node
+          fitView({ nodes: [{ id: selectedSessionId }], duration: 200, maxZoom: 1.5 });
+        } else {
+          // No session selected — fit all nodes
+          const currentNodes = useAppStore.getState().nodes;
+          if (currentNodes.length > 0) {
+            fitView({ duration: 200 });
+          }
         }
       } catch {
         // fitView can fail during unmount or empty graph

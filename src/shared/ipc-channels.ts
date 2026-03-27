@@ -125,4 +125,5 @@ export const IPC = {
   SHELL_LIST: 'shell:list',
   SETTINGS_GET_DEFAULT_SHELL: 'settings:getDefaultShell',
   SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
+  SHELL_OPEN_PATH: 'shell:openPath',
 } as const;

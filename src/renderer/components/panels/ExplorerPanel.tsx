@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { ChevronRight, ChevronDown, Terminal, Pencil, Trash2, Send, Plus, Copy } from 'lucide-react';
+import { ChevronRight, ChevronDown, Terminal, Pencil, Trash2, Send, Plus, FolderOpen } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { SessionStatus, type CliTool } from '../../../shared/ipc-channels';
 import claudeLogo from '../../../../assets/claude-logo.svg';
@@ -114,9 +114,9 @@ export function ExplorerPanel() {
     setContextMenu(null);
   }, [contextMenu, openSendDialog]);
 
-  const handleCopyPath = useCallback(() => {
+  const handleOpenFolder = useCallback(() => {
     if (!contextMenu || contextMenu.type !== 'dir') return;
-    window.agentPlex.clipboardWriteText(contextMenu.cwd);
+    window.agentPlex.openPath(contextMenu.cwd);
     setContextMenu(null);
   }, [contextMenu]);
 
@@ -257,9 +257,9 @@ export function ExplorerPanel() {
               </button>
               <button
                 className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
-                onClick={handleCopyPath}
+                onClick={handleOpenFolder}
               >
-                <Copy size={12} /> Copy Path
+                <FolderOpen size={12} /> Open Folder
               </button>
             </>
           )}

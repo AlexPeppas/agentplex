@@ -34,6 +34,7 @@ export interface AgentPlexAPI {
   getShells: () => Promise<DetectedShell[]>;
   getDefaultShell: () => Promise<string | null>;
   setDefaultShell: (id: string) => Promise<void>;
+  openPath: (path: string) => Promise<void>;
   clipboardWriteText: (text: string) => void;
   clipboardReadText: () => string;
 }
