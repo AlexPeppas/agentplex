@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Sun, Moon, Star, Plus } from 'lucide-react';
 import { useAppStore } from '../store';
 import { CLI_TOOLS, RESUME_TOOL, type CliTool, type ExternalSession, type DetectedShell } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
+import claudeLogo from '../../../assets/claude-logo.svg';
+import codexDark from '../../../assets/codex-dark.svg';
+import codexLight from '../../../assets/codex-light.svg';
+import copilotDark from '../../../assets/githubcopilot-dark.svg';
+import copilotLight from '../../../assets/githubcopilot-light.svg';
+
+const TOOL_ICONS: Record<string, { dark: string; light: string }> = {
+  codex: { dark: codexLight, light: codexDark },
+  copilot: { dark: copilotLight, light: copilotDark },
+};
 
 function getInitialTheme(): 'dark' | 'light' {
   const saved = localStorage.getItem('agentplex-theme');
@@ -43,6 +54,8 @@ export function Toolbar() {
   const [defaultShellId, setDefaultShellId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; shellId: string } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  const isDarwin = window.agentPlex.platform === 'darwin';
 
   useEffect(() => {
     window.agentPlex.getShells().then(setShells);
@@ -171,19 +184,19 @@ export function Toolbar() {
   }, [discoverOpen]);
 
   return (
-    <div className="toolbar">
-      <img className="toolbar__logo" src={logoSvg} alt="AgentPlex" />
-      <span className="toolbar__title">AgentPlex</span>
+    <div className={`flex items-center gap-2.5 h-12 bg-inset border-b border-border [-webkit-app-region:drag] ${isDarwin ? 'pl-20 pr-[18px]' : 'px-[18px] pr-[140px]'}`}>
+      <img className="w-[34px] h-[34px] shrink-0" src={logoSvg} alt="AgentPlex" />
+      <span className="text-sm font-semibold text-accent tracking-wide flex-1">AgentPlex</span>
       <button
-        className="toolbar__theme-toggle"
+        className="[-webkit-app-region:no-drag] w-7 h-7 flex items-center justify-center bg-transparent border border-border rounded-md text-fg-muted text-sm cursor-pointer transition-colors hover:bg-border hover:text-fg"
         onClick={toggleTheme}
         title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
       >
-        {theme === 'dark' ? '\u2600' : '\u263E'}
+        {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
       </button>
-      <div className="toolbar__new-wrapper" ref={discoverRef}>
+      <div className="[-webkit-app-region:no-drag] relative" ref={discoverRef}>
         <button
-          className="toolbar__button toolbar__button--secondary"
+          className="[-webkit-app-region:no-drag] px-3.5 py-1.5 bg-elevated text-fg border border-border-strong rounded-md text-[13px] font-semibold cursor-pointer transition-colors hover:bg-border active:bg-border-strong"
           onClick={handleDiscover}
           title="Find running Claude sessions not managed by AgentPlex"
         >
@@ -191,28 +204,28 @@ export function Toolbar() {
         </button>
         {discoverOpen && (
           <>
-          <div className="toolbar__backdrop" onClick={() => setDiscoverOpen(false)} />
-          <div className="toolbar__menu toolbar__discover-panel">
+          <div className="fixed inset-0 z-[99] [-webkit-app-region:no-drag]" onClick={() => setDiscoverOpen(false)} />
+          <div className="absolute top-[calc(100%+6px)] right-0 bg-elevated border border-border-strong rounded-lg p-1 shadow-[0_8px_24px_var(--shadow-heavy)] z-[100] min-w-[300px] max-h-[360px] overflow-y-auto">
             {discovering ? (
-              <div className="toolbar__discover-empty">Scanning...</div>
+              <div className="py-4 px-3 text-center text-fg-muted text-[13px]">Scanning...</div>
             ) : externalSessions.length === 0 ? (
-              <div className="toolbar__discover-empty">No external Claude sessions found</div>
+              <div className="py-4 px-3 text-center text-fg-muted text-[13px]">No external Claude sessions found</div>
             ) : (
               externalSessions.map((ext) => (
-                <div key={ext.sessionId} className="toolbar__discover-item">
-                  <div className="toolbar__discover-info">
-                    <span className="toolbar__discover-name">
+                <div key={ext.sessionId} className="flex items-center gap-2 py-2 px-2.5 rounded-md transition-colors hover:bg-border">
+                  <div className="flex-1 min-w-0 flex flex-col gap-px">
+                    <span className="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                       {ext.name || ext.cwd.split('/').pop() || 'Claude'}
                     </span>
-                    <span className="toolbar__discover-meta">
+                    <span className="text-[11px] text-fg-muted">
                       PID {ext.pid} &middot; {formatTimeAgo(ext.startedAt)}
                     </span>
-                    <span className="toolbar__discover-path" title={ext.cwd}>
+                    <span className="text-[11px] text-fg-muted whitespace-nowrap overflow-hidden text-ellipsis" title={ext.cwd}>
                       {shortenPath(ext.cwd)}
                     </span>
                   </div>
                   <button
-                    className="toolbar__menu-pill"
+                    className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
                     onClick={() => handleAdopt(ext)}
                     disabled={adoptingId === ext.sessionId}
                   >
@@ -225,55 +238,65 @@ export function Toolbar() {
           </>
         )}
       </div>
-      <div className="toolbar__new-wrapper" ref={menuRef}>
+      <div className="[-webkit-app-region:no-drag] relative" ref={menuRef}>
         <button
-          className="toolbar__button"
+          className="[-webkit-app-region:no-drag] px-3.5 py-1.5 bg-accent text-surface border-none rounded-md text-[13px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover active:bg-accent-active"
           onClick={() => setMenuOpen((v) => !v)}
         >
-          + New Session
+          <Plus size={14} className="inline -mt-px" /> New Session
         </button>
         {menuOpen && (
-          <div className="toolbar__menu">
-            <div className="toolbar__menu-section">
-              <span className="toolbar__menu-label">Claude</span>
-              <div className="toolbar__menu-row">
+          <div className="absolute top-[calc(100%+6px)] right-0 bg-elevated border border-border-strong rounded-lg p-1 min-w-[220px] shadow-[0_8px_24px_var(--shadow-heavy)] z-[100]">
+            <div className="py-1.5 px-2.5">
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-fg uppercase tracking-wide mb-1.5">
+                <img src={claudeLogo} alt="" className="w-3.5 h-3.5" />
+                Claude
+              </span>
+              <div className="flex gap-1.5">
                 <button
-                  className="toolbar__menu-pill"
+                  className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
                   onClick={handleNewClaude}
                 >
                   New
                 </button>
                 <button
-                  className="toolbar__menu-pill"
+                  className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
                   onClick={handleResume}
                 >
                   Resume
                 </button>
               </div>
             </div>
-            <div className="toolbar__menu-divider" />
+            <div className="h-px bg-border my-1" />
             {CLI_TOOLS.filter((t) => t.id !== 'claude').map((tool) => (
               <button
                 key={tool.id}
-                className="toolbar__menu-item"
+                className="flex items-center gap-2 w-full py-2 px-3 bg-transparent border-none rounded-md text-fg text-[13px] font-medium text-left cursor-pointer transition-colors hover:bg-border"
                 onClick={() => handlePick(tool.id)}
               >
+                {TOOL_ICONS[tool.id] && (
+                  <img
+                    src={theme === 'dark' ? TOOL_ICONS[tool.id].dark : TOOL_ICONS[tool.id].light}
+                    alt=""
+                    className="w-4 h-4"
+                  />
+                )}
                 {tool.label}
               </button>
             ))}
             {shells.length > 0 && (
               <>
-                <div className="toolbar__menu-divider" />
+                <div className="h-px bg-border my-1" />
                 {shells.map((shell) => (
                   <button
                     key={shell.id}
-                    className="toolbar__menu-item"
+                    className="block w-full py-2 px-3 bg-transparent border-none rounded-md text-fg text-[13px] font-medium text-left cursor-pointer transition-colors hover:bg-border"
                     onClick={() => handlePick(shell.id as CliTool)}
                     onContextMenu={(e) => handleShellContextMenu(e, shell.id)}
                     title={`Right-click to set as default`}
                   >
                     {shell.id === defaultShellId && (
-                      <span className="toolbar__default-indicator">{'\u2605'} </span>
+                      <><Star size={12} className="inline text-[#f0c040] fill-[#f0c040] -mt-px" />{' '}</>
                     )}
                     {shell.label}
                   </button>
@@ -286,11 +309,11 @@ export function Toolbar() {
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="toolbar__context-menu"
+          className="z-[1000] bg-elevated border border-border-strong rounded-md py-1 shadow-[0_8px_24px_var(--shadow-heavy)]"
           style={{ position: 'fixed', left: contextMenu.x, top: contextMenu.y }}
         >
           <button
-            className="toolbar__context-menu-item"
+            className="block w-full py-2 px-3 bg-transparent border-none rounded-md text-fg text-[13px] font-medium cursor-pointer text-left whitespace-nowrap transition-colors hover:bg-border"
             onClick={() => handleSetDefault(contextMenu.shellId)}
           >
             Set as default

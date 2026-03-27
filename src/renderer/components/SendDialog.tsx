@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CornerDownLeft } from 'lucide-react';
 import { useAppStore } from '../store';
 import { SessionStatus } from '../../shared/ipc-channels';
 import { stripAnsi } from '../../shared/ansi-strip';
@@ -124,18 +125,18 @@ export function SendDialog() {
   };
 
   return (
-    <div className="send-dialog__backdrop" onClick={handleBackdropClick}>
-      <div className="send-dialog">
-        <div className="send-dialog__header">
+    <div className="fixed inset-0 bg-backdrop flex items-center justify-center z-[1000]" onClick={handleBackdropClick}>
+      <div className="bg-elevated border border-border-strong rounded-xl p-5 w-[520px] max-w-[90vw] shadow-[0_8px_32px_var(--shadow-heavy)]">
+        <div className="text-sm font-semibold text-fg mb-3.5">
           Send context from: {sourceLabel}
         </div>
 
-        <label className="send-dialog__label">To:</label>
+        <label className="block text-xs font-medium text-fg-muted mb-1.5">To:</label>
         {targetSessions.length === 0 ? (
-          <div className="send-dialog__no-targets">No other active sessions</div>
+          <div className="py-2 px-2.5 text-[13px] text-fg-muted mb-3">No other active sessions</div>
         ) : (
           <select
-            className="send-dialog__select"
+            className="w-full py-2 px-2.5 bg-surface border border-border-strong rounded-lg text-fg text-[13px] outline-none mb-3 cursor-pointer transition-colors focus:border-accent"
             value={targetId}
             onChange={(e) => setTargetId(e.target.value)}
           >
@@ -147,25 +148,26 @@ export function SendDialog() {
           </select>
         )}
 
-        <label className="send-dialog__label">Context preview:</label>
-        <div className="send-dialog__context-preview">
+        <label className="block text-xs font-medium text-fg-muted mb-1.5">Context preview:</label>
+        <div className="w-full max-h-[200px] overflow-y-auto bg-inset border border-border rounded-lg text-fg-muted font-mono text-xs p-2.5 whitespace-pre-wrap break-all mb-3">
           {contextPreview || '(no output yet)'}
         </div>
 
-        <label className="send-dialog__label">Instruction:</label>
+        <label className="block text-xs font-medium text-fg-muted mb-1.5">Instruction:</label>
         <textarea
           ref={instructionRef}
-          className="send-dialog__textarea"
+          className="w-full bg-surface border border-border-strong rounded-lg text-fg font-mono text-[13px] p-2.5 resize-y outline-none transition-colors focus:border-accent placeholder:text-fg-muted"
           value={instruction}
           onChange={(e) => setInstruction(e.target.value)}
           placeholder="e.g. Continue this refactor, review this output..."
           rows={3}
         />
 
-        <div className="send-dialog__options">
-          <label className="send-dialog__toggle">
+        <div className="mt-2.5">
+          <label className="inline-flex items-center gap-1.5 text-xs text-fg-muted cursor-pointer">
             <input
               type="checkbox"
+              className="accent-accent cursor-pointer"
               checked={summarize}
               onChange={(e) => setSummarize(e.target.checked)}
             />
@@ -173,16 +175,16 @@ export function SendDialog() {
           </label>
         </div>
 
-        <div className="send-dialog__actions">
-          <button className="send-dialog__cancel" onClick={closeSendDialog}>
+        <div className="flex justify-end gap-2 mt-3.5">
+          <button className="py-1.5 px-3.5 bg-transparent border border-border-strong rounded-md text-fg text-[13px] cursor-pointer transition-colors hover:bg-border" onClick={closeSendDialog}>
             Cancel
           </button>
           <button
-            className="send-dialog__send"
+            className="py-1.5 px-3.5 bg-accent text-surface border-none rounded-md text-[13px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={handleSend}
             disabled={!instruction.trim() || !targetId || sending}
           >
-            {sending ? 'Summarizing...' : 'Send \u23CE'}
+            {sending ? 'Summarizing...' : <><span>Send</span> <CornerDownLeft size={13} className="inline -mt-px" /></>}
           </button>
         </div>
       </div>

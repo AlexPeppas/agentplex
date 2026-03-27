@@ -184,11 +184,11 @@ export function App() {
   }, [appendBuffer, updateStatus, spawnSubagent, completeSubagent, enterPlan, exitPlan, createTask, updateTask, reconcileTasks]);
 
   return (
-    <div className="app">
+    <div className="flex flex-col h-full">
       <Toolbar />
-      <div className="app__content" ref={contentRef}>
+      <div className="flex flex-1 overflow-hidden" ref={contentRef}>
         <div
-          className="app__graph"
+          className="flex-1 min-w-0"
           style={selectedSessionId ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
         >
           <ReactFlowProvider>
@@ -197,8 +197,11 @@ export function App() {
         </div>
         {selectedSessionId && (
           <>
-            <div className="app__resize-handle" onMouseDown={handleResizeStart} />
-            <div className="app__terminal" style={{ flex: `0 0 ${terminalWidth}%` }}>
+            <div
+              className="flex-[0_0_4px] cursor-col-resize bg-border transition-colors duration-[120ms] hover:bg-accent active:bg-accent"
+              onMouseDown={handleResizeStart}
+            />
+            <div className="min-w-0" style={{ flex: `0 0 ${terminalWidth}%` }}>
               <TerminalPanel />
             </div>
           </>
