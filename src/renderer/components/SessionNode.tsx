@@ -1,5 +1,6 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Trash2, Send, ClipboardList, Circle, Check } from 'lucide-react';
 import { StatusIndicator } from './StatusIndicator';
 import { useAppStore, type SessionNodeData } from '../store';
 import { SessionStatus } from '../../shared/ipc-channels';
@@ -81,26 +82,20 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     openSendDialog(nodeData.sessionId);
   };
 
-  const trashIcon = (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
 
   return (
     <div
-      className={`session-node ${isSelected ? 'session-node--selected' : ''} ${isKilled ? 'session-node--killed' : ''}`}
+      className={`group relative py-2.5 px-3.5 bg-elevated border-2 border-border rounded-[10px] min-w-[160px] cursor-pointer transition-[border-color,box-shadow] duration-150 select-none hover:border-border-strong ${isSelected ? 'border-accent shadow-[0_0_12px_var(--accent-subtle-strong)]' : ''} ${isKilled ? 'opacity-60' : ''}`}
       onClick={handleClick}
     >
-      {isWaiting && <span className="session-node__attention">?</span>}
+      {isWaiting && <span className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center bg-warning-bg text-surface text-xs font-bold rounded-full z-10 pointer-events-none animate-[attention-pulse_1.5s_ease-in-out_infinite]">?</span>}
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-      <div className="session-node__header">
+      <div className="flex items-center gap-2">
         <StatusIndicator status={status} />
         {editing ? (
           <input
             ref={inputRef}
-            className="session-node__title-input"
+            className="flex-1 text-[13px] font-medium text-fg bg-transparent border-none border-b border-b-accent outline-none w-full p-0 font-[inherit]"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
@@ -114,56 +109,53 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
             onDoubleClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className="session-node__title" onDoubleClick={handleTitleDoubleClick}>
+          <span className="flex-1 text-[13px] font-medium whitespace-nowrap overflow-hidden text-ellipsis" onDoubleClick={handleTitleDoubleClick}>
             {nodeData.label}
           </span>
         )}
         {!isKilled && (
           <button
-            className="session-node__send"
+            className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-accent cursor-pointer opacity-0 transition-[opacity,background] duration-150 group-hover:opacity-100 hover:bg-accent-subtle"
             onClick={handleSend}
             title="Send message to session"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
+            <Send size={14} />
           </button>
         )}
         <button
-          className="session-node__remove"
+          className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-fg-muted cursor-pointer opacity-0 transition-[opacity,background,color] duration-150 group-hover:opacity-100 hover:bg-error-subtle hover:text-error"
           onClick={handleDeleteClick}
           title="Delete session"
         >
-          {trashIcon}
+          <Trash2 size={14} />
         </button>
       </div>
 
       {confirmingDelete && (
-        <div className="session-node__confirm" ref={confirmRef} onClick={(e) => e.stopPropagation()}>
-          <span className="session-node__confirm-text">Delete this session?</span>
-          <div className="session-node__confirm-actions">
-            <button className="session-node__confirm-delete" onClick={handleConfirmDelete}>Delete</button>
-            <button className="session-node__confirm-cancel" onClick={handleCancelDelete}>Cancel</button>
+        <div className="mt-2 p-2 bg-elevated border border-border-strong rounded-lg shadow-[0_4px_12px_var(--shadow)]" ref={confirmRef} onClick={(e) => e.stopPropagation()}>
+          <span className="block text-xs font-medium text-fg mb-2">Delete this session?</span>
+          <div className="flex gap-1.5">
+            <button className="flex-1 py-1 bg-error text-surface border-none rounded-[5px] text-xs font-semibold cursor-pointer transition-opacity hover:opacity-85" onClick={handleConfirmDelete}>Delete</button>
+            <button className="flex-1 py-1 bg-border text-fg border-none rounded-[5px] text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong" onClick={handleCancelDelete}>Cancel</button>
           </div>
         </div>
       )}
 
       {nodeData.mode === 'plan' && (
-        <div className="session-node__plan-badge">
-          <span className="session-node__plan-badge-icon">{'\uD83D\uDCDD'}</span>
-          <span className="session-node__plan-title">Plan</span>
+        <div className="flex items-center gap-1.5 mt-2 py-1 px-2 bg-accent-subtle rounded-md overflow-hidden">
+          <ClipboardList size={12} className="shrink-0" />
+          <span className="text-[11px] font-semibold text-accent whitespace-nowrap overflow-hidden text-ellipsis">Plan</span>
         </div>
       )}
 
       {nodeData.plans.length > 0 && (
-        <div className="session-node__plan-entries">
+        <div className="mt-1.5 flex flex-col gap-0.5">
           {nodeData.plans.map((plan, i) => (
-            <div key={i} className={`session-node__plan-entry session-node__plan-entry--${plan.status}`}>
-              <span className="session-node__plan-entry-icon">
-                {plan.status === 'active' ? '\u25C9' : '\u2713'}
+            <div key={i} className="flex items-center gap-[5px] py-px">
+              <span className={`shrink-0 w-3.5 flex justify-center ${plan.status === 'active' ? 'text-accent' : 'text-success'}`}>
+                {plan.status === 'active' ? <Circle size={11} /> : <Check size={11} />}
               </span>
-              <span className="session-node__plan-entry-title">{plan.title}</span>
+              <span className={`text-[11px] whitespace-nowrap overflow-hidden text-ellipsis max-w-[180px] ${plan.status === 'active' ? 'text-fg' : 'text-fg-muted line-through'}`}>{plan.title}</span>
             </div>
           ))}
         </div>

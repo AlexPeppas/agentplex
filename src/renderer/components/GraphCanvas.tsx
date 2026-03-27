@@ -85,7 +85,7 @@ export function GraphCanvas() {
   }, [selectSession]);
 
   return (
-    <div className="graph-canvas">
+    <div className="graph-canvas w-full h-full">
       <ReactFlow
         nodes={nodes}
         edges={edges}
