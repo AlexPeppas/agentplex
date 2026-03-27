@@ -55,6 +55,8 @@ interface SubagentEntry {
   spawnedAt: number;
 }
 
+export type PanelId = 'explorer' | 'search' | 'git' | 'extensions';
+
 export interface AppState {
   nodes: Node[];
   edges: Edge[];
@@ -109,6 +111,12 @@ export interface AppState {
   launcherCli: CliTool;
   openLauncher: (mode: 'new' | 'resume', cli?: CliTool) => void;
   closeLauncher: () => void;
+
+  // Side panel
+  activePanelId: PanelId | null;
+  sidePanelWidth: number;
+  togglePanel: (panelId: PanelId) => void;
+  setSidePanelWidth: (width: number) => void;
 }
 
 let groupCounter = 0;
@@ -135,6 +143,19 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closeLauncher: () => {
     set({ launcherOpen: false });
+  },
+
+  activePanelId: null,
+  sidePanelWidth: 240,
+
+  togglePanel: (panelId: PanelId) => {
+    set((state) => ({
+      activePanelId: state.activePanelId === panelId ? null : panelId,
+    }));
+  },
+
+  setSidePanelWidth: (width: number) => {
+    set({ sidePanelWidth: Math.max(160, Math.min(400, width)) });
   },
 
   addSession: (info: SessionInfo) => {
