@@ -203,7 +203,27 @@ html, body, #root {
   transition: opacity 1s ease-out;
 }
 
-/* Terminal xterm fill */
-.terminal-body .xterm {
-  height: 100%;
+/* Edit button */
+.session-node__edit {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.group:hover .session-node__edit {
+  opacity: 1;
+}
+
+.session-node__edit:hover {
+  background: var(--accent-subtle);
+  color: var(--accent);
 }
