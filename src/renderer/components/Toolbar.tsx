@@ -167,9 +167,9 @@ export function Toolbar() {
   }, [discoverOpen]);
 
   return (
-    <div className={`flex items-center gap-2.5 h-14 bg-inset border-b border-border [-webkit-app-region:drag] ${isDarwin ? 'pl-20 pr-[18px]' : 'px-[18px] pr-[140px]'}`}>
+    <div className={`flex items-center gap-2.5 h-12 bg-inset border-b border-border [-webkit-app-region:drag] ${isDarwin ? 'pl-20 pr-[18px]' : 'px-[18px] pr-[140px]'}`}>
       <div className="flex items-center gap-3 flex-1 min-w-0">
-        <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 shadow-[0_0_8px_var(--accent-subtle-strong)]">
+        <div className="w-6 h-6 rounded-md overflow-hidden shrink-0 shadow-[0_0_6px_var(--accent-subtle-strong)]">
           <img className="w-full h-full" src={logoSvg} alt="AgentPlex" />
         </div>
         <span className="text-[15px] tracking-[0.25em] font-bold text-fg-muted uppercase" style={{ fontFamily: "'Segoe UI', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" }}>AgentPlex</span>
