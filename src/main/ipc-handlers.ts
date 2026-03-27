@@ -4,6 +4,7 @@ import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
 import { getDefaultShellId, setDefaultShellId } from './settings-manager';
 import { scanProjects, scanSessionsForProject, getPinnedProjects, updatePinnedProjects, resolveProjectPath } from './claude-session-scanner';
+import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
@@ -202,5 +203,105 @@ ${safeContext}
       console.error('Failed to open path:', error);
       throw new Error(error);
     }
+  });
+
+  // ── Git operations ──────────────────────────────────────────
+
+  ipcMain.handle(IPC.GIT_STATUS, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') return { isRepo: false, files: [], repoRoot: '' };
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) return { isRepo: false, files: [], repoRoot: '' };
+    return getGitStatus(cwd);
+  });
+
+  ipcMain.handle(IPC.GIT_FILE_DIFF, async (_event, { sessionId, filePath, staged }: { sessionId: string; filePath: string; staged: boolean }) => {
+    if (typeof sessionId !== 'string' || typeof filePath !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return getFileDiff(status.repoRoot, filePath, !!staged);
+  });
+
+  ipcMain.handle(IPC.GIT_SAVE_FILE, async (_event, { sessionId, filePath, content }: { sessionId: string; filePath: string; content: string }) => {
+    if (typeof sessionId !== 'string' || typeof filePath !== 'string' || typeof content !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return saveFile(status.repoRoot, filePath, content);
+  });
+
+  ipcMain.handle(IPC.GIT_STAGE_FILE, async (_event, { sessionId, filePath }: { sessionId: string; filePath: string }) => {
+    if (typeof sessionId !== 'string' || typeof filePath !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return stageFile(status.repoRoot, filePath);
+  });
+
+  ipcMain.handle(IPC.GIT_UNSTAGE_FILE, async (_event, { sessionId, filePath }: { sessionId: string; filePath: string }) => {
+    if (typeof sessionId !== 'string' || typeof filePath !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return unstageFile(status.repoRoot, filePath);
+  });
+
+  ipcMain.handle(IPC.GIT_COMMIT, async (_event, { sessionId, message }: { sessionId: string; message: string }) => {
+    if (typeof sessionId !== 'string' || typeof message !== 'string' || !message.trim()) {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitCommit(status.repoRoot, message);
+  });
+
+  ipcMain.handle(IPC.GIT_PUSH, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitPush(status.repoRoot);
+  });
+
+  ipcMain.handle(IPC.GIT_PULL, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitPull(status.repoRoot);
+  });
+
+  ipcMain.handle(IPC.GIT_LOG, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitLog(status.repoRoot);
+  });
+
+  ipcMain.handle(IPC.GIT_BRANCH_INFO, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitBranchInfo(status.repoRoot);
   });
 }

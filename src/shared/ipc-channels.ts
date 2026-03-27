@@ -92,6 +92,44 @@ export interface PinnedProject {
   label?: string;
 }
 
+export interface GitChangedFile {
+  path: string;
+  status: 'M' | 'A' | 'D' | 'R' | 'U' | '?' | string;
+  staged: boolean;
+}
+
+export interface GitStatusResult {
+  isRepo: boolean;
+  files: GitChangedFile[];
+  repoRoot: string;
+}
+
+export interface GitFileDiffResult {
+  original: string;
+  modified: string;
+  language: string;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  date: string;
+}
+
+export interface GitBranchInfo {
+  current: string;
+  tracking: string | null;
+  ahead: number;
+  behind: number;
+}
+
+export interface GitCommandResult {
+  success: boolean;
+  output: string;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -126,4 +164,14 @@ export const IPC = {
   SETTINGS_GET_DEFAULT_SHELL: 'settings:getDefaultShell',
   SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
   SHELL_OPEN_PATH: 'shell:openPath',
+  GIT_STATUS: 'git:status',
+  GIT_FILE_DIFF: 'git:fileDiff',
+  GIT_SAVE_FILE: 'git:saveFile',
+  GIT_STAGE_FILE: 'git:stageFile',
+  GIT_UNSTAGE_FILE: 'git:unstageFile',
+  GIT_COMMIT: 'git:commit',
+  GIT_PUSH: 'git:push',
+  GIT_PULL: 'git:pull',
+  GIT_LOG: 'git:log',
+  GIT_BRANCH_INFO: 'git:branchInfo',
 } as const;
