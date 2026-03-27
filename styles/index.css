@@ -160,6 +160,8 @@ html, body, #root {
 /* ═══════════════════════════════════════════════════════════
    React Flow overrides
    ═══════════════════════════════════════════════════════════ */
+
+
 .graph-canvas .react-flow__background {
   background: var(--bg-primary) !important;
 }

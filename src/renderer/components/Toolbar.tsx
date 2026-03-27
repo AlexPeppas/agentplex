@@ -193,6 +193,8 @@ export function Toolbar() {
           Discover
         </button>
         {discoverOpen && (
+          <>
+          <div className="fixed inset-0 z-[99] [-webkit-app-region:no-drag]" onClick={() => setDiscoverOpen(false)} />
           <div className="absolute top-[calc(100%+6px)] right-0 bg-elevated border border-border-strong rounded-lg p-1 shadow-[0_8px_24px_var(--shadow-heavy)] z-[100] min-w-[300px] max-h-[360px] overflow-y-auto">
             {discovering ? (
               <div className="py-4 px-3 text-center text-fg-muted text-[13px]">Scanning...</div>
@@ -223,6 +225,7 @@ export function Toolbar() {
               ))
             )}
           </div>
+          </>
         )}
       </div>
       <div className="[-webkit-app-region:no-drag] relative" ref={menuRef}>
