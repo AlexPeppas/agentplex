@@ -3,6 +3,16 @@ import { Sun, Moon, Star, Plus } from 'lucide-react';
 import { useAppStore } from '../store';
 import { CLI_TOOLS, RESUME_TOOL, type CliTool, type ExternalSession, type DetectedShell } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
+import claudeLogo from '../../../assets/claude-logo.svg';
+import codexDark from '../../../assets/codex-dark.svg';
+import codexLight from '../../../assets/codex-light.svg';
+import copilotDark from '../../../assets/githubcopilot-dark.svg';
+import copilotLight from '../../../assets/githubcopilot-light.svg';
+
+const TOOL_ICONS: Record<string, { dark: string; light: string }> = {
+  codex: { dark: codexLight, light: codexDark },
+  copilot: { dark: copilotLight, light: copilotDark },
+};
 
 function getInitialTheme(): 'dark' | 'light' {
   const saved = localStorage.getItem('agentplex-theme');
@@ -238,7 +248,10 @@ export function Toolbar() {
         {menuOpen && (
           <div className="absolute top-[calc(100%+6px)] right-0 bg-elevated border border-border-strong rounded-lg p-1 min-w-[220px] shadow-[0_8px_24px_var(--shadow-heavy)] z-[100]">
             <div className="py-1.5 px-2.5">
-              <span className="block text-[11px] font-semibold text-fg uppercase tracking-wide mb-1.5">Claude</span>
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-fg uppercase tracking-wide mb-1.5">
+                <img src={claudeLogo} alt="" className="w-3.5 h-3.5" />
+                Claude
+              </span>
               <div className="flex gap-1.5">
                 <button
                   className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
@@ -258,9 +271,16 @@ export function Toolbar() {
             {CLI_TOOLS.filter((t) => t.id !== 'claude').map((tool) => (
               <button
                 key={tool.id}
-                className="block w-full py-2 px-3 bg-transparent border-none rounded-md text-fg text-[13px] font-medium text-left cursor-pointer transition-colors hover:bg-border"
+                className="flex items-center gap-2 w-full py-2 px-3 bg-transparent border-none rounded-md text-fg text-[13px] font-medium text-left cursor-pointer transition-colors hover:bg-border"
                 onClick={() => handlePick(tool.id)}
               >
+                {TOOL_ICONS[tool.id] && (
+                  <img
+                    src={theme === 'dark' ? TOOL_ICONS[tool.id].dark : TOOL_ICONS[tool.id].light}
+                    alt=""
+                    className="w-4 h-4"
+                  />
+                )}
                 {tool.label}
               </button>
             ))}
