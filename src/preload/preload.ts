@@ -173,6 +173,10 @@ const api = {
     return ipcRenderer.invoke(IPC.SETTINGS_SET_DEFAULT_SHELL, { id });
   },
 
+  openPath: (path: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SHELL_OPEN_PATH, { path });
+  },
+
   clipboardWriteText: (text: string): void => {
     clipboard.writeText(text);
   },

@@ -5,6 +5,8 @@ import { GraphCanvas } from './components/GraphCanvas';
 import { TerminalPanel } from './components/TerminalPanel';
 import { SendDialog } from './components/SendDialog';
 import { ProjectLauncher } from './components/ProjectLauncher';
+import { ActivityBar } from './components/ActivityBar';
+import { SidePanel } from './components/SidePanel';
 import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
@@ -43,7 +45,8 @@ export function App() {
 
   const [terminalWidth, setTerminalWidth] = useState(40); // percentage
   const dragging = useRef(false);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const mainAreaRef = useRef<HTMLDivElement>(null);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -52,8 +55,8 @@ export function App() {
     document.body.style.userSelect = 'none';
 
     const onMove = (ev: MouseEvent) => {
-      if (!dragging.current || !contentRef.current) return;
-      const rect = contentRef.current.getBoundingClientRect();
+      if (!dragging.current || !mainAreaRef.current) return;
+      const rect = mainAreaRef.current.getBoundingClientRect();
       const pct = ((rect.right - ev.clientX) / rect.width) * 100;
       setTerminalWidth(Math.max(20, Math.min(80, pct)));
     };
@@ -69,6 +72,37 @@ export function App() {
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }, []);
+
+  const activePanelId = useAppStore((s) => s.activePanelId);
+  const setSidePanelWidth = useAppStore((s) => s.setSidePanelWidth);
+
+  const sidePanelDragging = useRef(false);
+
+  const handleSidePanelResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    sidePanelDragging.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      if (!sidePanelDragging.current || !outerRef.current) return;
+      const rect = outerRef.current.getBoundingClientRect();
+      // 48px for the activity bar
+      const newWidth = ev.clientX - rect.left - 48;
+      setSidePanelWidth(newWidth);
+    };
+
+    const onUp = () => {
+      sidePanelDragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [setSidePanelWidth]);
 
   // Reconnect to existing sessions on mount (e.g. after renderer reload/crash)
   // and restore persisted Claude sessions from state.json
@@ -186,26 +220,38 @@ export function App() {
   return (
     <div className="flex flex-col h-full">
       <Toolbar />
-      <div className="flex flex-1 overflow-hidden" ref={contentRef}>
-        <div
-          className="flex-1 min-w-0"
-          style={selectedSessionId ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
-        >
-          <ReactFlowProvider>
-            <GraphCanvas />
-          </ReactFlowProvider>
-        </div>
-        {selectedSessionId && (
+      <div className="flex flex-1 overflow-hidden" ref={outerRef}>
+        <ActivityBar />
+        {activePanelId && (
           <>
+            <SidePanel />
             <div
               className="flex-[0_0_4px] cursor-col-resize bg-border transition-colors duration-[120ms] hover:bg-accent active:bg-accent"
-              onMouseDown={handleResizeStart}
+              onMouseDown={handleSidePanelResizeStart}
             />
-            <div className="min-w-0" style={{ flex: `0 0 ${terminalWidth}%` }}>
-              <TerminalPanel />
-            </div>
           </>
         )}
+        <div className="flex flex-1 min-w-0 overflow-hidden" ref={mainAreaRef}>
+          <div
+            className="flex-1 min-w-0 h-full"
+            style={selectedSessionId ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
+          >
+            <ReactFlowProvider>
+              <GraphCanvas />
+            </ReactFlowProvider>
+          </div>
+          {selectedSessionId && (
+            <>
+              <div
+                className="flex-[0_0_4px] cursor-col-resize bg-border transition-colors duration-[120ms] hover:bg-accent active:bg-accent"
+                onMouseDown={handleResizeStart}
+              />
+              <div className="min-w-0 h-full" style={{ flex: `0 0 ${terminalWidth}%` }}>
+                <TerminalPanel />
+              </div>
+            </>
+          )}
+        </div>
       </div>
       {sendDialogSourceId && <SendDialog />}
       {launcherOpen && <ProjectLauncher />}

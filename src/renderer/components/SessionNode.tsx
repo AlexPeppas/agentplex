@@ -1,43 +1,49 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Trash2, Send, ClipboardList, Circle, Check } from 'lucide-react';
+import { Send, ClipboardList, Circle, Check, Terminal } from 'lucide-react';
 import { StatusIndicator } from './StatusIndicator';
 import { useAppStore, type SessionNodeData } from '../store';
-import { SessionStatus } from '../../shared/ipc-channels';
+import { SessionStatus, type CliTool } from '../../shared/ipc-channels';
+import claudeLogo from '../../../assets/claude-logo.svg';
+import codexDark from '../../../assets/codex-dark.svg';
+import codexLight from '../../../assets/codex-light.svg';
+import copilotDark from '../../../assets/githubcopilot-dark.svg';
+import copilotLight from '../../../assets/githubcopilot-light.svg';
+
+const CLI_ICONS: Record<string, { dark: string; light: string }> = {
+  claude: { dark: claudeLogo, light: claudeLogo },
+  codex: { dark: codexLight, light: codexDark },
+  copilot: { dark: copilotLight, light: copilotDark },
+};
+
+function CliIcon({ cli, size = 14 }: { cli?: CliTool; size?: number }) {
+  if (!cli) return null;
+  const icons = CLI_ICONS[cli];
+  if (!icons) return <Terminal size={size} className="shrink-0 text-fg-muted" />;
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const src = theme === 'dark' ? icons.dark : icons.light;
+  return <img src={src} alt="" style={{ width: size, height: size }} className="shrink-0" />;
+}
 
 export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const nodeData = data as SessionNodeData;
   const selectSession = useAppStore((s) => s.selectSession);
-  const removeSession = useAppStore((s) => s.removeSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const renameSession = useAppStore((s) => s.renameSession);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
+  const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
   const isSelected = selectedSessionId === nodeData.sessionId;
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const confirmRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
   }, [editing]);
-
-  // Close confirm popover on outside click
-  useEffect(() => {
-    if (!confirmingDelete) return;
-    const handler = (e: MouseEvent) => {
-      if (confirmRef.current && !confirmRef.current.contains(e.target as Node)) {
-        setConfirmingDelete(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [confirmingDelete]);
 
   const commit = useCallback(() => {
     const trimmed = draft.trim();
@@ -58,25 +64,6 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     selectSession(nodeData.sessionId);
   };
 
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmingDelete(true);
-  };
-
-  const handleConfirmDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmingDelete(false);
-    if (!isKilled) {
-      window.agentPlex.killSession(nodeData.sessionId);
-    }
-    removeSession(nodeData.sessionId);
-  };
-
-  const handleCancelDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmingDelete(false);
-  };
-
   const handleSend = (e: React.MouseEvent) => {
     e.stopPropagation();
     openSendDialog(nodeData.sessionId);
@@ -88,6 +75,11 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
       className={`group relative py-2.5 px-3.5 bg-elevated border-2 border-border rounded-[10px] min-w-[160px] cursor-pointer transition-[border-color,box-shadow] duration-150 select-none hover:border-border-strong ${isSelected ? 'border-accent shadow-[0_0_12px_var(--accent-subtle-strong)]' : ''} ${isKilled ? 'opacity-60' : ''}`}
       onClick={handleClick}
     >
+      {cli && (
+        <span className="absolute -top-2 -left-2 w-5 h-5 flex items-center justify-center bg-elevated border border-border rounded-full z-10 pointer-events-none">
+          <CliIcon cli={cli} size={12} />
+        </span>
+      )}
       {isWaiting && <span className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center bg-warning-bg text-surface text-xs font-bold rounded-full z-10 pointer-events-none animate-[attention-pulse_1.5s_ease-in-out_infinite]">?</span>}
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
       <div className="flex items-center gap-2">
@@ -122,24 +114,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
             <Send size={14} />
           </button>
         )}
-        <button
-          className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-fg-muted cursor-pointer opacity-0 transition-[opacity,background,color] duration-150 group-hover:opacity-100 hover:bg-error-subtle hover:text-error"
-          onClick={handleDeleteClick}
-          title="Delete session"
-        >
-          <Trash2 size={14} />
-        </button>
       </div>
-
-      {confirmingDelete && (
-        <div className="mt-2 p-2 bg-elevated border border-border-strong rounded-lg shadow-[0_4px_12px_var(--shadow)]" ref={confirmRef} onClick={(e) => e.stopPropagation()}>
-          <span className="block text-xs font-medium text-fg mb-2">Delete this session?</span>
-          <div className="flex gap-1.5">
-            <button className="flex-1 py-1 bg-error text-surface border-none rounded-[5px] text-xs font-semibold cursor-pointer transition-opacity hover:opacity-85" onClick={handleConfirmDelete}>Delete</button>
-            <button className="flex-1 py-1 bg-border text-fg border-none rounded-[5px] text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong" onClick={handleCancelDelete}>Cancel</button>
-          </div>
-        </div>
-      )}
 
       {nodeData.mode === 'plan' && (
         <div className="flex items-center gap-1.5 mt-2 py-1 px-2 bg-accent-subtle rounded-md overflow-hidden">

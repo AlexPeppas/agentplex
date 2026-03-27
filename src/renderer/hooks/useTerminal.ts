@@ -144,7 +144,9 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
 
     // Handle resize
+    let disposed = false;
     const resizeObserver = new ResizeObserver(() => {
+      if (disposed) return;
       try {
         fitAddon.fit();
         window.agentPlex.resizeSession(sessionId, term.cols, term.rows);
@@ -166,6 +168,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     container.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
+      disposed = true;
       container.removeEventListener('contextmenu', handleContextMenu);
       resizeObserver.disconnect();
       cleanup();

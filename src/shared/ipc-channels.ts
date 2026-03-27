@@ -29,6 +29,8 @@ export interface SessionInfo {
   title: string;
   status: SessionStatus;
   pid: number;
+  cwd: string;
+  cli: CliTool;
 }
 
 export interface SubagentInfo {
@@ -161,6 +163,7 @@ export const IPC = {
   SHELL_LIST: 'shell:list',
   SETTINGS_GET_DEFAULT_SHELL: 'settings:getDefaultShell',
   SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
+  SHELL_OPEN_PATH: 'shell:openPath',
   GIT_STATUS: 'git:status',
   GIT_FILE_DIFF: 'git:fileDiff',
   GIT_SAVE_FILE: 'git:saveFile',

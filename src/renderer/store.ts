@@ -55,6 +55,8 @@ interface SubagentEntry {
   spawnedAt: number;
 }
 
+export type PanelId = 'explorer' | 'search' | 'git' | 'extensions';
+
 export interface AppState {
   nodes: Node[];
   edges: Edge[];
@@ -113,6 +115,12 @@ export interface AppState {
   launcherCli: CliTool;
   openLauncher: (mode: 'new' | 'resume', cli?: CliTool) => void;
   closeLauncher: () => void;
+
+  // Side panel
+  activePanelId: PanelId | null;
+  sidePanelWidth: number;
+  togglePanel: (panelId: PanelId) => void;
+  setSidePanelWidth: (width: number) => void;
 }
 
 let groupCounter = 0;
@@ -141,6 +149,19 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closeLauncher: () => {
     set({ launcherOpen: false });
+  },
+
+  activePanelId: null,
+  sidePanelWidth: 240,
+
+  togglePanel: (panelId: PanelId) => {
+    set((state) => ({
+      activePanelId: state.activePanelId === panelId ? null : panelId,
+    }));
+  },
+
+  setSidePanelWidth: (width: number) => {
+    set({ sidePanelWidth: Math.max(160, Math.min(400, width)) });
   },
 
   addSession: (info: SessionInfo) => {
@@ -238,17 +259,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateStatus: (id: string, status: SessionStatus) => {
-    set((state) => ({
-      sessions: {
-        ...state.sessions,
-        [id]: state.sessions[id] ? { ...state.sessions[id], status } : state.sessions[id],
-      },
-      nodes: state.nodes.map((n) =>
-        n.id === id && n.type === 'sessionNode'
-          ? { ...n, data: { ...n.data, status } }
-          : n
-      ),
-    }));
+    set((state) => {
+      if (!state.sessions[id]) return state;
+      return {
+        sessions: {
+          ...state.sessions,
+          [id]: { ...state.sessions[id], status },
+        },
+        nodes: state.nodes.map((n) =>
+          n.id === id && n.type === 'sessionNode'
+            ? { ...n, data: { ...n.data, status } }
+            : n
+        ),
+      };
+    });
   },
 
   selectSession: (id: string | null) => {

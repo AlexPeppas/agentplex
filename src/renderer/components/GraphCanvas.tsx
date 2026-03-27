@@ -1,8 +1,9 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
+  useReactFlow,
   type Node,
   type OnNodeDrag,
 } from '@xyflow/react';
@@ -27,7 +28,29 @@ export function GraphCanvas() {
   const createGroup = useAppStore((s) => s.createGroup);
   const addToGroup = useAppStore((s) => s.addToGroup);
   const removeFromGroup = useAppStore((s) => s.removeFromGroup);
+  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const { fitView } = useReactFlow();
   const dragStartParent = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        if (selectedSessionId) {
+          // Center on the selected node
+          fitView({ nodes: [{ id: selectedSessionId }], duration: 200, maxZoom: 1.5 });
+        } else {
+          // No session selected — fit all nodes
+          const currentNodes = useAppStore.getState().nodes;
+          if (currentNodes.length > 0) {
+            fitView({ duration: 200 });
+          }
+        }
+      } catch {
+        // fitView can fail during unmount or empty graph
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [selectedSessionId, fitView]);
 
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     dragStartParent.current = node.parentId;
