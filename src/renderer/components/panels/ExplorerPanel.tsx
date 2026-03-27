@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { ChevronRight, ChevronDown, Terminal, Pencil, Trash2, Send } from 'lucide-react';
+import { ChevronRight, ChevronDown, Terminal, Pencil, Trash2, Send, Plus, Copy } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { SessionStatus, type CliTool } from '../../../shared/ipc-channels';
 import claudeLogo from '../../../../assets/claude-logo.svg';
@@ -28,11 +28,9 @@ interface DirEntry {
   sessions: { id: string; label: string; status: SessionStatus; cli: CliTool }[];
 }
 
-interface ContextMenu {
-  x: number;
-  y: number;
-  sessionId: string;
-}
+type ContextMenu =
+  | { type: 'session'; x: number; y: number; sessionId: string }
+  | { type: 'dir'; x: number; y: number; cwd: string };
 
 export function ExplorerPanel() {
   const sessions = useAppStore((s) => s.sessions);
@@ -42,6 +40,7 @@ export function ExplorerPanel() {
   const removeSession = useAppStore((s) => s.removeSession);
   const renameSession = useAppStore((s) => s.renameSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
+  const addSession = useAppStore((s) => s.addSession);
 
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -67,13 +66,18 @@ export function ExplorerPanel() {
     if (renamingId) renameInputRef.current?.select();
   }, [renamingId]);
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, sessionId: string) => {
+  const handleSessionContextMenu = useCallback((e: React.MouseEvent, sessionId: string) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, sessionId });
+    setContextMenu({ type: 'session', x: e.clientX, y: e.clientY, sessionId });
+  }, []);
+
+  const handleDirContextMenu = useCallback((e: React.MouseEvent, cwd: string) => {
+    e.preventDefault();
+    setContextMenu({ type: 'dir', x: e.clientX, y: e.clientY, cwd });
   }, []);
 
   const handleRename = useCallback(() => {
-    if (!contextMenu) return;
+    if (!contextMenu || contextMenu.type !== 'session') return;
     const session = sessions[contextMenu.sessionId];
     if (!session) return;
     setRenameDraft(displayNames[contextMenu.sessionId] || session.title);
@@ -89,7 +93,7 @@ export function ExplorerPanel() {
   }, [renamingId, renameDraft, renameSession]);
 
   const handleDelete = useCallback(() => {
-    if (!contextMenu) return;
+    if (!contextMenu || contextMenu.type !== 'session') return;
     setConfirmDeleteId(contextMenu.sessionId);
     setContextMenu(null);
   }, [contextMenu]);
@@ -105,10 +109,24 @@ export function ExplorerPanel() {
   }, [confirmDeleteId, sessions, removeSession]);
 
   const handleSendMessage = useCallback(() => {
-    if (!contextMenu) return;
+    if (!contextMenu || contextMenu.type !== 'session') return;
     openSendDialog(contextMenu.sessionId);
     setContextMenu(null);
   }, [contextMenu, openSendDialog]);
+
+  const handleCopyPath = useCallback(() => {
+    if (!contextMenu || contextMenu.type !== 'dir') return;
+    window.agentPlex.clipboardWriteText(contextMenu.cwd);
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  const handleNewSessionInDir = useCallback(async () => {
+    if (!contextMenu || contextMenu.type !== 'dir') return;
+    const cwd = contextMenu.cwd;
+    setContextMenu(null);
+    const info = await window.agentPlex.createSession(cwd, 'claude');
+    addSession(info);
+  }, [contextMenu, addSession]);
 
   const tree = useMemo(() => {
     const dirs = new Map<string, DirEntry>();
@@ -153,14 +171,13 @@ export function ExplorerPanel() {
         <div key={dir.cwd}>
           <button
             onClick={() => toggle(dir.cwd)}
-            className="flex items-center gap-2 w-full h-7 px-3.5 text-xs text-fg-muted hover:bg-elevated transition-colors cursor-pointer"
+            onContextMenu={(e) => handleDirContextMenu(e, dir.cwd)}
+            className="flex items-center gap-1.5 w-full h-8 px-3 text-[11px] font-semibold text-fg uppercase tracking-wide hover:bg-elevated transition-colors cursor-pointer"
             title={dir.cwd}
           >
-            {collapsed.has(dir.cwd) ? (
-              <ChevronRight size={12} className="shrink-0" />
-            ) : (
-              <ChevronDown size={12} className="shrink-0" />
-            )}
+            <span className={`shrink-0 transition-transform duration-150 ${collapsed.has(dir.cwd) ? '' : 'rotate-90'}`}>
+              <ChevronRight size={14} />
+            </span>
             <span className="truncate">{dir.dirName}</span>
           </button>
           {!collapsed.has(dir.cwd) &&
@@ -171,7 +188,7 @@ export function ExplorerPanel() {
                 <button
                   key={s.id}
                   onClick={() => selectSession(s.id)}
-                  onContextMenu={(e) => handleContextMenu(e, s.id)}
+                  onContextMenu={(e) => handleSessionContextMenu(e, s.id)}
                   className={`flex items-center gap-2 w-full h-7 pl-7 pr-3.5 text-xs transition-colors cursor-pointer
                     ${isSelected
                       ? 'bg-accent-subtle border-l-2 border-accent pl-[26px]'
@@ -208,25 +225,44 @@ export function ExplorerPanel() {
           className="fixed bg-elevated border border-border-strong rounded-lg py-1 min-w-[160px] shadow-[0_8px_24px_var(--shadow-heavy)] z-[1000]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          <button
-            className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
-            onClick={handleRename}
-          >
-            <Pencil size={12} /> Rename
-          </button>
-          <button
-            className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
-            onClick={handleSendMessage}
-          >
-            <Send size={12} /> Send Message
-          </button>
-          <div className="h-px bg-border my-1" />
-          <button
-            className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-error bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
-            onClick={handleDelete}
-          >
-            <Trash2 size={12} /> Delete
-          </button>
+          {contextMenu.type === 'session' ? (
+            <>
+              <button
+                className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
+                onClick={handleRename}
+              >
+                <Pencil size={12} /> Rename
+              </button>
+              <button
+                className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
+                onClick={handleSendMessage}
+              >
+                <Send size={12} /> Send Message
+              </button>
+              <div className="h-px bg-border my-1" />
+              <button
+                className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-error bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
+                onClick={handleDelete}
+              >
+                <Trash2 size={12} /> Delete
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
+                onClick={handleNewSessionInDir}
+              >
+                <Plus size={12} /> New Session
+              </button>
+              <button
+                className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
+                onClick={handleCopyPath}
+              >
+                <Copy size={12} /> Copy Path
+              </button>
+            </>
+          )}
         </div>
       )}
 
