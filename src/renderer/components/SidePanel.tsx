@@ -20,7 +20,7 @@ export function SidePanel() {
 
   return (
     <div
-      className="flex-none flex flex-col h-full bg-primary border-r border-border overflow-hidden"
+      className="flex-none flex flex-col h-full bg-surface border-r border-border overflow-hidden"
       style={{ width: sidePanelWidth }}
     >
       <div className="shrink-0 px-3.5 py-2.5 text-[11px] uppercase tracking-widest text-fg-muted border-b border-border">

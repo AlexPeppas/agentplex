@@ -195,8 +195,12 @@ ${safeContext}
     setDefaultShellId(id);
   });
 
-  ipcMain.handle(IPC.SHELL_OPEN_PATH, (_event, { path }: { path: string }) => {
+  ipcMain.handle(IPC.SHELL_OPEN_PATH, async (_event, { path }: { path: string }) => {
     if (typeof path !== 'string') return;
-    shell.openPath(path);
+    const error = await shell.openPath(path);
+    if (error) {
+      console.error('Failed to open path:', error);
+      throw new Error(error);
+    }
   });
 }

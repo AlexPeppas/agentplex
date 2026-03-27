@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Star, Plus, Radar } from 'lucide-react';
 import { useAppStore } from '../store';
-import { CLI_TOOLS, RESUME_TOOL, type CliTool, type ExternalSession, type DetectedShell } from '../../shared/ipc-channels';
+import { CLI_TOOLS, type CliTool, type ExternalSession, type DetectedShell } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
 import claudeLogo from '../../../assets/claude-logo.svg';
 import codexDark from '../../../assets/codex-dark.svg';

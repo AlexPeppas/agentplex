@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { ChevronRight, ChevronDown, Terminal, Pencil, Trash2, Send, Plus, FolderOpen } from 'lucide-react';
+import { ChevronRight, Terminal, Pencil, Trash2, Send, Plus, FolderOpen } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { SessionStatus, type CliTool } from '../../../shared/ipc-channels';
 import claudeLogo from '../../../../assets/claude-logo.svg';
@@ -98,11 +98,11 @@ export function ExplorerPanel() {
     setContextMenu(null);
   }, [contextMenu]);
 
-  const confirmDelete = useCallback(() => {
+  const confirmDelete = useCallback(async () => {
     if (!confirmDeleteId) return;
     const session = sessions[confirmDeleteId];
     if (session && session.status !== SessionStatus.Killed) {
-      window.agentPlex.killSession(confirmDeleteId);
+      try { await window.agentPlex.killSession(confirmDeleteId); } catch { /* already dead */ }
     }
     removeSession(confirmDeleteId);
     setConfirmDeleteId(null);
@@ -114,9 +114,9 @@ export function ExplorerPanel() {
     setContextMenu(null);
   }, [contextMenu, openSendDialog]);
 
-  const handleOpenFolder = useCallback(() => {
+  const handleOpenFolder = useCallback(async () => {
     if (!contextMenu || contextMenu.type !== 'dir') return;
-    window.agentPlex.openPath(contextMenu.cwd);
+    try { await window.agentPlex.openPath(contextMenu.cwd); } catch { /* ignore */ }
     setContextMenu(null);
   }, [contextMenu]);
 

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FolderOpen, Search, GitBranch, Puzzle, Sun, Moon } from 'lucide-react';
 import { useAppStore, type PanelId } from '../store';
 
