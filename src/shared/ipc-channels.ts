@@ -90,6 +90,24 @@ export interface PinnedProject {
   label?: string;
 }
 
+export interface GitChangedFile {
+  path: string;
+  status: 'M' | 'A' | 'D' | 'R' | 'U' | '?' | string;
+  staged: boolean;
+}
+
+export interface GitStatusResult {
+  isRepo: boolean;
+  files: GitChangedFile[];
+  repoRoot: string;
+}
+
+export interface GitFileDiffResult {
+  original: string;
+  modified: string;
+  language: string;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -123,4 +141,9 @@ export const IPC = {
   SHELL_LIST: 'shell:list',
   SETTINGS_GET_DEFAULT_SHELL: 'settings:getDefaultShell',
   SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
+  GIT_STATUS: 'git:status',
+  GIT_FILE_DIFF: 'git:fileDiff',
+  GIT_SAVE_FILE: 'git:saveFile',
+  GIT_STAGE_FILE: 'git:stageFile',
+  GIT_UNSTAGE_FILE: 'git:unstageFile',
 } as const;

@@ -1,4 +1,4 @@
-import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   platform: string;
@@ -36,6 +36,11 @@ export interface AgentPlexAPI {
   setDefaultShell: (id: string) => Promise<void>;
   clipboardWriteText: (text: string) => void;
   clipboardReadText: () => string;
+  gitStatus: (sessionId: string) => Promise<GitStatusResult>;
+  gitFileDiff: (sessionId: string, filePath: string, staged: boolean) => Promise<GitFileDiffResult>;
+  gitSaveFile: (sessionId: string, filePath: string, content: string) => Promise<void>;
+  gitStageFile: (sessionId: string, filePath: string) => Promise<void>;
+  gitUnstageFile: (sessionId: string, filePath: string) => Promise<void>;
 }
 
 declare global {

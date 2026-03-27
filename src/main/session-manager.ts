@@ -530,6 +530,11 @@ export class SessionManager {
     }));
   }
 
+  /** Return the working directory for a session */
+  getSessionCwd(id: string): string | null {
+    return this.sessions.get(id)?.cwd ?? null;
+  }
+
   /** Return { sessionId → displayName } from in-memory sessions */
   getDisplayNames(): Record<string, string> {
     const names: Record<string, string> = {};

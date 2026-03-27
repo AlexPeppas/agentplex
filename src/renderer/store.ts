@@ -103,6 +103,10 @@ export interface AppState {
   // Message flash
   flashMessageEdge: (sourceId: string, targetId: string) => void;
 
+  // Terminal panel tab
+  terminalTab: 'session' | 'git';
+  setTerminalTab: (tab: 'session' | 'git') => void;
+
   // Project launcher
   launcherOpen: boolean;
   launcherMode: 'new' | 'resume';
@@ -125,6 +129,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   displayNames: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
+  terminalTab: 'session' as const,
+  setTerminalTab: (tab: 'session' | 'git') => set({ terminalTab: tab }),
   launcherOpen: false,
   launcherMode: 'new' as const,
   launcherCli: 'claude' as CliTool,
@@ -246,7 +252,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectSession: (id: string | null) => {
-    set({ selectedSessionId: id });
+    set({ selectedSessionId: id, terminalTab: 'session' });
   },
 
   appendBuffer: (id: string, data: string) => {

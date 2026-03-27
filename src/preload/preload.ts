@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -179,6 +179,26 @@ const api = {
 
   clipboardReadText: (): string => {
     return clipboard.readText();
+  },
+
+  gitStatus: (sessionId: string): Promise<GitStatusResult> => {
+    return ipcRenderer.invoke(IPC.GIT_STATUS, { sessionId });
+  },
+
+  gitFileDiff: (sessionId: string, filePath: string, staged: boolean): Promise<GitFileDiffResult> => {
+    return ipcRenderer.invoke(IPC.GIT_FILE_DIFF, { sessionId, filePath, staged });
+  },
+
+  gitSaveFile: (sessionId: string, filePath: string, content: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_SAVE_FILE, { sessionId, filePath, content });
+  },
+
+  gitStageFile: (sessionId: string, filePath: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_STAGE_FILE, { sessionId, filePath });
+  },
+
+  gitUnstageFile: (sessionId: string, filePath: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_UNSTAGE_FILE, { sessionId, filePath });
   },
 };
 
