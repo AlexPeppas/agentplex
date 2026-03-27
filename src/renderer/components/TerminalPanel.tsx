@@ -17,13 +17,13 @@ export function TerminalPanel() {
   if (!selectedSessionId) return null;
 
   return (
-    <div className="flex flex-col h-full bg-surface">
-      <div className="flex items-center justify-between py-1.5 px-3 bg-inset border-b border-border">
-        <span className="text-xs font-medium text-fg-muted">
+    <div className="flex flex-col h-full bg-[#1e1c18]">
+      <div className="flex items-center justify-between py-1.5 px-3 bg-[#262420] border-b border-[#3e3830]">
+        <span className="text-xs font-medium text-[#9a8a70]">
           {sessionTitle || 'Terminal'}
         </span>
         <button
-          className="bg-transparent border-none text-fg-muted text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-border hover:text-fg"
+          className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
           onClick={() => selectSession(null)}
           title="Close terminal"
         >
