@@ -253,17 +253,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateStatus: (id: string, status: SessionStatus) => {
-    set((state) => ({
-      sessions: {
-        ...state.sessions,
-        [id]: state.sessions[id] ? { ...state.sessions[id], status } : state.sessions[id],
-      },
-      nodes: state.nodes.map((n) =>
-        n.id === id && n.type === 'sessionNode'
-          ? { ...n, data: { ...n.data, status } }
-          : n
-      ),
-    }));
+    set((state) => {
+      if (!state.sessions[id]) return state;
+      return {
+        sessions: {
+          ...state.sessions,
+          [id]: { ...state.sessions[id], status },
+        },
+        nodes: state.nodes.map((n) =>
+          n.id === id && n.type === 'sessionNode'
+            ? { ...n, data: { ...n.data, status } }
+            : n
+        ),
+      };
+    });
   },
 
   selectSession: (id: string | null) => {

@@ -34,7 +34,16 @@ export function GraphCanvas() {
 
   useEffect(() => {
     // Small delay to let the layout reflow before fitting
-    const timer = setTimeout(() => fitView({ duration: 200 }), 50);
+    const timer = setTimeout(() => {
+      try {
+        const currentNodes = useAppStore.getState().nodes;
+        if (currentNodes.length > 0) {
+          fitView({ duration: 200 });
+        }
+      } catch {
+        // fitView can fail during unmount or empty graph
+      }
+    }, 100);
     return () => clearTimeout(timer);
   }, [selectedSessionId, fitView]);
 
