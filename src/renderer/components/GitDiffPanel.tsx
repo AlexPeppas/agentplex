@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { DiffEditor, loader } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { RefreshCw, Save, Plus, Minus } from 'lucide-react';
-import type { GitChangedFile, GitFileDiffResult } from '../../shared/ipc-channels';
+import { RefreshCw, Save, Plus, Minus, GitCommit, ArrowUp, ArrowDown, ChevronDown, ChevronRight } from 'lucide-react';
+import type { GitChangedFile, GitFileDiffResult, GitLogEntry, GitBranchInfo } from '../../shared/ipc-channels';
 
 // Configure Monaco to load from node_modules (works offline in Electron)
 loader.config({ paths: { vs: 'node_modules/monaco-editor/min/vs' } });
@@ -40,6 +40,18 @@ export function GitDiffPanel({ sessionId }: Props) {
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const currentSessionRef = useRef(sessionId);
 
+  // Commit state
+  const [commitMsg, setCommitMsg] = useState('');
+  const [committing, setCommitting] = useState(false);
+  const [pushing, setPushing] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [cmdOutput, setCmdOutput] = useState<{ text: string; success: boolean } | null>(null);
+
+  // Branch & log state
+  const [branchInfo, setBranchInfo] = useState<GitBranchInfo | null>(null);
+  const [logEntries, setLogEntries] = useState<GitLogEntry[]>([]);
+  const [logOpen, setLogOpen] = useState(false);
+
   // Track session changes to avoid stale requests
   useEffect(() => {
     currentSessionRef.current = sessionId;
@@ -73,10 +85,25 @@ export function GitDiffPanel({ sessionId }: Props) {
     }
   }, [sessionId, selectedFile]);
 
+  const refreshBranchInfo = useCallback(async () => {
+    try {
+      const info = await window.agentPlex.gitBranchInfo(sessionId);
+      if (currentSessionRef.current === sessionId) setBranchInfo(info);
+    } catch { /* ignore */ }
+  }, [sessionId]);
+
+  const refreshLog = useCallback(async () => {
+    try {
+      const entries = await window.agentPlex.gitLog(sessionId);
+      if (currentSessionRef.current === sessionId) setLogEntries(entries);
+    } catch { /* ignore */ }
+  }, [sessionId]);
+
   // Load files on mount and when session changes
   useEffect(() => {
     refreshFiles();
-  }, [sessionId, refreshFiles]);
+    refreshBranchInfo();
+  }, [sessionId, refreshFiles, refreshBranchInfo]);
 
   // Load diff when file is selected
   useEffect(() => {
@@ -108,7 +135,6 @@ export function GitDiffPanel({ sessionId }: Props) {
     try {
       await window.agentPlex.gitSaveFile(sessionId, selectedFile.path, content);
       setIsModified(false);
-      // Refresh files after save
       refreshFiles();
     } catch (err: any) {
       setError(err.message || 'Failed to save');
@@ -135,6 +161,58 @@ export function GitDiffPanel({ sessionId }: Props) {
     }
   }, [sessionId, refreshFiles]);
 
+  const handleCommit = useCallback(async () => {
+    if (!commitMsg.trim()) return;
+    setCommitting(true);
+    setCmdOutput(null);
+    try {
+      const result = await window.agentPlex.gitCommit(sessionId, commitMsg.trim());
+      setCmdOutput({ text: result.output, success: result.success });
+      if (result.success) {
+        setCommitMsg('');
+        refreshFiles();
+        refreshBranchInfo();
+        refreshLog();
+      }
+    } catch (err: any) {
+      setCmdOutput({ text: err.message || 'Commit failed', success: false });
+    } finally {
+      setCommitting(false);
+    }
+  }, [sessionId, commitMsg, refreshFiles, refreshBranchInfo, refreshLog]);
+
+  const handlePush = useCallback(async () => {
+    setPushing(true);
+    setCmdOutput(null);
+    try {
+      const result = await window.agentPlex.gitPush(sessionId);
+      setCmdOutput({ text: result.output, success: result.success });
+      if (result.success) refreshBranchInfo();
+    } catch (err: any) {
+      setCmdOutput({ text: err.message || 'Push failed', success: false });
+    } finally {
+      setPushing(false);
+    }
+  }, [sessionId, refreshBranchInfo]);
+
+  const handlePull = useCallback(async () => {
+    setPulling(true);
+    setCmdOutput(null);
+    try {
+      const result = await window.agentPlex.gitPull(sessionId);
+      setCmdOutput({ text: result.output, success: result.success });
+      if (result.success) {
+        refreshFiles();
+        refreshBranchInfo();
+        refreshLog();
+      }
+    } catch (err: any) {
+      setCmdOutput({ text: err.message || 'Pull failed', success: false });
+    } finally {
+      setPulling(false);
+    }
+  }, [sessionId, refreshFiles, refreshBranchInfo, refreshLog]);
+
   const handleEditorMount = useCallback((editor: editor.IStandaloneDiffEditor) => {
     editorRef.current = editor;
     // Track modifications
@@ -149,9 +227,15 @@ export function GitDiffPanel({ sessionId }: Props) {
     );
   }, [handleSave]);
 
+  const handleToggleLog = useCallback(() => {
+    if (!logOpen) refreshLog();
+    setLogOpen((v) => !v);
+  }, [logOpen, refreshLog]);
+
   // Group files by staged/unstaged
   const stagedFiles = files.filter(f => f.staged);
   const unstagedFiles = files.filter(f => !f.staged);
+  const isBusy = committing || pushing || pulling;
 
   const renderFileEntry = (file: GitChangedFile) => {
     const isSelected = selectedFile?.path === file.path && selectedFile?.staged === file.staged;
@@ -203,16 +287,38 @@ export function GitDiffPanel({ sessionId }: Props) {
     <div className="flex h-full bg-[#1e1c18]">
       {/* File list sidebar */}
       <div className="w-56 shrink-0 border-r border-[#3e3830] flex flex-col overflow-hidden">
+        {/* Branch info bar */}
+        {branchInfo && (
+          <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[#3e3830] text-[11px]">
+            <span className="text-[#d18a7a] font-medium truncate">{branchInfo.current}</span>
+            {branchInfo.tracking && (
+              <span className="text-[#6a5e50] shrink-0">
+                {branchInfo.ahead > 0 && <span className="text-[#a8c878]">{'\u2191'}{branchInfo.ahead}</span>}
+                {branchInfo.behind > 0 && <span className="text-[#e8c070] ml-0.5">{'\u2193'}{branchInfo.behind}</span>}
+                {branchInfo.ahead === 0 && branchInfo.behind === 0 && <span>{'\u2713'}</span>}
+              </span>
+            )}
+            {!branchInfo.tracking && (
+              <span className="text-[#6a5e50] shrink-0 text-[10px]">no upstream</span>
+            )}
+          </div>
+        )}
+
+        {/* Changes header */}
         <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#3e3830]">
           <span className="text-xs font-medium text-[#9a8a70]">Changes</span>
-          <button
-            className="p-0.5 rounded text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]"
-            onClick={refreshFiles}
-            title="Refresh"
-          >
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              className="p-0.5 rounded text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]"
+              onClick={refreshFiles}
+              title="Refresh"
+            >
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </div>
+
+        {/* File list */}
         <div className="flex-1 overflow-y-auto py-1">
           {error && (
             <div className="px-2 py-1 text-xs text-[#e07070]">{error}</div>
@@ -237,6 +343,107 @@ export function GitDiffPanel({ sessionId }: Props) {
               </div>
               {unstagedFiles.map(renderFileEntry)}
             </>
+          )}
+        </div>
+
+        {/* Commit / push / pull section */}
+        <div className="border-t border-[#3e3830] p-2 flex flex-col gap-1.5">
+          {/* Commit message input */}
+          <textarea
+            className="w-full bg-[#262420] border border-[#3e3830] rounded px-2 py-1.5 text-xs text-[#ece4d8] placeholder-[#6a5e50] resize-none outline-none focus:border-[#d18a7a]"
+            rows={2}
+            placeholder="Commit message..."
+            value={commitMsg}
+            onChange={(e) => setCommitMsg(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                handleCommit();
+              }
+            }}
+          />
+
+          {/* Commit button */}
+          <button
+            className={`flex items-center justify-center gap-1.5 w-full px-2 py-1 rounded text-xs font-medium transition-colors ${
+              stagedFiles.length > 0 && commitMsg.trim() && !isBusy
+                ? 'bg-[rgba(209,138,122,0.15)] text-[#d18a7a] hover:bg-[rgba(209,138,122,0.25)]'
+                : 'bg-[#262420] text-[#6a5e50] cursor-default'
+            }`}
+            onClick={handleCommit}
+            disabled={stagedFiles.length === 0 || !commitMsg.trim() || isBusy}
+            title="Commit staged changes (Ctrl+Enter)"
+          >
+            <GitCommit size={12} />
+            {committing ? 'Committing...' : `Commit (${stagedFiles.length})`}
+          </button>
+
+          {/* Push / Pull row */}
+          <div className="flex gap-1">
+            <button
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                !isBusy
+                  ? 'bg-[#262420] text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]'
+                  : 'bg-[#262420] text-[#6a5e50] cursor-default'
+              }`}
+              onClick={handlePull}
+              disabled={isBusy}
+              title="Pull from remote"
+            >
+              <ArrowDown size={12} />
+              {pulling ? 'Pulling...' : 'Pull'}
+            </button>
+            <button
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                !isBusy
+                  ? 'bg-[#262420] text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]'
+                  : 'bg-[#262420] text-[#6a5e50] cursor-default'
+              }`}
+              onClick={handlePush}
+              disabled={isBusy}
+              title="Push to remote"
+            >
+              <ArrowUp size={12} />
+              {pushing ? 'Pushing...' : 'Push'}
+            </button>
+          </div>
+
+          {/* Command output */}
+          {cmdOutput && (
+            <div className={`px-2 py-1 rounded text-[10px] leading-snug break-words max-h-16 overflow-y-auto ${
+              cmdOutput.success ? 'bg-[rgba(168,200,120,0.1)] text-[#a8c878]' : 'bg-[rgba(224,112,112,0.1)] text-[#e07070]'
+            }`}>
+              {cmdOutput.text}
+            </div>
+          )}
+        </div>
+
+        {/* Log section (collapsible) */}
+        <div className="border-t border-[#3e3830]">
+          <button
+            className="flex items-center gap-1 w-full px-2 py-1.5 text-xs text-[#9a8a70] hover:text-[#ece4d8]"
+            onClick={handleToggleLog}
+          >
+            {logOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span className="font-medium">Log</span>
+          </button>
+          {logOpen && (
+            <div className="max-h-32 overflow-y-auto pb-1">
+              {logEntries.length === 0 && (
+                <div className="px-2 py-1 text-[10px] text-[#6a5e50]">No commits</div>
+              )}
+              {logEntries.map((entry) => (
+                <div key={entry.hash} className="px-2 py-0.5 text-[10px] leading-relaxed hover:bg-[#3e3830] rounded mx-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[#d18a7a] font-mono shrink-0">{entry.shortHash}</span>
+                    <span className="text-[#ece4d8] truncate">{entry.subject}</span>
+                  </div>
+                  <div className="text-[#6a5e50]">
+                    {entry.author} {'\u00b7'} {entry.date}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

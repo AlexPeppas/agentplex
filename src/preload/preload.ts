@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -199,6 +199,26 @@ const api = {
 
   gitUnstageFile: (sessionId: string, filePath: string): Promise<void> => {
     return ipcRenderer.invoke(IPC.GIT_UNSTAGE_FILE, { sessionId, filePath });
+  },
+
+  gitCommit: (sessionId: string, message: string): Promise<GitCommandResult> => {
+    return ipcRenderer.invoke(IPC.GIT_COMMIT, { sessionId, message });
+  },
+
+  gitPush: (sessionId: string): Promise<GitCommandResult> => {
+    return ipcRenderer.invoke(IPC.GIT_PUSH, { sessionId });
+  },
+
+  gitPull: (sessionId: string): Promise<GitCommandResult> => {
+    return ipcRenderer.invoke(IPC.GIT_PULL, { sessionId });
+  },
+
+  gitLog: (sessionId: string): Promise<GitLogEntry[]> => {
+    return ipcRenderer.invoke(IPC.GIT_LOG, { sessionId });
+  },
+
+  gitBranchInfo: (sessionId: string): Promise<GitBranchInfo> => {
+    return ipcRenderer.invoke(IPC.GIT_BRANCH_INFO, { sessionId });
   },
 };
 

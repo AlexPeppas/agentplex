@@ -2,7 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { GitStatusResult, GitChangedFile, GitFileDiffResult } from '../shared/ipc-channels';
+import type { GitStatusResult, GitChangedFile, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult } from '../shared/ipc-channels';
 
 const execFileAsync = promisify(execFile);
 
@@ -195,4 +195,78 @@ export async function unstageFile(repoRoot: string, filePath: string): Promise<v
     // If there's no HEAD (initial commit), unstage differently
     await git(['rm', '--cached', '--', filePath], repoRoot);
   }
+}
+
+export async function gitCommit(repoRoot: string, message: string): Promise<GitCommandResult> {
+  try {
+    const output = await git(['commit', '-m', message], repoRoot);
+    return { success: true, output: output.trim() };
+  } catch (err: any) {
+    return { success: false, output: err.stderr || err.message || 'Commit failed' };
+  }
+}
+
+export async function gitPush(repoRoot: string): Promise<GitCommandResult> {
+  try {
+    const output = await git(['push'], repoRoot);
+    return { success: true, output: output.trim() || 'Push successful' };
+  } catch (err: any) {
+    // git push writes to stderr even on success
+    const stderr = err.stderr || '';
+    if (err.code === 0 || stderr.includes('->')) {
+      return { success: true, output: stderr.trim() || 'Push successful' };
+    }
+    return { success: false, output: stderr || err.message || 'Push failed' };
+  }
+}
+
+export async function gitPull(repoRoot: string): Promise<GitCommandResult> {
+  try {
+    const output = await git(['pull'], repoRoot);
+    return { success: true, output: output.trim() || 'Already up to date' };
+  } catch (err: any) {
+    return { success: false, output: err.stderr || err.message || 'Pull failed' };
+  }
+}
+
+export async function gitLog(repoRoot: string, count = 20): Promise<GitLogEntry[]> {
+  try {
+    const SEP = '|||';
+    const output = await git(
+      ['log', `--max-count=${count}`, `--pretty=format:%H${SEP}%h${SEP}%s${SEP}%an${SEP}%ar`],
+      repoRoot,
+    );
+    if (!output.trim()) return [];
+    return output.trim().split('\n').map((line) => {
+      const [hash, shortHash, subject, author, date] = line.split(SEP);
+      return { hash, shortHash, subject, author, date };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function gitBranchInfo(repoRoot: string): Promise<GitBranchInfo> {
+  const current = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot)).trim();
+
+  let tracking: string | null = null;
+  let ahead = 0;
+  let behind = 0;
+
+  try {
+    tracking = (await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], repoRoot)).trim();
+  } catch {
+    // No upstream configured
+  }
+
+  if (tracking) {
+    try {
+      const counts = (await git(['rev-list', '--left-right', '--count', `${tracking}...HEAD`], repoRoot)).trim();
+      const [b, a] = counts.split(/\s+/).map(Number);
+      behind = b || 0;
+      ahead = a || 0;
+    } catch { /* ignore */ }
+  }
+
+  return { current, tracking, ahead, behind };
 }

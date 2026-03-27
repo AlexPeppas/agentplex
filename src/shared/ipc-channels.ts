@@ -108,6 +108,26 @@ export interface GitFileDiffResult {
   language: string;
 }
 
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  date: string;
+}
+
+export interface GitBranchInfo {
+  current: string;
+  tracking: string | null;
+  ahead: number;
+  behind: number;
+}
+
+export interface GitCommandResult {
+  success: boolean;
+  output: string;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -146,4 +166,9 @@ export const IPC = {
   GIT_SAVE_FILE: 'git:saveFile',
   GIT_STAGE_FILE: 'git:stageFile',
   GIT_UNSTAGE_FILE: 'git:unstageFile',
+  GIT_COMMIT: 'git:commit',
+  GIT_PUSH: 'git:push',
+  GIT_PULL: 'git:pull',
+  GIT_LOG: 'git:log',
+  GIT_BRANCH_INFO: 'git:branchInfo',
 } as const;
