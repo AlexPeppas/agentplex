@@ -21,9 +21,8 @@ export function ActivityBar() {
             key={id}
             onClick={() => !disabled && togglePanel(id)}
             className={`relative w-9 h-9 flex items-center justify-center rounded-md transition-colors duration-[120ms]
-              ${disabled ? 'opacity-40 cursor-default' : 'cursor-pointer'}
-              ${isActive ? 'bg-elevated text-fg' : 'text-fg-muted hover:bg-elevated hover:text-fg'}
-              ${disabled ? '' : 'hover:text-fg'}`}
+              ${disabled ? 'opacity-40 pointer-events-none' : 'cursor-pointer'}
+              ${isActive ? 'bg-elevated text-fg' : 'text-fg-muted hover:bg-elevated hover:text-fg'}`}
             title={id.charAt(0).toUpperCase() + id.slice(1)}
           >
             {isActive && (
