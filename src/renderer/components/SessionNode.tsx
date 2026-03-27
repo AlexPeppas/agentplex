@@ -1,6 +1,6 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Trash2, Send, ClipboardList, Circle, Check, Terminal } from 'lucide-react';
+import { Send, ClipboardList, Circle, Check, Terminal } from 'lucide-react';
 import { StatusIndicator } from './StatusIndicator';
 import { useAppStore, type SessionNodeData } from '../store';
 import { SessionStatus, type CliTool } from '../../shared/ipc-channels';
@@ -28,7 +28,6 @@ function CliIcon({ cli, size = 14 }: { cli?: CliTool; size?: number }) {
 export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const nodeData = data as SessionNodeData;
   const selectSession = useAppStore((s) => s.selectSession);
-  const removeSession = useAppStore((s) => s.removeSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const renameSession = useAppStore((s) => s.renameSession);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
@@ -40,25 +39,11 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const confirmRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
   }, [editing]);
-
-  // Close confirm popover on outside click
-  useEffect(() => {
-    if (!confirmingDelete) return;
-    const handler = (e: MouseEvent) => {
-      if (confirmRef.current && !confirmRef.current.contains(e.target as Node)) {
-        setConfirmingDelete(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [confirmingDelete]);
 
   const commit = useCallback(() => {
     const trimmed = draft.trim();
@@ -77,25 +62,6 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     selectSession(nodeData.sessionId);
-  };
-
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmingDelete(true);
-  };
-
-  const handleConfirmDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmingDelete(false);
-    if (!isKilled) {
-      window.agentPlex.killSession(nodeData.sessionId);
-    }
-    removeSession(nodeData.sessionId);
-  };
-
-  const handleCancelDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmingDelete(false);
   };
 
   const handleSend = (e: React.MouseEvent) => {
@@ -148,24 +114,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
             <Send size={14} />
           </button>
         )}
-        <button
-          className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-fg-muted cursor-pointer opacity-0 transition-[opacity,background,color] duration-150 group-hover:opacity-100 hover:bg-error-subtle hover:text-error"
-          onClick={handleDeleteClick}
-          title="Delete session"
-        >
-          <Trash2 size={14} />
-        </button>
       </div>
-
-      {confirmingDelete && (
-        <div className="mt-2 p-2 bg-elevated border border-border-strong rounded-lg shadow-[0_4px_12px_var(--shadow)]" ref={confirmRef} onClick={(e) => e.stopPropagation()}>
-          <span className="block text-xs font-medium text-fg mb-2">Delete this session?</span>
-          <div className="flex gap-1.5">
-            <button className="flex-1 py-1 bg-error text-surface border-none rounded-[5px] text-xs font-semibold cursor-pointer transition-opacity hover:opacity-85" onClick={handleConfirmDelete}>Delete</button>
-            <button className="flex-1 py-1 bg-border text-fg border-none rounded-[5px] text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong" onClick={handleCancelDelete}>Cancel</button>
-          </div>
-        </div>
-      )}
 
       {nodeData.mode === 'plan' && (
         <div className="flex items-center gap-1.5 mt-2 py-1 px-2 bg-accent-subtle rounded-md overflow-hidden">

@@ -172,66 +172,19 @@ export function Toolbar() {
         <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 shadow-[0_0_8px_var(--accent-subtle-strong)]">
           <img className="w-full h-full" src={logoSvg} alt="AgentPlex" />
         </div>
-        <span className="text-[15px] tracking-wide text-fg">
-          <span className="font-normal">Agent</span><span className="font-bold text-accent">Plex</span>
-        </span>
+        <span className="text-[15px] tracking-[0.25em] font-bold text-fg-muted uppercase" style={{ fontFamily: "'Segoe UI', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" }}>AgentPlex</span>
         <div className="w-px h-5 bg-border ml-1" />
         <div className="[-webkit-app-region:no-drag] flex items-center gap-1.5">
-        <div className="relative" ref={discoverRef}>
-          <button
-            className="flex items-center gap-1.5 h-8 px-3 rounded-md text-fg-muted text-[13px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"
-            onClick={handleDiscover}
-            title="Find running Claude sessions not managed by AgentPlex"
-          >
-            <Radar size={14} />
-            <span>Discover</span>
-          </button>
-        {discoverOpen && (
-          <>
-          <div className="fixed inset-0 z-[99] [-webkit-app-region:no-drag]" onClick={() => setDiscoverOpen(false)} />
-          <div className="absolute top-[calc(100%+6px)] left-0 bg-elevated border border-border-strong rounded-lg p-1 shadow-[0_8px_24px_var(--shadow-heavy)] z-[100] min-w-[300px] max-h-[360px] overflow-y-auto">
-            {discovering ? (
-              <div className="py-4 px-3 text-center text-fg-muted text-[13px]">Scanning...</div>
-            ) : externalSessions.length === 0 ? (
-              <div className="py-4 px-3 text-center text-fg-muted text-[13px]">No external Claude sessions found</div>
-            ) : (
-              externalSessions.map((ext) => (
-                <div key={ext.sessionId} className="flex items-center gap-2 py-2 px-2.5 rounded-md transition-colors hover:bg-border">
-                  <div className="flex-1 min-w-0 flex flex-col gap-px">
-                    <span className="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                      {ext.name || ext.cwd.split('/').pop() || 'Claude'}
-                    </span>
-                    <span className="text-[11px] text-fg-muted">
-                      PID {ext.pid} &middot; {formatTimeAgo(ext.startedAt)}
-                    </span>
-                    <span className="text-[11px] text-fg-muted whitespace-nowrap overflow-hidden text-ellipsis" title={ext.cwd}>
-                      {shortenPath(ext.cwd)}
-                    </span>
-                  </div>
-                  <button
-                    className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
-                    onClick={() => handleAdopt(ext)}
-                    disabled={adoptingId === ext.sessionId}
-                  >
-                    {adoptingId === ext.sessionId ? '...' : 'Adopt'}
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-          </>
-        )}
-        </div>
         <div className="relative" ref={menuRef}>
           <button
-            className="flex items-center gap-1.5 h-8 px-3 bg-accent-subtle text-accent border border-accent-border rounded-md text-[13px] font-medium cursor-pointer transition-colors hover:bg-accent hover:text-surface active:bg-accent-active active:text-surface"
+            className="flex items-center gap-1 h-6 px-2 bg-accent-subtle text-accent border border-accent-border rounded text-[11px] font-medium cursor-pointer transition-colors hover:bg-accent hover:text-surface active:bg-accent-active active:text-surface"
             onClick={() => setMenuOpen((v) => !v)}
           >
             <Plus size={14} />
             <span>New Session</span>
           </button>
         {menuOpen && (
-          <div className="absolute top-[calc(100%+6px)] right-0 bg-elevated border border-border-strong rounded-lg p-1 min-w-[220px] shadow-[0_8px_24px_var(--shadow-heavy)] z-[100]">
+          <div className="absolute top-[calc(100%+6px)] left-0 bg-elevated border border-border-strong rounded-lg p-1 min-w-[220px] shadow-[0_8px_24px_var(--shadow-heavy)] z-[100]">
             <div className="py-1.5 px-2.5">
               <span className="flex items-center gap-1.5 text-[11px] font-semibold text-fg uppercase tracking-wide mb-1.5">
                 <img src={claudeLogo} alt="" className="w-3.5 h-3.5" />
@@ -290,6 +243,51 @@ export function Toolbar() {
             )}
           </div>
         )}
+        </div>
+        <div className="relative" ref={discoverRef}>
+          <button
+            className="flex items-center gap-1 h-6 px-2 rounded text-fg-muted text-[11px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"
+            onClick={handleDiscover}
+            title="Find running Claude sessions not managed by AgentPlex"
+          >
+            <Radar size={14} />
+            <span>Discover</span>
+          </button>
+          {discoverOpen && (
+            <>
+            <div className="fixed inset-0 z-[99] [-webkit-app-region:no-drag]" onClick={() => setDiscoverOpen(false)} />
+            <div className="absolute top-[calc(100%+6px)] left-0 bg-elevated border border-border-strong rounded-lg p-1 shadow-[0_8px_24px_var(--shadow-heavy)] z-[100] min-w-[300px] max-h-[360px] overflow-y-auto">
+              {discovering ? (
+                <div className="py-4 px-3 text-center text-fg-muted text-[13px]">Scanning...</div>
+              ) : externalSessions.length === 0 ? (
+                <div className="py-4 px-3 text-center text-fg-muted text-[13px]">No external Claude sessions found</div>
+              ) : (
+                externalSessions.map((ext) => (
+                  <div key={ext.sessionId} className="flex items-center gap-2 py-2 px-2.5 rounded-md transition-colors hover:bg-border">
+                    <div className="flex-1 min-w-0 flex flex-col gap-px">
+                      <span className="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                        {ext.name || ext.cwd.split('/').pop() || 'Claude'}
+                      </span>
+                      <span className="text-[11px] text-fg-muted">
+                        PID {ext.pid} &middot; {formatTimeAgo(ext.startedAt)}
+                      </span>
+                      <span className="text-[11px] text-fg-muted whitespace-nowrap overflow-hidden text-ellipsis" title={ext.cwd}>
+                        {shortenPath(ext.cwd)}
+                      </span>
+                    </div>
+                    <button
+                      className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
+                      onClick={() => handleAdopt(ext)}
+                      disabled={adoptingId === ext.sessionId}
+                    >
+                      {adoptingId === ext.sessionId ? '...' : 'Adopt'}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            </>
+          )}
         </div>
         </div>
       </div>
