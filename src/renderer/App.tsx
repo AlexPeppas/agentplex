@@ -5,6 +5,8 @@ import { GraphCanvas } from './components/GraphCanvas';
 import { TerminalPanel } from './components/TerminalPanel';
 import { SendDialog } from './components/SendDialog';
 import { ProjectLauncher } from './components/ProjectLauncher';
+import { ActivityBar } from './components/ActivityBar';
+import { SidePanel } from './components/SidePanel';
 import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
@@ -69,6 +71,37 @@ export function App() {
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }, []);
+
+  const activePanelId = useAppStore((s) => s.activePanelId);
+  const setSidePanelWidth = useAppStore((s) => s.setSidePanelWidth);
+
+  const sidePanelDragging = useRef(false);
+
+  const handleSidePanelResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    sidePanelDragging.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      if (!sidePanelDragging.current || !contentRef.current) return;
+      const rect = contentRef.current.getBoundingClientRect();
+      // 48px for the activity bar
+      const newWidth = ev.clientX - rect.left - 48;
+      setSidePanelWidth(newWidth);
+    };
+
+    const onUp = () => {
+      sidePanelDragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [setSidePanelWidth]);
 
   // Reconnect to existing sessions on mount (e.g. after renderer reload/crash)
   // and restore persisted Claude sessions from state.json
@@ -187,6 +220,16 @@ export function App() {
     <div className="flex flex-col h-full">
       <Toolbar />
       <div className="flex flex-1 overflow-hidden" ref={contentRef}>
+        <ActivityBar />
+        {activePanelId && (
+          <>
+            <SidePanel />
+            <div
+              className="flex-[0_0_4px] cursor-col-resize bg-border transition-colors duration-[120ms] hover:bg-accent active:bg-accent"
+              onMouseDown={handleSidePanelResizeStart}
+            />
+          </>
+        )}
         <div
           className="flex-1 min-w-0"
           style={selectedSessionId ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
