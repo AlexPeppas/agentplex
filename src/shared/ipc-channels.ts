@@ -130,6 +130,35 @@ export interface GitCommandResult {
   output: string;
 }
 
+// ── Drawing canvas types ─────────────────────────────────────────────────────
+
+export interface DrawingElement {
+  id: string;
+  type: 'stroke' | 'eraser' | 'rect' | 'ellipse' | 'line' | 'text';
+  /** Pen/eraser: array of [x,y] points */
+  points?: [number, number][];
+  /** Shapes: bounding box */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  /** Line: endpoints */
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+  /** Text element */
+  text?: string;
+  fontSize?: number;
+  color: string;
+  strokeWidth: number;
+}
+
+export interface DrawingData {
+  elements: DrawingElement[];
+  version: number;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -174,4 +203,6 @@ export const IPC = {
   GIT_PULL: 'git:pull',
   GIT_LOG: 'git:log',
   GIT_BRANCH_INFO: 'git:branchInfo',
+  CANVAS_LOAD: 'canvas:load',
+  CANVAS_SAVE: 'canvas:save',
 } as const;

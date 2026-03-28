@@ -123,6 +123,22 @@ export interface AppState {
   sidePanelWidth: number;
   togglePanel: (panelId: PanelId) => void;
   setSidePanelWidth: (width: number) => void;
+
+  // Drawing overlay
+  drawingMode: boolean;
+  drawTool: 'pen' | 'eraser' | 'rect' | 'text';
+  drawColor: string;
+  toggleDrawingMode: () => void;
+  setDrawTool: (tool: 'pen' | 'eraser' | 'rect' | 'text') => void;
+  setDrawColor: (color: string) => void;
+
+  // Imperative handles set by DrawingOverlay (not part of public API)
+  _drawUndo?: () => void;
+  _drawRedo?: () => void;
+  _drawClear?: () => void;
+  _drawCanUndo: boolean;
+  _drawCanRedo: boolean;
+  _drawHasElements: boolean;
 }
 
 let groupCounter = 0;
@@ -166,6 +182,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSidePanelWidth: (width: number) => {
     set({ sidePanelWidth: Math.max(160, Math.min(400, width)) });
   },
+
+  drawingMode: false,
+  drawTool: 'pen' as const,
+  drawColor: '#d18a7a',
+  _drawCanUndo: false,
+  _drawCanRedo: false,
+  _drawHasElements: false,
+  toggleDrawingMode: () => {
+    set((state) => ({ drawingMode: !state.drawingMode }));
+  },
+  setDrawTool: (tool: 'pen' | 'eraser' | 'rect' | 'text') => set({ drawTool: tool }),
+  setDrawColor: (color: string) => set({ drawColor: color }),
 
   addSession: (info: SessionInfo) => {
     const { nodes, nodeCounter } = get();

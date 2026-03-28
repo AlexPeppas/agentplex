@@ -1,5 +1,7 @@
-import { ipcMain, dialog, shell, BrowserWindow } from 'electron';
-import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject } from '../shared/ipc-channels';
+import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
+import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
 import { getDefaultShellId, setDefaultShellId } from './settings-manager';
@@ -303,5 +305,23 @@ ${safeContext}
     const status = await getGitStatus(cwd);
     if (!status.isRepo) throw new Error('Not a git repository');
     return gitBranchInfo(status.repoRoot);
+  });
+
+  // ── Drawing canvas persistence ─────────────────────────────────────────────
+  const canvasDir = path.join(app.getPath('home'), '.agentplex');
+  const canvasPath = path.join(canvasDir, 'canvas.json');
+
+  ipcMain.handle(IPC.CANVAS_LOAD, async (): Promise<DrawingData> => {
+    try {
+      const raw = fs.readFileSync(canvasPath, 'utf-8');
+      return JSON.parse(raw) as DrawingData;
+    } catch {
+      return { elements: [], version: 1 };
+    }
+  });
+
+  ipcMain.handle(IPC.CANVAS_SAVE, async (_event, data: DrawingData): Promise<void> => {
+    fs.mkdirSync(canvasDir, { recursive: true });
+    fs.writeFileSync(canvasPath, JSON.stringify(data), 'utf-8');
   });
 }

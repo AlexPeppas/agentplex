@@ -11,6 +11,7 @@ import '@xyflow/react/dist/style.css';
 import { SessionNode } from './SessionNode';
 import { GroupNode } from './GroupNode';
 import { SubAgentNode } from './SubAgentNode';
+import { DrawingOverlay } from './DrawingOverlay';
 import { useAppStore } from '../store';
 
 const nodeTypes = {
@@ -30,6 +31,7 @@ export function GraphCanvas() {
   const removeFromGroup = useAppStore((s) => s.removeFromGroup);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const shouldFocusNode = useAppStore((s) => s.shouldFocusNode);
+  const drawingMode = useAppStore((s) => s.drawingMode);
   const { fitView } = useReactFlow();
   const dragStartParent = useRef<string | undefined>(undefined);
 
@@ -108,7 +110,7 @@ export function GraphCanvas() {
   }, [selectSession]);
 
   return (
-    <div className="graph-canvas w-full h-full">
+    <div className="graph-canvas w-full h-full relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -119,11 +121,19 @@ export function GraphCanvas() {
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         fitView
+        panOnDrag={!drawingMode}
+        zoomOnScroll={!drawingMode}
+        zoomOnPinch={!drawingMode}
+        zoomOnDoubleClick={!drawingMode}
+        nodesDraggable={!drawingMode}
+        nodesConnectable={!drawingMode}
+        elementsSelectable={!drawingMode}
         proOptions={{ hideAttribution: true }}
       >
         <Background />
         <Controls />
       </ReactFlow>
+      <DrawingOverlay />
     </div>
   );
 }
