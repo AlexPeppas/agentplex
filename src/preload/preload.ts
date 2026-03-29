@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, AppPreferences, SyncStatusInfo } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -231,6 +231,92 @@ const api = {
 
   canvasSave: (data: DrawingData): Promise<void> => {
     return ipcRenderer.invoke(IPC.CANVAS_SAVE, data);
+  },
+
+  // ── Settings sync ──────────────────────────────────────────────────────────
+
+  syncSetupAuto: (): Promise<SyncStatusInfo> => {
+    return ipcRenderer.invoke(IPC.SYNC_SETUP_AUTO);
+  },
+
+  syncSetup: (repoUrl: string): Promise<SyncStatusInfo> => {
+    return ipcRenderer.invoke(IPC.SYNC_SETUP, { repoUrl });
+  },
+
+  syncGetGitHubUser: (): Promise<{ username: string; host: string } | null> => {
+    return ipcRenderer.invoke(IPC.SYNC_GET_GITHUB_USER);
+  },
+
+  syncGhLogin: (host?: string): Promise<{ status: string; code?: string; error?: string }> => {
+    return ipcRenderer.invoke(IPC.SYNC_GH_LOGIN, { host });
+  },
+
+  onGhLoginProgress: (callback: (progress: { status: string; code?: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { status: string; code?: string }) => callback(payload);
+    ipcRenderer.on(IPC.SYNC_GH_LOGIN_PROGRESS, handler);
+    return () => ipcRenderer.removeListener(IPC.SYNC_GH_LOGIN_PROGRESS, handler);
+  },
+
+  syncPush: (): Promise<SyncStatusInfo> => {
+    return ipcRenderer.invoke(IPC.SYNC_PUSH);
+  },
+
+  syncPull: (): Promise<SyncStatusInfo> => {
+    return ipcRenderer.invoke(IPC.SYNC_PULL);
+  },
+
+  syncDisconnect: (): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SYNC_DISCONNECT);
+  },
+
+  syncStatus: (): Promise<SyncStatusInfo> => {
+    return ipcRenderer.invoke(IPC.SYNC_STATUS);
+  },
+
+  syncListProfiles: (): Promise<string[]> => {
+    return ipcRenderer.invoke(IPC.SYNC_LIST_PROFILES);
+  },
+
+  syncCreateProfile: (name: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SYNC_CREATE_PROFILE, { name });
+  },
+
+  syncSwitchProfile: (name: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SYNC_SWITCH_PROFILE, { name });
+  },
+
+  syncRenameProfile: (oldName: string, newName: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SYNC_RENAME_PROFILE, { oldName, newName });
+  },
+
+  syncDeleteProfile: (name: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SYNC_DELETE_PROFILE, { name });
+  },
+
+  syncActiveProfile: (): Promise<string> => {
+    return ipcRenderer.invoke(IPC.SYNC_ACTIVE_PROFILE);
+  },
+
+  onSyncStatusChanged: (callback: (status: SyncStatusInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: SyncStatusInfo) => callback(payload);
+    ipcRenderer.on(IPC.SYNC_STATUS_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC.SYNC_STATUS_CHANGED, handler);
+  },
+
+  // ── Expanded settings ──────────────────────────────────────────────────────
+
+  getAllSettings: (): Promise<AppPreferences> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_GET_ALL);
+  },
+
+  updateSettings: (settings: Partial<AppPreferences>): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_UPDATE, { settings });
+  },
+
+  onSettingsChanged: (callback: (settings: AppPreferences) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: AppPreferences) => callback(payload);
+    ipcRenderer.on(IPC.SETTINGS_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC.SETTINGS_CHANGED, handler);
   },
 };
 

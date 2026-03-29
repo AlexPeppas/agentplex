@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderOpen, Search, Pencil, Eraser, Square, Type, Undo2, Redo2, Trash2, Palette, Sun, Moon } from 'lucide-react';
+import { FolderOpen, Search, RefreshCw, Pencil, Eraser, Square, Type, Undo2, Redo2, Trash2, Palette, Sun, Moon } from 'lucide-react';
 import { useAppStore, type PanelId } from '../store';
 
 const PANELS: { id: PanelId; icon: typeof FolderOpen }[] = [
@@ -13,9 +13,47 @@ const PRESET_COLORS = [
 ];
 
 function getInitialTheme(): 'dark' | 'light' {
+  // Prefer synced preference, fall back to localStorage
+  const prefs = useAppStore.getState().preferences;
+  if (prefs.theme === 'dark' || prefs.theme === 'light') return prefs.theme;
   const saved = localStorage.getItem('agentplex-theme');
   if (saved === 'dark' || saved === 'light') return saved;
   return 'dark';
+}
+
+function SyncButton({ btnBase, btnInactive }: { btnBase: string; btnInactive: string }) {
+  const syncStatus = useAppStore((s) => s.syncStatus);
+  const activePanelId = useAppStore((s) => s.activePanelId);
+  const togglePanel = useAppStore((s) => s.togglePanel);
+  const isActive = activePanelId === 'settings';
+
+  const status = syncStatus.status;
+  const isSyncing = status === 'syncing';
+
+  let dotColor = '';
+  let title = 'Settings';
+  if (status === 'idle') { dotColor = 'bg-green-400'; title = 'Synced'; }
+  else if (status === 'syncing') { dotColor = ''; title = 'Syncing...'; }
+  else if (status === 'conflict') { dotColor = 'bg-yellow-400'; title = 'Sync conflict'; }
+  else if (status === 'error') { dotColor = 'bg-red-400'; title = 'Sync error'; }
+
+  return (
+    <div className="mt-auto mb-0.5">
+      <button
+        onClick={() => togglePanel('settings')}
+        className={`relative ${btnBase} ${isActive ? 'bg-elevated text-fg' : btnInactive}`}
+        title={title}
+      >
+        {isActive && (
+          <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-accent rounded-r-sm" />
+        )}
+        <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
+        {dotColor && (
+          <span className={`absolute top-1 right-1 w-2 h-2 rounded-full ${dotColor}`} />
+        )}
+      </button>
+    </div>
+  );
 }
 
 export function ActivityBar() {
@@ -30,9 +68,17 @@ export function ActivityBar() {
   const canUndo = useAppStore((s) => s._drawCanUndo);
   const canRedo = useAppStore((s) => s._drawCanRedo);
   const hasElements = useAppStore((s) => s._drawHasElements);
+  const prefsTheme = useAppStore((s) => s.preferences.theme);
   const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
+
+  // Sync theme from preferences (e.g. after pull from another machine)
+  useEffect(() => {
+    if (prefsTheme && prefsTheme !== theme) {
+      setTheme(prefsTheme as 'dark' | 'light');
+    }
+  }, [prefsTheme]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -41,7 +87,12 @@ export function ActivityBar() {
   }, [theme]);
 
   const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+    setTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      // Persist to synced preferences
+      window.agentPlex.updateSettings({ theme: next });
+      return next;
+    });
   }, []);
 
   // Close color picker on outside click
@@ -217,7 +268,7 @@ export function ActivityBar() {
         )}
       </div>
 
-      <div className="mt-auto">
+      <div className="mb-1">
         <button
           onClick={toggleTheme}
           className={`${btnBase} ${btnInactive}`}
@@ -226,6 +277,7 @@ export function ActivityBar() {
           {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
         </button>
       </div>
+      <SyncButton btnBase={btnBase} btnInactive={btnInactive} />
     </div>
   );
 }

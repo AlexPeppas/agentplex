@@ -4,7 +4,8 @@ import * as path from 'path';
 import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData } from '../shared/ipc-channels';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
-import { getDefaultShellId, setDefaultShellId } from './settings-manager';
+import { getDefaultShellId, setDefaultShellId, getAllSettings, updateSettings } from './settings-manager';
+import { setupSync, setupSyncAuto, pushSync, pullSync, disconnectSync, getSyncStatus, getGitHubUser, ghLogin, listProfiles, createProfile, switchProfile, renameProfile, deleteProfile, getActiveProfile } from './sync-engine';
 import { scanProjects, scanSessionsForProject, getPinnedProjects, updatePinnedProjects, resolveProjectPath } from './claude-session-scanner';
 import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
 
@@ -305,6 +306,81 @@ ${safeContext}
     const status = await getGitStatus(cwd);
     if (!status.isRepo) throw new Error('Not a git repository');
     return gitBranchInfo(status.repoRoot);
+  });
+
+  // ── Settings sync ──────────────────────────────────────────────────────────
+
+  ipcMain.handle(IPC.SYNC_SETUP_AUTO, async () => {
+    return setupSyncAuto();
+  });
+
+  ipcMain.handle(IPC.SYNC_SETUP, async (_event, { repoUrl }: { repoUrl: string }) => {
+    if (typeof repoUrl !== 'string' || !repoUrl.trim()) throw new Error('Invalid repo URL');
+    return setupSync(repoUrl.trim());
+  });
+
+  ipcMain.handle(IPC.SYNC_GET_GITHUB_USER, async () => {
+    return getGitHubUser();
+  });
+
+  ipcMain.handle(IPC.SYNC_GH_LOGIN, async (_event, { host }: { host?: string } = {}) => {
+    return ghLogin(host);
+  });
+
+  ipcMain.handle(IPC.SYNC_PUSH, async () => {
+    return pushSync();
+  });
+
+  ipcMain.handle(IPC.SYNC_PULL, async () => {
+    return pullSync();
+  });
+
+  ipcMain.handle(IPC.SYNC_DISCONNECT, () => {
+    return disconnectSync();
+  });
+
+  ipcMain.handle(IPC.SYNC_STATUS, () => {
+    return getSyncStatus();
+  });
+
+  ipcMain.handle(IPC.SYNC_LIST_PROFILES, () => {
+    return listProfiles();
+  });
+
+  ipcMain.handle(IPC.SYNC_CREATE_PROFILE, async (_event, { name }: { name: string }) => {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('Invalid profile name');
+    return createProfile(name.trim());
+  });
+
+  ipcMain.handle(IPC.SYNC_SWITCH_PROFILE, async (_event, { name }: { name: string }) => {
+    if (typeof name !== 'string') throw new Error('Invalid profile name');
+    return switchProfile(name);
+  });
+
+  ipcMain.handle(IPC.SYNC_RENAME_PROFILE, async (_event, { oldName, newName }: { oldName: string; newName: string }) => {
+    if (typeof oldName !== 'string' || typeof newName !== 'string' || !newName.trim()) throw new Error('Invalid parameters');
+    return renameProfile(oldName, newName.trim());
+  });
+
+  ipcMain.handle(IPC.SYNC_DELETE_PROFILE, async (_event, { name }: { name: string }) => {
+    if (typeof name !== 'string') throw new Error('Invalid profile name');
+    return deleteProfile(name);
+  });
+
+  ipcMain.handle(IPC.SYNC_ACTIVE_PROFILE, () => {
+    return getActiveProfile();
+  });
+
+  ipcMain.handle(IPC.SETTINGS_GET_ALL, () => {
+    return getAllSettings();
+  });
+
+  ipcMain.handle(IPC.SETTINGS_UPDATE, async (_event, { settings }: { settings: Record<string, unknown> }) => {
+    if (!settings || typeof settings !== 'object') return;
+    updateSettings(settings);
+    BrowserWindow.getAllWindows().forEach((w) => {
+      w.webContents.send(IPC.SETTINGS_CHANGED, getAllSettings());
+    });
   });
 
   // ── Drawing canvas persistence ─────────────────────────────────────────────

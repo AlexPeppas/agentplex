@@ -11,7 +11,7 @@ export function SidePanel() {
   const activePanelId = useAppStore((s) => s.activePanelId);
   const sidePanelWidth = useAppStore((s) => s.sidePanelWidth);
 
-  if (!activePanelId) return null;
+  if (!activePanelId || activePanelId === 'settings') return null;
 
   const title = PANEL_TITLES[activePanelId] || activePanelId;
 

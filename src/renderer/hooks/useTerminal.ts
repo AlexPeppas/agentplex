@@ -29,23 +29,67 @@ const TERMINAL_THEME = {
 };
 
 const DEFAULT_FONT_SIZE = 14;
+const DEFAULT_FONT_FAMILY = 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace';
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 let terminalFontSize = DEFAULT_FONT_SIZE;
 
+function getPreferredFontSize(): number {
+  const prefs = useAppStore.getState().preferences;
+  return (prefs.fontSize as number) || DEFAULT_FONT_SIZE;
+}
+
+function getPreferredFontFamily(): string {
+  const prefs = useAppStore.getState().preferences;
+  return (prefs.fontFamily as string) || DEFAULT_FONT_FAMILY;
+}
+
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const prefsFontSize = useAppStore((s) => s.preferences.fontSize as number | undefined);
+  const prefsFontFamily = useAppStore((s) => s.preferences.fontFamily as string | undefined);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
 
+  // Apply preference changes to existing terminal
+  useEffect(() => {
+    const term = termRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!term || !fitAddon) return;
+
+    const newSize = getPreferredFontSize();
+    const newFamily = getPreferredFontFamily();
+    let changed = false;
+
+    if (term.options.fontSize !== newSize) {
+      term.options.fontSize = newSize;
+      terminalFontSize = newSize;
+      changed = true;
+    }
+    if (term.options.fontFamily !== newFamily) {
+      term.options.fontFamily = newFamily;
+      changed = true;
+    }
+    if (changed) {
+      try {
+        fitAddon.fit();
+        if (selectedSessionId) {
+          window.agentPlex.resizeSession(selectedSessionId, term.cols, term.rows);
+        }
+      } catch { /* ignore */ }
+    }
+  }, [prefsFontSize, prefsFontFamily, selectedSessionId]);
+
   useEffect(() => {
     if (!containerRef.current || !selectedSessionId) return;
+
+    terminalFontSize = getPreferredFontSize();
 
     // Create terminal
     const term = new Terminal({
       theme: TERMINAL_THEME,
       fontSize: terminalFontSize,
-      fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
+      fontFamily: getPreferredFontFamily(),
       cursorBlink: true,
       convertEol: true,
     });
@@ -107,13 +151,16 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       } else if (e.key === '-') {
         newSize = Math.max(terminalFontSize - 2, MIN_FONT_SIZE);
       } else if (e.key === '0') {
-        newSize = DEFAULT_FONT_SIZE;
+        newSize = getPreferredFontSize();
       } else {
         return true;
       }
       if (newSize !== terminalFontSize) {
         terminalFontSize = newSize;
         term.options.fontSize = newSize;
+        // Persist to settings so the panel and sync stay in sync
+        window.agentPlex.updateSettings({ fontSize: newSize });
+        useAppStore.setState((s) => ({ preferences: { ...s.preferences, fontSize: newSize } }));
         try {
           fitAddon.fit();
           window.agentPlex.resizeSession(sessionId_, term.cols, term.rows);
