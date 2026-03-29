@@ -232,6 +232,18 @@ const api = {
   canvasSave: (data: DrawingData): Promise<void> => {
     return ipcRenderer.invoke(IPC.CANVAS_SAVE, data);
   },
+
+  notifyWaiting: (id: string, name: string): void => {
+    ipcRenderer.send(IPC.NOTIFY_WAITING, { id, name });
+  },
+
+  onSelectSession: (callback: (data: { id: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { id: string }) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.SELECT_SESSION, handler);
+    return () => ipcRenderer.removeListener(IPC.SELECT_SESSION, handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('agentPlex', api);
