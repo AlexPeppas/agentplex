@@ -28,6 +28,8 @@
   "scripts": {
     "generate-icons": "node scripts/generate-icons.mjs",
     "postinstall": "node -e \"try{require('fs').chmodSync(require('path').join('node_modules','node-pty','prebuilds',process.platform+'-'+process.arch,'spawn-helper'),0o755)}catch{}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint src/",
     "start": "electron-forge start",
     "package": "pnpm generate-icons && electron-forge package",
@@ -66,6 +68,7 @@
     "sharp": "^0.34.5",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.57.2",
-    "vite": "^8.0.3"
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2"
   }
 }
