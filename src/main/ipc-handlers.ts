@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, BrowserWindow, app, Notification } from 'electron';
+import { ipcMain, dialog, shell, BrowserWindow, app, Notification, nativeImage } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData } from '../shared/ipc-channels';
@@ -327,6 +327,9 @@ ${safeContext}
 
   // ── Notifications ─────────────────────────────────────────────
   let mainWin: BrowserWindow | null = null;
+  const iconBase = app.isPackaged ? path.join(process.resourcesPath) : path.resolve(__dirname, '../../');
+  const iconPath = path.join(iconBase, 'assets', 'logo.png');
+  const notificationIcon = nativeImage.createFromPath(iconPath);
 
   ipcMain.on(IPC.NOTIFY_WAITING, (event, { id, name }: { id: string; name: string }) => {
     if (typeof id !== 'string' || typeof name !== 'string') return;
@@ -338,6 +341,7 @@ ${safeContext}
     const notification = new Notification({
       title: 'AgentPlex',
       body: `${safeName} is waiting for input`,
+      icon: notificationIcon,
     });
     notification.on('click', () => {
       if (mainWin && !mainWin.isDestroyed()) {

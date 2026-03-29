@@ -7,6 +7,9 @@ import { detectShells } from './shell-detector';
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
+// Set AppUserModelId so Windows toast notifications show the correct icon
+app.setAppUserModelId('com.agentplex.app');
+
 // Prevent remote debugging port from being opened (blocks --remote-debugging-port flag)
 app.commandLine.appendSwitch('remote-debugging-port', '0');
 // Disable exposing the app over any network interface
