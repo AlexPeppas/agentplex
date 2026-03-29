@@ -326,18 +326,24 @@ ${safeContext}
   });
 
   // ── Notifications ─────────────────────────────────────────────
-  ipcMain.on(IPC.NOTIFY_WAITING, (_event, { id, name }: { id: string; name: string }) => {
+  let mainWin: BrowserWindow | null = null;
+
+  ipcMain.on(IPC.NOTIFY_WAITING, (event, { id, name }: { id: string; name: string }) => {
     if (typeof id !== 'string' || typeof name !== 'string') return;
+    if (!Notification.isSupported()) return;
+    if (!mainWin || mainWin.isDestroyed()) {
+      mainWin = BrowserWindow.fromWebContents(event.sender);
+    }
+    const safeName = name.slice(0, 100);
     const notification = new Notification({
       title: 'AgentPlex',
-      body: `${name} is waiting for input`,
+      body: `${safeName} is waiting for input`,
     });
     notification.on('click', () => {
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) {
-        if (win.isMinimized()) win.restore();
-        win.focus();
-        win.webContents.send(IPC.SELECT_SESSION, { id });
+      if (mainWin && !mainWin.isDestroyed()) {
+        if (mainWin.isMinimized()) mainWin.restore();
+        mainWin.focus();
+        mainWin.webContents.send(IPC.SELECT_SESSION, { id });
       }
     });
     notification.show();

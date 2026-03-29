@@ -40,6 +40,7 @@ export function App() {
   const updateTask = useAppStore((s) => s.updateTask);
   const reconcileTasks = useAppStore((s) => s.reconcileTasks);
   const prevStatuses = useRef<Map<string, SessionStatus>>(new Map());
+  const lastNotified = useRef<Map<string, number>>(new Map());
 
   const renameSession = useAppStore((s) => s.renameSession);
 
@@ -168,10 +169,15 @@ export function App() {
         playBell();
         const currentSelected = useAppStore.getState().selectedSessionId;
         if (id !== currentSelected) {
-          const sessions = useAppStore.getState().sessions;
-          const displayNames = useAppStore.getState().displayNames;
-          const name = displayNames[id] || sessions[id]?.title || id;
-          window.agentPlex.notifyWaiting(id, name);
+          const now = Date.now();
+          const last = lastNotified.current.get(id) || 0;
+          if (now - last > 15_000) {
+            lastNotified.current.set(id, now);
+            const sessions = useAppStore.getState().sessions;
+            const displayNames = useAppStore.getState().displayNames;
+            const name = displayNames[id] || sessions[id]?.title || id;
+            window.agentPlex.notifyWaiting(id, name);
+          }
         }
       }
       prevStatuses.current.set(id, status);
@@ -211,7 +217,8 @@ export function App() {
     });
 
     const cleanupSelectSession = window.agentPlex.onSelectSession(({ id }) => {
-      useAppStore.getState().selectSession(id, true);
+      const state = useAppStore.getState();
+      if (state.sessions[id]) state.selectSession(id, true);
     });
 
     return () => {
