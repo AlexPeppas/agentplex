@@ -166,6 +166,13 @@ export function App() {
       const prev = prevStatuses.current.get(id);
       if (status === SessionStatus.WaitingForInput && prev !== SessionStatus.WaitingForInput) {
         playBell();
+        const currentSelected = useAppStore.getState().selectedSessionId;
+        if (id !== currentSelected) {
+          const sessions = useAppStore.getState().sessions;
+          const displayNames = useAppStore.getState().displayNames;
+          const name = displayNames[id] || sessions[id]?.title || id;
+          window.agentPlex.notifyWaiting(id, name);
+        }
       }
       prevStatuses.current.set(id, status);
       updateStatus(id, status);
@@ -203,6 +210,10 @@ export function App() {
       reconcileTasks(sessionId, tasks);
     });
 
+    const cleanupSelectSession = window.agentPlex.onSelectSession(({ id }) => {
+      useAppStore.getState().selectSession(id, true);
+    });
+
     return () => {
       cleanupData();
       cleanupStatus();
@@ -214,6 +225,7 @@ export function App() {
       cleanupTaskCreate();
       cleanupTaskUpdate();
       cleanupTaskList();
+      cleanupSelectSession();
     };
   }, [appendBuffer, updateStatus, spawnSubagent, completeSubagent, enterPlan, exitPlan, createTask, updateTask, reconcileTasks]);
 
