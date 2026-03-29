@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
+import { ipcMain, dialog, shell, BrowserWindow, app, Notification } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData } from '../shared/ipc-channels';
@@ -323,5 +323,23 @@ ${safeContext}
   ipcMain.handle(IPC.CANVAS_SAVE, async (_event, data: DrawingData): Promise<void> => {
     fs.mkdirSync(canvasDir, { recursive: true });
     fs.writeFileSync(canvasPath, JSON.stringify(data), 'utf-8');
+  });
+
+  // ── Notifications ─────────────────────────────────────────────
+  ipcMain.on(IPC.NOTIFY_WAITING, (_event, { id, name }: { id: string; name: string }) => {
+    if (typeof id !== 'string' || typeof name !== 'string') return;
+    const notification = new Notification({
+      title: 'AgentPlex',
+      body: `${name} is waiting for input`,
+    });
+    notification.on('click', () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+        win.webContents.send(IPC.SELECT_SESSION, { id });
+      }
+    });
+    notification.show();
   });
 }
