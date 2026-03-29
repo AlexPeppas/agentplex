@@ -112,6 +112,11 @@ export interface AppState {
   terminalTab: 'session' | 'git';
   setTerminalTab: (tab: 'session' | 'git') => void;
 
+  // In-app toasts
+  toasts: { id: string; sessionId: string; name: string; timestamp: number }[];
+  addToast: (sessionId: string, name: string) => void;
+  dismissToast: (id: string) => void;
+
   // Project launcher
   launcherOpen: boolean;
   launcherMode: 'new' | 'resume';
@@ -160,6 +165,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   sendDialogSourceId: null,
   terminalTab: 'session' as const,
   setTerminalTab: (tab: 'session' | 'git') => set({ terminalTab: tab }),
+  toasts: [],
+  addToast: (sessionId: string, name: string) => {
+    const id = `${sessionId}-${Date.now()}`;
+    set((state) => ({ toasts: [...state.toasts, { id, sessionId, name, timestamp: Date.now() }] }));
+    setTimeout(() => {
+      set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+    }, 8000);
+  },
+  dismissToast: (id: string) => {
+    set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+  },
   launcherOpen: false,
   launcherMode: 'new' as const,
   launcherCli: 'claude' as CliTool,

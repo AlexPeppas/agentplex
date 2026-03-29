@@ -7,6 +7,7 @@ import { SendDialog } from './components/SendDialog';
 import { ProjectLauncher } from './components/ProjectLauncher';
 import { ActivityBar } from './components/ActivityBar';
 import { SidePanel } from './components/SidePanel';
+import { ToastContainer } from './components/ToastContainer';
 import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
@@ -168,7 +169,9 @@ export function App() {
       if (status === SessionStatus.WaitingForInput && prev !== SessionStatus.WaitingForInput) {
         playBell();
         const currentSelected = useAppStore.getState().selectedSessionId;
-        if (id !== currentSelected) {
+        const isSelected = id === currentSelected;
+        const hasFocus = document.hasFocus();
+        if (!isSelected || !hasFocus) {
           const now = Date.now();
           const last = lastNotified.current.get(id) || 0;
           if (now - last > 15_000) {
@@ -176,7 +179,11 @@ export function App() {
             const sessions = useAppStore.getState().sessions;
             const displayNames = useAppStore.getState().displayNames;
             const name = displayNames[id] || sessions[id]?.title || id;
-            window.agentPlex.notifyWaiting(id, name);
+            if (hasFocus) {
+              useAppStore.getState().addToast(id, name);
+            } else {
+              window.agentPlex.notifyWaiting(id, name);
+            }
           }
         }
       }
@@ -268,6 +275,7 @@ export function App() {
       </div>
       {sendDialogSourceId && <SendDialog />}
       {launcherOpen && <ProjectLauncher />}
+      <ToastContainer />
     </div>
   );
 }
