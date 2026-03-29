@@ -67,6 +67,7 @@ export interface AppState {
   shouldFocusNode: boolean;
   sessionBuffers: Record<string, string>;
   displayNames: Record<string, string>;
+  waitingSince: Record<string, number>;
   nodeCounter: number;
 
   // Actions
@@ -154,6 +155,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   shouldFocusNode: false,
   sessionBuffers: {},
   displayNames: {},
+  waitingSince: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
   terminalTab: 'session' as const,
@@ -292,11 +294,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateStatus: (id: string, status: SessionStatus) => {
     set((state) => {
       if (!state.sessions[id]) return state;
+      const prev = state.sessions[id].status;
+      const waitingSince = { ...state.waitingSince };
+      if (status === SessionStatus.WaitingForInput && prev !== SessionStatus.WaitingForInput) {
+        waitingSince[id] = Date.now();
+      } else if (status !== SessionStatus.WaitingForInput) {
+        delete waitingSince[id];
+      }
       return {
         sessions: {
           ...state.sessions,
           [id]: { ...state.sessions[id], status },
         },
+        waitingSince,
         nodes: state.nodes.map((n) =>
           n.id === id && n.type === 'sessionNode'
             ? { ...n, data: { ...n.data, status } }

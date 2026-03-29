@@ -177,11 +177,11 @@ export function Toolbar() {
       <div className="[-webkit-app-region:no-drag] flex items-center gap-2.5">
         <div className="relative" ref={discoverRef}>
           <button
-            className="flex items-center gap-1 h-6 px-2 rounded text-fg-muted text-[11px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"
+            className="flex items-center gap-1.5 h-8 px-3 rounded text-fg-muted text-[13px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"
             onClick={handleDiscover}
             title="Find running Claude sessions not managed by AgentPlex"
           >
-            <Radar size={14} />
+            <Radar size={16} />
             <span>Discover</span>
           </button>
           {discoverOpen && (
@@ -222,10 +222,10 @@ export function Toolbar() {
         </div>
         <div className="relative" ref={menuRef}>
           <button
-            className="flex items-center gap-1 h-6 px-2 bg-accent text-surface border-none rounded text-[11px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover active:bg-accent-active"
+            className="flex items-center gap-1.5 h-8 px-3 bg-accent text-surface border-none rounded text-[13px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover active:bg-accent-active"
             onClick={() => setMenuOpen((v) => !v)}
           >
-            <Plus size={14} />
+            <Plus size={16} />
             <span>New Session</span>
           </button>
           {menuOpen && (

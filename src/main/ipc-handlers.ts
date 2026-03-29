@@ -326,29 +326,18 @@ ${safeContext}
   });
 
   // ── Notifications ─────────────────────────────────────────────
-  let mainWin: BrowserWindow | null = null;
   const iconBase = app.isPackaged ? path.join(process.resourcesPath) : path.resolve(__dirname, '../../');
   const iconPath = path.join(iconBase, 'assets', 'logo.png');
   const notificationIcon = nativeImage.createFromPath(iconPath);
 
-  ipcMain.on(IPC.NOTIFY_WAITING, (event, { id, name }: { id: string; name: string }) => {
+  ipcMain.on(IPC.NOTIFY_WAITING, (_event, { id, name }: { id: string; name: string }) => {
     if (typeof id !== 'string' || typeof name !== 'string') return;
     if (!Notification.isSupported()) return;
-    if (!mainWin || mainWin.isDestroyed()) {
-      mainWin = BrowserWindow.fromWebContents(event.sender);
-    }
     const safeName = name.slice(0, 100);
     const notification = new Notification({
       title: 'AgentPlex',
       body: `${safeName} is waiting for input`,
       icon: notificationIcon,
-    });
-    notification.on('click', () => {
-      if (mainWin && !mainWin.isDestroyed()) {
-        if (mainWin.isMinimized()) mainWin.restore();
-        mainWin.focus();
-        mainWin.webContents.send(IPC.SELECT_SESSION, { id });
-      }
     });
     notification.show();
   });

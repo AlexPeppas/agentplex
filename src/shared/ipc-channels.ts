@@ -206,5 +206,4 @@ export const IPC = {
   CANVAS_LOAD: 'canvas:load',
   CANVAS_SAVE: 'canvas:save',
   NOTIFY_WAITING: 'notify:waiting',
-  SELECT_SESSION: 'notify:selectSession',
 } as const;

@@ -216,11 +216,6 @@ export function App() {
       reconcileTasks(sessionId, tasks);
     });
 
-    const cleanupSelectSession = window.agentPlex.onSelectSession(({ id }) => {
-      const state = useAppStore.getState();
-      if (state.sessions[id]) state.selectSession(id, true);
-    });
-
     return () => {
       cleanupData();
       cleanupStatus();
@@ -232,7 +227,6 @@ export function App() {
       cleanupTaskCreate();
       cleanupTaskUpdate();
       cleanupTaskList();
-      cleanupSelectSession();
     };
   }, [appendBuffer, updateStatus, spawnSubagent, completeSubagent, enterPlan, exitPlan, createTask, updateTask, reconcileTasks]);
 
