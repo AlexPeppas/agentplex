@@ -49,6 +49,7 @@ export interface AgentPlexAPI {
   gitBranchInfo: (sessionId: string) => Promise<GitBranchInfo>;
   canvasLoad: () => Promise<DrawingData>;
   canvasSave: (data: DrawingData) => Promise<void>;
+  notifyWaiting: (id: string, name: string) => void;
 }
 
 declare global {
