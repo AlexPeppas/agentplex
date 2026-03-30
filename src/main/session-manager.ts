@@ -537,6 +537,15 @@ export class SessionManager {
     return this.sessions.get(id)?.cwd ?? null;
   }
 
+  /** Return the JSONL conversation file path for a session, or null */
+  getJsonlPath(id: string): string | null {
+    const session = this.sessions.get(id);
+    if (!session?.claudeSessionUuid || !session.cwd) return null;
+    const home = homedir();
+    const encodedPath = encodeProjectPath(session.cwd);
+    return path.join(home, '.claude', 'projects', encodedPath, `${session.claudeSessionUuid}.jsonl`);
+  }
+
   /** Return { sessionId → displayName } from in-memory sessions */
   getDisplayNames(): Record<string, string> {
     const names: Record<string, string> = {};

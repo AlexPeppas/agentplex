@@ -62,13 +62,77 @@ export function registerIpcHandlers() {
     return sessionManager.getBuffer(id);
   });
 
-  ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { context, sourceLabel }: { context: string; sourceLabel: string }) => {
-    if (typeof context !== 'string' || typeof sourceLabel !== 'string') {
+  ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { sessionId, sourceLabel }: { sessionId: string; sourceLabel: string }) => {
+    if (typeof sessionId !== 'string' || typeof sourceLabel !== 'string') {
       return { summary: null, error: 'Invalid parameters' };
     }
-    const safeContext = context.slice(0, MAX_CONTEXT_LENGTH);
     const safeLabel = sourceLabel.slice(0, 200);
-    console.log(`[summarize] Request for "${safeLabel}" (${safeContext.length} chars)`);
+
+    // Read the full conversation from the JSONL file instead of the terminal buffer
+    const jsonlPath = sessionManager.getJsonlPath(sessionId);
+    let conversation = '';
+
+    if (jsonlPath) {
+      try {
+        const raw = fs.readFileSync(jsonlPath, 'utf-8');
+        const messages: string[] = [];
+        for (const line of raw.split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const record = JSON.parse(line);
+            const type = record.type;
+            const content = record.message?.content;
+            if (type !== 'user' && type !== 'assistant') continue;
+
+            if (type === 'user') {
+              if (typeof content === 'string') {
+                messages.push(`[User]\n${content}`);
+              } else if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (block.type === 'text' && block.text) {
+                    messages.push(`[User]\n${block.text}`);
+                  }
+                }
+              }
+            } else if (type === 'assistant' && Array.isArray(content)) {
+              for (const block of content) {
+                if (block.type === 'text' && block.text) {
+                  messages.push(`[Assistant]\n${block.text}`);
+                } else if (block.type === 'tool_use') {
+                  const toolName = block.name || 'tool';
+                  const desc = block.input?.description || block.input?.command || block.input?.pattern || '';
+                  const preview = typeof desc === 'string' ? desc.slice(0, 200) : '';
+                  messages.push(`[Tool: ${toolName}]${preview ? ' ' + preview : ''}`);
+                }
+              }
+            }
+          } catch { /* skip malformed line */ }
+        }
+        conversation = messages.join('\n\n');
+      } catch (err: any) {
+        console.warn(`[summarize] Could not read JSONL: ${err.message}`);
+      }
+    }
+
+    // Fall back to terminal buffer if JSONL is empty/unavailable
+    if (!conversation) {
+      const buffer = sessionManager.getBuffer(sessionId);
+      if (buffer) {
+        const { stripAnsi } = await import('../shared/ansi-strip');
+        conversation = stripAnsi(buffer).slice(-MAX_CONTEXT_LENGTH);
+      }
+    }
+
+    if (!conversation) {
+      return { summary: null, error: 'No conversation data available' };
+    }
+
+    // Cap at MAX_CONTEXT_LENGTH for the API call
+    const safeContext = conversation.length > MAX_CONTEXT_LENGTH
+      ? conversation.slice(-MAX_CONTEXT_LENGTH)
+      : conversation;
+
+    console.log(`[summarize] Request for "${safeLabel}" — ${safeContext.length} chars from JSONL`);
 
     const apiKey = process.env.AGENTPLEX_API_KEY;
     if (!apiKey) {
@@ -85,9 +149,9 @@ export function registerIpcHandlers() {
         max_tokens: 2000,
         messages: [{
           role: 'user',
-          content: `You are summarizing the recent activity of an AI coding assistant session called "${safeLabel}". This summary will be sent to another AI assistant session so it can understand what the source session has been working on.
+          content: `You are summarizing the full conversation of an AI coding assistant session called "${safeLabel}". This summary will be sent to another AI assistant session so it can understand what the source session has been working on.
 
-Summarize the following terminal output concisely. Focus on:
+Summarize the following conversation concisely. Focus on:
 - What task/goal the session is working on
 - Key decisions made or approaches taken
 - Current state (what's done, what's in progress, any blockers)
@@ -95,9 +159,9 @@ Summarize the following terminal output concisely. Focus on:
 
 Keep it under 2000 tokens. Be direct and factual.
 
-<terminal_output>
+<conversation>
 ${safeContext}
-</terminal_output>`,
+</conversation>`,
         }],
       });
       const text = response.content.find((b: any) => b.type === 'text');

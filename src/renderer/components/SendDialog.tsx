@@ -1,21 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CornerDownLeft } from 'lucide-react';
 import { useAppStore } from '../store';
 import { SessionStatus } from '../../shared/ipc-channels';
 import { stripAnsi } from '../../shared/ansi-strip';
 
-const CONTEXT_MAX_LINES = 100;
-const CONTEXT_MAX_CHARS = 8000;
-
-function extractContext(buffer: string): string {
-  const stripped = stripAnsi(buffer);
-  const lines = stripped.split('\n');
-  let context = lines.slice(-CONTEXT_MAX_LINES).join('\n');
-  if (context.length > CONTEXT_MAX_CHARS) {
-    context = context.slice(-CONTEXT_MAX_CHARS);
-  }
-  return context.trim();
-}
+const PREVIEW_MAX_CHARS = 2000;
 
 export function SendDialog() {
   const sourceId = useAppStore((s) => s.sendDialogSourceId);
@@ -28,6 +17,7 @@ export function SendDialog() {
   const [instruction, setInstruction] = useState('');
   const [summarize, setSummarize] = useState(true);
   const [sending, setSending] = useState(false);
+  const [contextPreview, setContextPreview] = useState('');
   const instructionRef = useRef<HTMLTextAreaElement>(null);
 
   // All live (non-killed) sessions except the source
@@ -39,9 +29,16 @@ export function SendDialog() {
     ? displayNames[sourceId] || sessions[sourceId]?.title || sourceId
     : sourceId;
 
-  const contextPreview = useMemo(() => {
-    if (!sourceId || !sessionBuffers[sourceId]) return '';
-    return extractContext(sessionBuffers[sourceId]);
+  // Build a preview from the terminal buffer (just for display — the actual
+  // summarization reads the full JSONL on the main process side)
+  useEffect(() => {
+    if (!sourceId || !sessionBuffers[sourceId]) {
+      setContextPreview('');
+      return;
+    }
+    const stripped = stripAnsi(sessionBuffers[sourceId]);
+    const tail = stripped.slice(-PREVIEW_MAX_CHARS).trim();
+    setContextPreview(tail || '(no output yet)');
   }, [sourceId, sessionBuffers]);
 
   // Pick first available target, or reset if current target is gone
@@ -59,20 +56,21 @@ export function SendDialog() {
   }, []);
 
   const handleSend = useCallback(async () => {
-    if (!targetId || !instruction.trim() || sending) return;
+    if (!targetId || !instruction.trim() || sending || !sourceId) return;
 
     let contextBlock = contextPreview;
 
-    if (summarize && contextPreview) {
+    if (summarize) {
       setSending(true);
       try {
-        const result = await window.agentPlex.summarizeContext(contextPreview, sourceLabel || 'session');
+        // Main process reads the full JSONL conversation and summarizes it
+        const result = await window.agentPlex.summarizeContext(sourceId, sourceLabel || 'session');
         if (result.summary) {
           contextBlock = result.summary;
         }
-        // On error, fall back to raw context silently
+        // On error, fall back to terminal preview silently
       } catch {
-        // fall back to raw context
+        // fall back to terminal preview
       }
       setSending(false);
     }
@@ -88,7 +86,6 @@ export function SendDialog() {
 
     // Use bracketed paste so Claude CLI treats multi-line input as a single paste,
     // then send Enter after a generous delay so the TUI fully processes the paste.
-    // Retry Enter a few times — the TUI can sometimes swallow the first one.
     const bracketedPaste = `\x1b[200~${message}\x1b[201~`;
     const tid = targetId;
     window.agentPlex.writeSession(tid, bracketedPaste);
@@ -101,10 +98,10 @@ export function SendDialog() {
     sendEnter(1500);
     sendEnter(2200);
 
-    if (sourceId) flashMessageEdge(sourceId, tid);
+    flashMessageEdge(sourceId, tid);
     setInstruction('');
     closeSendDialog();
-  }, [targetId, instruction, sourceId, sourceLabel, contextPreview, summarize, sending, sessions, closeSendDialog, flashMessageEdge]);
+  }, [targetId, instruction, sourceId, sourceLabel, contextPreview, summarize, sending, closeSendDialog, flashMessageEdge]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
