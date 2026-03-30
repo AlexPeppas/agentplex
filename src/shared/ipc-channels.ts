@@ -29,6 +29,8 @@ export interface SessionInfo {
   title: string;
   status: SessionStatus;
   pid: number;
+  cwd: string;
+  cli: CliTool;
 }
 
 export interface SubagentInfo {
@@ -59,6 +61,14 @@ export interface TaskListInfo {
   tasks: { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }[];
 }
 
+export interface ExternalSession {
+  pid: number;
+  sessionId: string;
+  cwd: string;
+  startedAt: number;
+  name?: string;
+}
+
 export interface DiscoveredProject {
   encodedPath: string;
   realPath: string;
@@ -87,6 +97,73 @@ export interface ClaudeConfig {
   flags: string[];
 }
 
+export interface GitChangedFile {
+  path: string;
+  status: 'M' | 'A' | 'D' | 'R' | 'U' | '?' | string;
+  staged: boolean;
+}
+
+export interface GitStatusResult {
+  isRepo: boolean;
+  files: GitChangedFile[];
+  repoRoot: string;
+}
+
+export interface GitFileDiffResult {
+  original: string;
+  modified: string;
+  language: string;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  date: string;
+}
+
+export interface GitBranchInfo {
+  current: string;
+  tracking: string | null;
+  ahead: number;
+  behind: number;
+}
+
+export interface GitCommandResult {
+  success: boolean;
+  output: string;
+}
+
+// ── Drawing canvas types ─────────────────────────────────────────────────────
+
+export interface DrawingElement {
+  id: string;
+  type: 'stroke' | 'eraser' | 'rect' | 'ellipse' | 'line' | 'text';
+  /** Pen/eraser: array of [x,y] points */
+  points?: [number, number][];
+  /** Shapes: bounding box */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  /** Line: endpoints */
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+  /** Text element */
+  text?: string;
+  fontSize?: number;
+  color: string;
+  strokeWidth: number;
+}
+
+export interface DrawingData {
+  elements: DrawingElement[];
+  version: number;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -111,6 +188,8 @@ export const IPC = {
   DISPLAY_NAMES_GET: 'displayNames:get',
   SESSION_RESTORE_ALL: 'session:restoreAll',
   SESSION_UPDATE_STATE: 'session:updateState',
+  DISCOVER_EXTERNAL: 'session:discoverExternal',
+  ADOPT_EXTERNAL: 'session:adoptExternal',
   LAUNCHER_SCAN_PROJECTS: 'launcher:scanProjects',
   LAUNCHER_SCAN_SESSIONS: 'launcher:scanSessions',
   LAUNCHER_GET_PINS: 'launcher:getPins',
@@ -121,4 +200,17 @@ export const IPC = {
   SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
   SETTINGS_OPEN_GLOBAL: 'settings:openGlobal',
   SETTINGS_OPEN_PROJECT: 'settings:openProject',
+  SHELL_OPEN_PATH: 'shell:openPath',
+  GIT_STATUS: 'git:status',
+  GIT_FILE_DIFF: 'git:fileDiff',
+  GIT_SAVE_FILE: 'git:saveFile',
+  GIT_STAGE_FILE: 'git:stageFile',
+  GIT_UNSTAGE_FILE: 'git:unstageFile',
+  GIT_COMMIT: 'git:commit',
+  GIT_PUSH: 'git:push',
+  GIT_PULL: 'git:pull',
+  GIT_LOG: 'git:log',
+  GIT_BRANCH_INFO: 'git:branchInfo',
+  CANVAS_LOAD: 'canvas:load',
+  CANVAS_SAVE: 'canvas:save',
 } as const;

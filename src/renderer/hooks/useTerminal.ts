@@ -4,44 +4,29 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { useAppStore } from '../store';
 
-function getCssVar(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-function buildTerminalTheme() {
-  const bg = getCssVar('--bg-primary') || '#262420';
-  const fg = getCssVar('--text-primary') || '#ece4d8';
-  const muted = getCssVar('--text-muted') || '#9a8a70';
-  const border = getCssVar('--border') || '#3e3830';
-  const accent = getCssVar('--accent') || '#d18a7a';
-  const accentHover = getCssVar('--accent-hover') || '#dfa898';
-  const success = getCssVar('--success') || '#a8c878';
-  const warning = getCssVar('--warning') || '#e8c070';
-  const error = getCssVar('--error') || '#e07070';
-
-  return {
-    background: bg,
-    foreground: fg,
-    cursor: fg,
-    selectionBackground: border,
-    black: getCssVar('--bg-inset') || '#1e1c18',
-    red: error,
-    green: success,
-    yellow: warning,
-    blue: accent,
-    magenta: accentHover,
-    cyan: accent,
-    white: muted,
-    brightBlack: getCssVar('--border-strong') || '#4e4638',
-    brightRed: error,
-    brightGreen: success,
-    brightYellow: warning,
-    brightBlue: accentHover,
-    brightMagenta: accentHover,
-    brightCyan: accent,
-    brightWhite: fg,
-  };
-}
+// Terminal always uses dark palette so text stays readable in both themes
+const TERMINAL_THEME = {
+  background: '#262420',
+  foreground: '#ece4d8',
+  cursor: '#ece4d8',
+  selectionBackground: '#3e3830',
+  black: '#1e1c18',
+  red: '#e07070',
+  green: '#a8c878',
+  yellow: '#e8c070',
+  blue: '#d18a7a',
+  magenta: '#dfa898',
+  cyan: '#d18a7a',
+  white: '#9a8a70',
+  brightBlack: '#4e4638',
+  brightRed: '#e07070',
+  brightGreen: '#a8c878',
+  brightYellow: '#e8c070',
+  brightBlue: '#dfa898',
+  brightMagenta: '#dfa898',
+  brightCyan: '#d18a7a',
+  brightWhite: '#ece4d8',
+};
 
 const DEFAULT_FONT_SIZE = 14;
 const MIN_FONT_SIZE = 8;
@@ -58,7 +43,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Create terminal
     const term = new Terminal({
-      theme: buildTerminalTheme(),
+      theme: TERMINAL_THEME,
       fontSize: terminalFontSize,
       fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
       cursorBlink: true,
@@ -138,16 +123,6 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       return false;
     });
 
-    // Update terminal theme when data-theme attribute changes
-    const observer = new MutationObserver(() => {
-      if (termRef.current) {
-        termRef.current.options.theme = buildTerminalTheme();
-      }
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-theme'],
-    });
 
     // Write buffered output
     const buffer = useAppStore.getState().sessionBuffers[selectedSessionId];
@@ -169,7 +144,9 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
 
     // Handle resize
+    let disposed = false;
     const resizeObserver = new ResizeObserver(() => {
+      if (disposed) return;
       try {
         fitAddon.fit();
         window.agentPlex.resizeSession(sessionId, term.cols, term.rows);
@@ -191,8 +168,8 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     container.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
+      disposed = true;
       container.removeEventListener('contextmenu', handleContextMenu);
-      observer.disconnect();
       resizeObserver.disconnect();
       cleanup();
       term.dispose();

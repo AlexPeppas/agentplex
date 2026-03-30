@@ -1,8 +1,9 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
+  useReactFlow,
   type Node,
   type OnNodeDrag,
 } from '@xyflow/react';
@@ -10,6 +11,7 @@ import '@xyflow/react/dist/style.css';
 import { SessionNode } from './SessionNode';
 import { GroupNode } from './GroupNode';
 import { SubAgentNode } from './SubAgentNode';
+import { DrawingOverlay } from './DrawingOverlay';
 import { useAppStore } from '../store';
 
 const nodeTypes = {
@@ -27,7 +29,30 @@ export function GraphCanvas() {
   const createGroup = useAppStore((s) => s.createGroup);
   const addToGroup = useAppStore((s) => s.addToGroup);
   const removeFromGroup = useAppStore((s) => s.removeFromGroup);
+  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const shouldFocusNode = useAppStore((s) => s.shouldFocusNode);
+  const drawingMode = useAppStore((s) => s.drawingMode);
+  const { fitView } = useReactFlow();
   const dragStartParent = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!shouldFocusNode) return;
+    const timer = setTimeout(() => {
+      try {
+        if (selectedSessionId) {
+          fitView({ nodes: [{ id: selectedSessionId }], duration: 200, maxZoom: 1.5 });
+        } else {
+          const currentNodes = useAppStore.getState().nodes;
+          if (currentNodes.length > 0) {
+            fitView({ duration: 200 });
+          }
+        }
+      } catch {
+        // fitView can fail during unmount or empty graph
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [selectedSessionId, shouldFocusNode, fitView]);
 
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     dragStartParent.current = node.parentId;
@@ -85,7 +110,7 @@ export function GraphCanvas() {
   }, [selectSession]);
 
   return (
-    <div className="graph-canvas">
+    <div className="graph-canvas w-full h-full relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -96,11 +121,19 @@ export function GraphCanvas() {
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         fitView
+        panOnDrag={!drawingMode}
+        zoomOnScroll={!drawingMode}
+        zoomOnPinch={!drawingMode}
+        zoomOnDoubleClick={!drawingMode}
+        nodesDraggable={!drawingMode}
+        nodesConnectable={!drawingMode}
+        elementsSelectable={!drawingMode}
         proOptions={{ hideAttribution: true }}
       >
         <Background />
         <Controls />
       </ReactFlow>
+      <DrawingOverlay />
     </div>
   );
 }

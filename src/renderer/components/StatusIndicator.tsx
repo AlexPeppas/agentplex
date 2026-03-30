@@ -17,7 +17,7 @@ export function StatusIndicator({ status }: StatusIndicatorProps) {
 
   return (
     <span
-      className={`status-dot ${shouldPulse ? 'status-dot--pulse' : ''}`}
+      className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${shouldPulse ? 'animate-[pulse-dot_1.5s_ease-in-out_infinite]' : ''}`}
       style={{ backgroundColor: color }}
     />
   );

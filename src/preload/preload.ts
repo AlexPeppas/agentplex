@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -125,12 +125,20 @@ const api = {
     return ipcRenderer.invoke(IPC.SESSION_RESTORE_ALL);
   },
 
-  summarizeContext: (context: string, sourceLabel: string): Promise<{ summary: string | null; error: string | null }> => {
-    return ipcRenderer.invoke(IPC.SUMMARIZE_CONTEXT, { context, sourceLabel });
+  summarizeContext: (sessionId: string, sourceLabel: string): Promise<{ summary: string | null; error: string | null }> => {
+    return ipcRenderer.invoke(IPC.SUMMARIZE_CONTEXT, { sessionId, sourceLabel });
   },
 
   getDisplayNames: (): Promise<Record<string, string>> => {
     return ipcRenderer.invoke(IPC.DISPLAY_NAMES_GET);
+  },
+
+  discoverExternal: (): Promise<ExternalSession[]> => {
+    return ipcRenderer.invoke(IPC.DISCOVER_EXTERNAL);
+  },
+
+  adoptExternal: (sessionUuid: string, cwd: string): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.ADOPT_EXTERNAL, { sessionUuid, cwd });
   },
 
   scanProjects: (): Promise<DiscoveredProject[]> => {
@@ -169,6 +177,10 @@ const api = {
     return ipcRenderer.invoke(IPC.SETTINGS_SET_DEFAULT_SHELL, { id });
   },
 
+  openPath: (path: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SHELL_OPEN_PATH, { path });
+  },
+
   clipboardWriteText: (text: string): void => {
     clipboard.writeText(text);
   },
@@ -183,6 +195,54 @@ const api = {
 
   openProjectConfig: (cwd: string): Promise<void> => {
     return ipcRenderer.invoke(IPC.SETTINGS_OPEN_PROJECT, { cwd });
+  },
+
+  gitStatus: (sessionId: string): Promise<GitStatusResult> => {
+    return ipcRenderer.invoke(IPC.GIT_STATUS, { sessionId });
+  },
+
+  gitFileDiff: (sessionId: string, filePath: string, staged: boolean): Promise<GitFileDiffResult> => {
+    return ipcRenderer.invoke(IPC.GIT_FILE_DIFF, { sessionId, filePath, staged });
+  },
+
+  gitSaveFile: (sessionId: string, filePath: string, content: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_SAVE_FILE, { sessionId, filePath, content });
+  },
+
+  gitStageFile: (sessionId: string, filePath: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_STAGE_FILE, { sessionId, filePath });
+  },
+
+  gitUnstageFile: (sessionId: string, filePath: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_UNSTAGE_FILE, { sessionId, filePath });
+  },
+
+  gitCommit: (sessionId: string, message: string): Promise<GitCommandResult> => {
+    return ipcRenderer.invoke(IPC.GIT_COMMIT, { sessionId, message });
+  },
+
+  gitPush: (sessionId: string): Promise<GitCommandResult> => {
+    return ipcRenderer.invoke(IPC.GIT_PUSH, { sessionId });
+  },
+
+  gitPull: (sessionId: string): Promise<GitCommandResult> => {
+    return ipcRenderer.invoke(IPC.GIT_PULL, { sessionId });
+  },
+
+  gitLog: (sessionId: string): Promise<GitLogEntry[]> => {
+    return ipcRenderer.invoke(IPC.GIT_LOG, { sessionId });
+  },
+
+  gitBranchInfo: (sessionId: string): Promise<GitBranchInfo> => {
+    return ipcRenderer.invoke(IPC.GIT_BRANCH_INFO, { sessionId });
+  },
+
+  canvasLoad: (): Promise<DrawingData> => {
+    return ipcRenderer.invoke(IPC.CANVAS_LOAD);
+  },
+
+  canvasSave: (data: DrawingData): Promise<void> => {
+    return ipcRenderer.invoke(IPC.CANVAS_SAVE, data);
   },
 };
 

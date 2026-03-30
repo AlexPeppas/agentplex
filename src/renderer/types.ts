@@ -1,4 +1,4 @@
-import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   platform: string;
@@ -22,8 +22,10 @@ export interface AgentPlexAPI {
   onTaskList: (callback: (data: TaskListInfo) => void) => () => void;
   updateSessionState: (sessionId: string, displayName: string) => void;
   restoreAllSessions: () => Promise<{ info: SessionInfo; displayName: string }[]>;
-  summarizeContext: (context: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
+  summarizeContext: (sessionId: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
   getDisplayNames: () => Promise<Record<string, string>>;
+  discoverExternal: () => Promise<ExternalSession[]>;
+  adoptExternal: (sessionUuid: string, cwd: string) => Promise<SessionInfo>;
   scanProjects: () => Promise<DiscoveredProject[]>;
   scanSessions: (encodedPath: string) => Promise<DiscoveredSession[]>;
   getPinnedProjects: () => Promise<PinnedProject[]>;
@@ -33,10 +35,23 @@ export interface AgentPlexAPI {
   getShells: () => Promise<DetectedShell[]>;
   getDefaultShell: () => Promise<string | null>;
   setDefaultShell: (id: string) => Promise<void>;
+  openPath: (path: string) => Promise<void>;
   clipboardWriteText: (text: string) => void;
   clipboardReadText: () => string;
   openSettings: () => Promise<void>;
   openProjectConfig: (cwd: string) => Promise<void>;
+  gitStatus: (sessionId: string) => Promise<GitStatusResult>;
+  gitFileDiff: (sessionId: string, filePath: string, staged: boolean) => Promise<GitFileDiffResult>;
+  gitSaveFile: (sessionId: string, filePath: string, content: string) => Promise<void>;
+  gitStageFile: (sessionId: string, filePath: string) => Promise<void>;
+  gitUnstageFile: (sessionId: string, filePath: string) => Promise<void>;
+  gitCommit: (sessionId: string, message: string) => Promise<GitCommandResult>;
+  gitPush: (sessionId: string) => Promise<GitCommandResult>;
+  gitPull: (sessionId: string) => Promise<GitCommandResult>;
+  gitLog: (sessionId: string) => Promise<GitLogEntry[]>;
+  gitBranchInfo: (sessionId: string) => Promise<GitBranchInfo>;
+  canvasLoad: () => Promise<DrawingData>;
+  canvasSave: (data: DrawingData) => Promise<void>;
 }
 
 declare global {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { FolderOpen, Star, ArrowLeft } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { DiscoveredProject, DiscoveredSession } from '../../shared/ipc-channels';
 
@@ -170,24 +171,24 @@ export function ProjectLauncher() {
   const showSessions = launcherMode === 'resume' && selectedProject;
 
   return (
-    <div className="project-launcher__backdrop" onClick={closeLauncher}>
-      <div className="project-launcher" onClick={(e) => e.stopPropagation()}>
-        <div className="project-launcher__header">
+    <div className="fixed inset-0 bg-backdrop flex items-center justify-center z-[1000]" onClick={closeLauncher}>
+      <div className="bg-elevated border border-border-strong rounded-xl w-[600px] max-w-[90vw] max-h-[70vh] flex flex-col shadow-[0_8px_32px_var(--shadow-heavy)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between pt-3.5 px-4 text-sm font-semibold text-fg">
           <span>{launcherMode === 'new' ? 'Open Project' : 'Resume Session'}</span>
           {showSessions && (
             <button
-              className="project-launcher__back"
+              className="bg-transparent border border-border rounded-md text-fg-muted text-xs py-[3px] px-2.5 cursor-pointer transition-colors hover:bg-border hover:text-fg inline-flex items-center gap-1"
               onClick={() => setSelectedProject(null)}
             >
-              &larr; Back
+              <ArrowLeft size={12} /> Back
             </button>
           )}
         </div>
 
-        <div className="project-launcher__search-row">
+        <div className="flex items-center gap-1.5 mx-4 my-2.5">
           <input
             ref={searchRef}
-            className="project-launcher__search"
+            className="flex-1 py-2 px-3 bg-surface border border-border-strong rounded-lg text-fg text-[13px] outline-none transition-colors placeholder:text-fg-muted focus:border-accent"
             type="text"
             placeholder={showSessions ? 'Search sessions...' : 'Search or paste a path...'}
             value={searchQuery}
@@ -196,25 +197,23 @@ export function ProjectLauncher() {
           />
           {!showSessions && (
             <button
-              className="project-launcher__browse-icon"
+              className="shrink-0 w-[34px] h-[34px] flex items-center justify-center bg-surface border border-border-strong rounded-lg text-fg-muted cursor-pointer transition-colors hover:bg-border hover:text-accent hover:border-accent"
               onClick={handleBrowse}
               title="Browse for folder"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
+              <FolderOpen size={16} />
             </button>
           )}
         </div>
 
-        <div className="project-launcher__body">
+        <div className="flex-1 overflow-y-auto px-2 pb-2">
           {!showSessions ? (
-            <div className="project-launcher__projects">
-              {loading && <div className="project-launcher__empty">Scanning projects...</div>}
+            <div>
+              {loading && <div className="py-5 px-2 text-[13px] text-fg-muted text-center">Scanning projects...</div>}
 
               {!loading && pinnedProjects.length > 0 && (
                 <>
-                  <div className="project-launcher__section-label">Pinned</div>
+                  <div className="text-[11px] font-semibold text-fg-muted uppercase tracking-wide py-2 px-2">Pinned</div>
                   {pinnedProjects.map((p) => (
                     <ProjectRow
                       key={p.realPath}
@@ -228,7 +227,7 @@ export function ProjectLauncher() {
 
               {!loading && recentProjects.length > 0 && (
                 <>
-                  <div className="project-launcher__section-label">Recent</div>
+                  <div className="text-[11px] font-semibold text-fg-muted uppercase tracking-wide py-2 px-2">Recent</div>
                   {recentProjects.map((p) => (
                     <ProjectRow
                       key={p.realPath}
@@ -241,42 +240,42 @@ export function ProjectLauncher() {
               )}
 
               {!loading && filteredProjects.length === 0 && (
-                <div className="project-launcher__empty">
+                <div className="py-5 px-2 text-[13px] text-fg-muted text-center">
                   No projects found. Paste a path above or click the folder icon to browse.
                 </div>
               )}
             </div>
           ) : (
-            <div className="project-launcher__sessions">
-              <div className="project-launcher__session-header">
+            <div>
+              <div className="text-[13px] font-semibold text-accent py-1 px-2">
                 {selectedProject.dirName}
               </div>
 
-              {sessionsLoading && <div className="project-launcher__empty">Loading sessions...</div>}
+              {sessionsLoading && <div className="py-5 px-2 text-[13px] text-fg-muted text-center">Loading sessions...</div>}
 
               {!sessionsLoading && filteredSessions.length === 0 && (
-                <div className="project-launcher__empty">No sessions found</div>
+                <div className="py-5 px-2 text-[13px] text-fg-muted text-center">No sessions found</div>
               )}
 
               {!sessionsLoading && filteredSessions.map((s) => (
                 <div
                   key={s.sessionId}
-                  className="project-launcher__session-row"
+                  className="py-2 px-2.5 rounded-lg cursor-pointer transition-colors hover:bg-border"
                   onClick={() => handleSessionClick(s)}
                 >
-                  <div className="project-launcher__session-title">
+                  <div className="text-[13px] font-medium text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                     {s.customTitle || s.sessionId.slice(0, 8) + '...'}
                   </div>
-                  <div className="project-launcher__session-meta">
+                  <div className="flex items-center gap-1.5 mt-0.5">
                     {s.gitBranch && (
-                      <span className="project-launcher__branch-badge">{s.gitBranch}</span>
+                      <span className="text-[10px] font-medium text-accent bg-accent-subtle py-px px-1.5 rounded whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis">{s.gitBranch}</span>
                     )}
-                    <span className="project-launcher__session-time">
+                    <span className="text-[11px] text-fg-muted whitespace-nowrap">
                       {relativeTime(s.lastTimestamp)}
                     </span>
                   </div>
                   {s.firstUserMessage && (
-                    <div className="project-launcher__session-preview">
+                    <div className="text-[11px] text-fg-muted mt-[3px] whitespace-nowrap overflow-hidden text-ellipsis">
                       {s.firstUserMessage}
                     </div>
                   )}
@@ -301,28 +300,28 @@ function ProjectRow({
 }) {
   return (
     <div
-      className="project-launcher__project-row"
+      className="flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors hover:bg-border"
       onClick={() => onClick(project)}
     >
       <button
-        className={`project-launcher__pin-star ${project.isPinned ? 'project-launcher__pin-star--active' : ''}`}
+        className={`shrink-0 bg-transparent border-none text-sm cursor-pointer px-0.5 transition-colors hover:text-warning ${project.isPinned ? 'text-warning' : 'text-fg-muted'}`}
         onClick={(e) => onTogglePin(project, e)}
         title={project.isPinned ? 'Unpin' : 'Pin'}
       >
-        {project.isPinned ? '\u2605' : '\u2606'}
+        <Star size={14} className={project.isPinned ? 'fill-current' : ''} />
       </button>
-      <div className="project-launcher__project-info">
-        <div className="project-launcher__project-name">{project.dirName}</div>
-        <div className="project-launcher__project-path">{project.realPath}</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-medium text-fg whitespace-nowrap overflow-hidden text-ellipsis">{project.dirName}</div>
+        <div className="text-[11px] text-fg-muted whitespace-nowrap overflow-hidden text-ellipsis">{project.realPath}</div>
       </div>
-      <div className="project-launcher__project-meta">
+      <div className="flex items-center gap-2 shrink-0">
         {project.sessionCount > 0 && (
-          <span className="project-launcher__session-count">
+          <span className="text-[11px] font-semibold text-accent bg-accent-subtle py-px px-1.5 rounded-[10px]">
             {project.sessionCount}
           </span>
         )}
         {project.lastActivity && (
-          <span className="project-launcher__project-time">
+          <span className="text-[11px] text-fg-muted whitespace-nowrap">
             {relativeTime(project.lastActivity)}
           </span>
         )}

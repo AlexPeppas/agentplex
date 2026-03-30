@@ -112,6 +112,8 @@ function createWindow() {
   template.push({
     label: 'View',
     submenu: [
+      { role: 'toggleDevTools' },
+      { type: 'separator' },
       { role: 'togglefullscreen' },
     ],
   });

@@ -33,19 +33,19 @@ export const GroupNode = memo(function GroupNode({ data, id }: NodeProps) {
   }, [handleBlur, nodeData.label]);
 
   return (
-    <div className="group-node">
-      <div className="group-node__header" onDoubleClick={handleDoubleClick}>
+    <div className="w-full h-full bg-accent-subtle border-2 border-dashed border-accent-border rounded-2xl pointer-events-auto">
+      <div className="py-1.5 px-3 cursor-text" onDoubleClick={handleDoubleClick}>
         {editing ? (
           <input
             ref={inputRef}
-            className="group-node__input"
+            className="bg-transparent border-none border-b border-b-accent text-accent text-xs font-semibold uppercase tracking-wide outline-none w-full"
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
           />
         ) : (
-          <span className="group-node__label">{nodeData.label}</span>
+          <span className="text-xs font-semibold text-accent uppercase tracking-wide">{nodeData.label}</span>
         )}
       </div>
     </div>

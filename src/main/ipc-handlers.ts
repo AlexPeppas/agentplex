@@ -1,10 +1,13 @@
-import { ipcMain, dialog, BrowserWindow, shell } from 'electron';
-import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject } from '../shared/ipc-channels';
+import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
+import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData } from '../shared/ipc-channels';
 import { ensureGlobalConfig, ensureProjectConfig } from './config-loader';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
 import { getDefaultShellId, setDefaultShellId } from './settings-manager';
 import { scanProjects, scanSessionsForProject, getPinnedProjects, updatePinnedProjects, resolveProjectPath } from './claude-session-scanner';
+import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
@@ -65,13 +68,77 @@ export function registerIpcHandlers() {
     return sessionManager.getCwd(id);
   });
 
-  ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { context, sourceLabel }: { context: string; sourceLabel: string }) => {
-    if (typeof context !== 'string' || typeof sourceLabel !== 'string') {
+  ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { sessionId, sourceLabel }: { sessionId: string; sourceLabel: string }) => {
+    if (typeof sessionId !== 'string' || typeof sourceLabel !== 'string') {
       return { summary: null, error: 'Invalid parameters' };
     }
-    const safeContext = context.slice(0, MAX_CONTEXT_LENGTH);
     const safeLabel = sourceLabel.slice(0, 200);
-    console.log(`[summarize] Request for "${safeLabel}" (${safeContext.length} chars)`);
+
+    // Read the full conversation from the JSONL file instead of the terminal buffer
+    const jsonlPath = sessionManager.getJsonlPath(sessionId);
+    let conversation = '';
+
+    if (jsonlPath) {
+      try {
+        const raw = fs.readFileSync(jsonlPath, 'utf-8');
+        const messages: string[] = [];
+        for (const line of raw.split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const record = JSON.parse(line);
+            const type = record.type;
+            const content = record.message?.content;
+            if (type !== 'user' && type !== 'assistant') continue;
+
+            if (type === 'user') {
+              if (typeof content === 'string') {
+                messages.push(`[User]\n${content}`);
+              } else if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (block.type === 'text' && block.text) {
+                    messages.push(`[User]\n${block.text}`);
+                  }
+                }
+              }
+            } else if (type === 'assistant' && Array.isArray(content)) {
+              for (const block of content) {
+                if (block.type === 'text' && block.text) {
+                  messages.push(`[Assistant]\n${block.text}`);
+                } else if (block.type === 'tool_use') {
+                  const toolName = block.name || 'tool';
+                  const desc = block.input?.description || block.input?.command || block.input?.pattern || '';
+                  const preview = typeof desc === 'string' ? desc.slice(0, 200) : '';
+                  messages.push(`[Tool: ${toolName}]${preview ? ' ' + preview : ''}`);
+                }
+              }
+            }
+          } catch { /* skip malformed line */ }
+        }
+        conversation = messages.join('\n\n');
+      } catch (err: any) {
+        console.warn(`[summarize] Could not read JSONL: ${err.message}`);
+      }
+    }
+
+    // Fall back to terminal buffer if JSONL is empty/unavailable
+    if (!conversation) {
+      const buffer = sessionManager.getBuffer(sessionId);
+      if (buffer) {
+        const { stripAnsi } = await import('../shared/ansi-strip');
+        conversation = stripAnsi(buffer).slice(-MAX_CONTEXT_LENGTH);
+      }
+    }
+
+    if (!conversation) {
+      return { summary: null, error: 'No conversation data available' };
+    }
+
+    // Cap at MAX_CONTEXT_LENGTH for the API call
+    const safeContext = conversation.length > MAX_CONTEXT_LENGTH
+      ? conversation.slice(-MAX_CONTEXT_LENGTH)
+      : conversation;
+
+    console.log(`[summarize] Request for "${safeLabel}" — ${safeContext.length} chars from JSONL`);
 
     const apiKey = process.env.AGENTPLEX_API_KEY;
     if (!apiKey) {
@@ -88,9 +155,9 @@ export function registerIpcHandlers() {
         max_tokens: 2000,
         messages: [{
           role: 'user',
-          content: `You are summarizing the recent activity of an AI coding assistant session called "${safeLabel}". This summary will be sent to another AI assistant session so it can understand what the source session has been working on.
+          content: `You are summarizing the full conversation of an AI coding assistant session called "${safeLabel}". This summary will be sent to another AI assistant session so it can understand what the source session has been working on.
 
-Summarize the following terminal output concisely. Focus on:
+Summarize the following conversation concisely. Focus on:
 - What task/goal the session is working on
 - Key decisions made or approaches taken
 - Current state (what's done, what's in progress, any blockers)
@@ -98,9 +165,9 @@ Summarize the following terminal output concisely. Focus on:
 
 Keep it under 2000 tokens. Be direct and factual.
 
-<terminal_output>
+<conversation>
 ${safeContext}
-</terminal_output>`,
+</conversation>`,
         }],
       });
       const text = response.content.find((b: any) => b.type === 'text');
@@ -120,6 +187,17 @@ ${safeContext}
 
   ipcMain.handle(IPC.SESSION_RESTORE_ALL, () => {
     return sessionManager.restoreAll();
+  });
+
+  ipcMain.handle(IPC.DISCOVER_EXTERNAL, () => {
+    return sessionManager.discoverExternal();
+  });
+
+  ipcMain.handle(IPC.ADOPT_EXTERNAL, (_event, { sessionUuid, cwd }: { sessionUuid: string; cwd: string }) => {
+    if (typeof sessionUuid !== 'string' || typeof cwd !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    return sessionManager.adoptExternal(sessionUuid, cwd);
   });
 
   ipcMain.handle(IPC.DISPLAY_NAMES_GET, () => {
@@ -199,5 +277,132 @@ ${safeContext}
     if (typeof cwd !== 'string') return;
     const configPath = ensureProjectConfig(cwd);
     await shell.openPath(configPath);
+  });
+
+  ipcMain.handle(IPC.SHELL_OPEN_PATH, async (_event, { path }: { path: string }) => {
+    if (typeof path !== 'string') return;
+    const error = await shell.openPath(path);
+    if (error) {
+      console.error('Failed to open path:', error);
+      throw new Error(error);
+    }
+  });
+
+  // ── Git operations ──────────────────────────────────────────
+
+  ipcMain.handle(IPC.GIT_STATUS, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') return { isRepo: false, files: [], repoRoot: '' };
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) return { isRepo: false, files: [], repoRoot: '' };
+    return getGitStatus(cwd);
+  });
+
+  ipcMain.handle(IPC.GIT_FILE_DIFF, async (_event, { sessionId, filePath, staged }: { sessionId: string; filePath: string; staged: boolean }) => {
+    if (typeof sessionId !== 'string' || typeof filePath !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return getFileDiff(status.repoRoot, filePath, !!staged);
+  });
+
+  ipcMain.handle(IPC.GIT_SAVE_FILE, async (_event, { sessionId, filePath, content }: { sessionId: string; filePath: string; content: string }) => {
+    if (typeof sessionId !== 'string' || typeof filePath !== 'string' || typeof content !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return saveFile(status.repoRoot, filePath, content);
+  });
+
+  ipcMain.handle(IPC.GIT_STAGE_FILE, async (_event, { sessionId, filePath }: { sessionId: string; filePath: string }) => {
+    if (typeof sessionId !== 'string' || typeof filePath !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return stageFile(status.repoRoot, filePath);
+  });
+
+  ipcMain.handle(IPC.GIT_UNSTAGE_FILE, async (_event, { sessionId, filePath }: { sessionId: string; filePath: string }) => {
+    if (typeof sessionId !== 'string' || typeof filePath !== 'string') {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return unstageFile(status.repoRoot, filePath);
+  });
+
+  ipcMain.handle(IPC.GIT_COMMIT, async (_event, { sessionId, message }: { sessionId: string; message: string }) => {
+    if (typeof sessionId !== 'string' || typeof message !== 'string' || !message.trim()) {
+      throw new Error('Invalid parameters');
+    }
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitCommit(status.repoRoot, message);
+  });
+
+  ipcMain.handle(IPC.GIT_PUSH, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitPush(status.repoRoot);
+  });
+
+  ipcMain.handle(IPC.GIT_PULL, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitPull(status.repoRoot);
+  });
+
+  ipcMain.handle(IPC.GIT_LOG, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitLog(status.repoRoot);
+  });
+
+  ipcMain.handle(IPC.GIT_BRANCH_INFO, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return gitBranchInfo(status.repoRoot);
+  });
+
+  // ── Drawing canvas persistence ─────────────────────────────────────────────
+  const canvasDir = path.join(app.getPath('home'), '.agentplex');
+  const canvasPath = path.join(canvasDir, 'canvas.json');
+
+  ipcMain.handle(IPC.CANVAS_LOAD, async (): Promise<DrawingData> => {
+    try {
+      const raw = fs.readFileSync(canvasPath, 'utf-8');
+      return JSON.parse(raw) as DrawingData;
+    } catch {
+      return { elements: [], version: 1 };
+    }
+  });
+
+  ipcMain.handle(IPC.CANVAS_SAVE, async (_event, data: DrawingData): Promise<void> => {
+    fs.mkdirSync(canvasDir, { recursive: true });
+    fs.writeFileSync(canvasPath, JSON.stringify(data), 'utf-8');
   });
 }

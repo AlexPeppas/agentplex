@@ -55,12 +55,16 @@ interface SubagentEntry {
   spawnedAt: number;
 }
 
+export type PanelId = 'explorer' | 'search';
+
 export interface AppState {
   nodes: Node[];
   edges: Edge[];
   sessions: Record<string, SessionInfo>;
   subagents: Record<string, SubagentEntry>;
   selectedSessionId: string | null;
+  /** When true, GraphCanvas should focus/zoom the selected node */
+  shouldFocusNode: boolean;
   sessionBuffers: Record<string, string>;
   displayNames: Record<string, string>;
   nodeCounter: number;
@@ -69,7 +73,7 @@ export interface AppState {
   addSession: (info: SessionInfo) => void;
   removeSession: (id: string) => void;
   updateStatus: (id: string, status: SessionStatus) => void;
-  selectSession: (id: string | null) => void;
+  selectSession: (id: string | null, focus?: boolean) => void;
   appendBuffer: (id: string, data: string) => void;
 
   // Sub-agent actions
@@ -103,12 +107,38 @@ export interface AppState {
   // Message flash
   flashMessageEdge: (sourceId: string, targetId: string) => void;
 
+  // Terminal panel tab
+  terminalTab: 'session' | 'git';
+  setTerminalTab: (tab: 'session' | 'git') => void;
+
   // Project launcher
   launcherOpen: boolean;
   launcherMode: 'new' | 'resume';
   launcherCli: CliTool;
   openLauncher: (mode: 'new' | 'resume', cli?: CliTool) => void;
   closeLauncher: () => void;
+
+  // Side panel
+  activePanelId: PanelId | null;
+  sidePanelWidth: number;
+  togglePanel: (panelId: PanelId) => void;
+  setSidePanelWidth: (width: number) => void;
+
+  // Drawing overlay
+  drawingMode: boolean;
+  drawTool: 'pen' | 'eraser' | 'rect' | 'text';
+  drawColor: string;
+  toggleDrawingMode: () => void;
+  setDrawTool: (tool: 'pen' | 'eraser' | 'rect' | 'text') => void;
+  setDrawColor: (color: string) => void;
+
+  // Imperative handles set by DrawingOverlay (not part of public API)
+  _drawUndo?: () => void;
+  _drawRedo?: () => void;
+  _drawClear?: () => void;
+  _drawCanUndo: boolean;
+  _drawCanRedo: boolean;
+  _drawHasElements: boolean;
 }
 
 let groupCounter = 0;
@@ -121,10 +151,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessions: {},
   subagents: {},
   selectedSessionId: null,
+  shouldFocusNode: false,
   sessionBuffers: {},
   displayNames: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
+  terminalTab: 'session' as const,
+  setTerminalTab: (tab: 'session' | 'git') => set({ terminalTab: tab }),
   launcherOpen: false,
   launcherMode: 'new' as const,
   launcherCli: 'claude' as CliTool,
@@ -136,6 +169,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   closeLauncher: () => {
     set({ launcherOpen: false });
   },
+
+  activePanelId: null,
+  sidePanelWidth: 240,
+
+  togglePanel: (panelId: PanelId) => {
+    set((state) => ({
+      activePanelId: state.activePanelId === panelId ? null : panelId,
+    }));
+  },
+
+  setSidePanelWidth: (width: number) => {
+    set({ sidePanelWidth: Math.max(160, Math.min(400, width)) });
+  },
+
+  drawingMode: false,
+  drawTool: 'pen' as const,
+  drawColor: '#d18a7a',
+  _drawCanUndo: false,
+  _drawCanRedo: false,
+  _drawHasElements: false,
+  toggleDrawingMode: () => {
+    set((state) => ({ drawingMode: !state.drawingMode }));
+  },
+  setDrawTool: (tool: 'pen' | 'eraser' | 'rect' | 'text') => set({ drawTool: tool }),
+  setDrawColor: (color: string) => set({ drawColor: color }),
 
   addSession: (info: SessionInfo) => {
     const { nodes, nodeCounter } = get();
@@ -232,21 +290,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateStatus: (id: string, status: SessionStatus) => {
-    set((state) => ({
-      sessions: {
-        ...state.sessions,
-        [id]: state.sessions[id] ? { ...state.sessions[id], status } : state.sessions[id],
-      },
-      nodes: state.nodes.map((n) =>
-        n.id === id && n.type === 'sessionNode'
-          ? { ...n, data: { ...n.data, status } }
-          : n
-      ),
-    }));
+    set((state) => {
+      if (!state.sessions[id]) return state;
+      return {
+        sessions: {
+          ...state.sessions,
+          [id]: { ...state.sessions[id], status },
+        },
+        nodes: state.nodes.map((n) =>
+          n.id === id && n.type === 'sessionNode'
+            ? { ...n, data: { ...n.data, status } }
+            : n
+        ),
+      };
+    });
   },
 
-  selectSession: (id: string | null) => {
-    set({ selectedSessionId: id });
+  selectSession: (id: string | null, focus = false) => {
+    set({ selectedSessionId: id, shouldFocusNode: focus, terminalTab: 'session' });
   },
 
   appendBuffer: (id: string, data: string) => {
