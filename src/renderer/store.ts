@@ -72,6 +72,7 @@ export interface AppState {
   // Actions
   addSession: (info: SessionInfo) => void;
   removeSession: (id: string) => void;
+  deleteSession: (id: string) => Promise<void>;
   updateStatus: (id: string, status: SessionStatus) => void;
   selectSession: (id: string | null, focus?: boolean) => void;
   appendBuffer: (id: string, data: string) => void;
@@ -287,6 +288,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
       };
     });
+  },
+
+  deleteSession: async (id: string) => {
+    // Kill the session in the main process (PTY, watchers, etc.)
+    await window.agentPlex.killSession(id);
+    // Clean up UI state
+    get().removeSession(id);
   },
 
   updateStatus: (id: string, status: SessionStatus) => {
