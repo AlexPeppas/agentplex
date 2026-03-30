@@ -68,6 +68,8 @@ export interface AppState {
   sessionBuffers: Record<string, string>;
   displayNames: Record<string, string>;
   nodeCounter: number;
+  /** Track which session is currently being edited (null if none) */
+  editingSessionId: string | null;
 
   // Actions
   addSession: (info: SessionInfo) => void;
@@ -76,6 +78,7 @@ export interface AppState {
   updateStatus: (id: string, status: SessionStatus) => void;
   selectSession: (id: string | null, focus?: boolean) => void;
   appendBuffer: (id: string, data: string) => void;
+  setEditingSession: (id: string | null) => void;
 
   // Sub-agent actions
   spawnSubagent: (sessionId: string, subagentId: string, description: string) => void;
@@ -156,6 +159,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessionBuffers: {},
   displayNames: {},
   nodeCounter: 0,
+  editingSessionId: null,
   sendDialogSourceId: null,
   terminalTab: 'session' as const,
   setTerminalTab: (tab: 'session' | 'git') => set({ terminalTab: tab }),
@@ -197,6 +201,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDrawColor: (color: string) => set({ drawColor: color }),
 
   addSession: (info: SessionInfo) => {
+    console.log(`[store] addSession called with info:`, { id: info.id, title: info.title, cli: info.cli });
     const { nodes, nodeCounter } = get();
     const col = nodeCounter % GRID_COLS;
     const row = Math.floor(nodeCounter / GRID_COLS);
@@ -224,6 +229,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessionBuffers: { ...get().sessionBuffers, [info.id]: '' },
       nodeCounter: nodeCounter + 1,
     });
+    console.log(`[store] addSession completed - node.id: ${newNode.id}, data.sessionId: ${newNode.data.sessionId}`);
   },
 
   removeSession: (id: string) => {
@@ -291,8 +297,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteSession: async (id: string) => {
+    console.log(`[store] deleteSession called with id: ${id}`);
     // Kill the session in the main process (PTY, watchers, etc.)
-    await window.agentPlex.killSession(id);
+    try {
+      await window.agentPlex.killSession(id);
+      console.log(`[store] killSession succeeded for ${id}`);
+    } catch (err) {
+      console.error(`[store] killSession failed for ${id}:`, err);
+      throw err;
+    }
     // Clean up UI state
     get().removeSession(id);
   },
@@ -316,6 +329,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectSession: (id: string | null, focus = false) => {
     set({ selectedSessionId: id, shouldFocusNode: focus, terminalTab: 'session' });
+  },
+
+  setEditingSession: (id: string | null) => {
+    console.log(`[store] setEditingSession: ${id}`);
+    set({ editingSessionId: id });
   },
 
   appendBuffer: (id: string, data: string) => {
@@ -619,6 +637,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   renameSession: (sessionId: string, name: string) => {
+    console.log(`[store] renameSession called with sessionId: ${sessionId}, name: ${name}`);
     set((state) => ({
       nodes: state.nodes.map((n) =>
         n.id === sessionId && n.type === 'sessionNode'
@@ -628,6 +647,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       displayNames: { ...state.displayNames, [sessionId]: name },
     }));
     window.agentPlex.updateSessionState(sessionId, name);
+    console.log(`[store] updateSessionState called for ${sessionId}`);
   },
 
   flashMessageEdge: (sourceId: string, targetId: string) => {

@@ -133,10 +133,13 @@ export class SessionManager {
   /** Update display name in memory and persist */
   updateDisplayName(sessionId: string, displayName: string) {
     const session = this.sessions.get(sessionId);
-    if (session) {
-      session.displayName = displayName;
-      this.saveState();
+    if (!session) {
+      console.error(`[session-manager] Cannot update display name for session ${sessionId}: not found in sessions Map`);
+      console.log(`[session-manager] Available sessions:`, Array.from(this.sessions.keys()));
+      return;
     }
+    session.displayName = displayName;
+    this.saveState();
   }
 
   start() {
@@ -457,6 +460,7 @@ export class SessionManager {
     });
 
     this.sessions.set(id, session);
+    console.log(`[session-manager] create() - Session ${id} added to Map (total sessions: ${this.sessions.size})`);
 
     // Auto-start the selected CLI tool after a short delay for shell to initialize.
     // Raw shell sessions (powershell/bash) skip this — the PTY is already the shell.
@@ -476,6 +480,7 @@ export class SessionManager {
 
     this.saveState();
 
+    console.log(`[session-manager] create() - Returning SessionInfo for ${id}`, { id, title, cli });
     return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli };
   }
 
@@ -503,18 +508,21 @@ export class SessionManager {
 
   kill(id: string) {
     const session = this.sessions.get(id);
-    if (session) {
-      if (session.jsonlWatcher) session.jsonlWatcher.stop();
-      try {
-        session.pty.kill();
-      } catch {
-        // already dead
-      }
-      session.status = SessionStatus.Killed;
-      this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
-      this.sessions.delete(id);
-      this.saveState();
+    if (!session) {
+      console.error(`[session-manager] Cannot kill session ${id}: not found in sessions Map`);
+      console.log(`[session-manager] Available sessions:`, Array.from(this.sessions.keys()));
+      return;
     }
+    if (session.jsonlWatcher) session.jsonlWatcher.stop();
+    try {
+      session.pty.kill();
+    } catch {
+      // already dead
+    }
+    session.status = SessionStatus.Killed;
+    this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
+    this.sessions.delete(id);
+    this.saveState();
   }
 
   getBuffer(id: string): string {

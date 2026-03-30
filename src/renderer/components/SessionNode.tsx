@@ -27,57 +27,89 @@ function CliIcon({ cli, size = 14 }: { cli?: CliTool; size?: number }) {
 
 export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const nodeData = data as SessionNodeData;
+
+  // Verify node ID matches sessionId
+  if (id !== nodeData.sessionId) {
+    console.error(`[SessionNode] ID MISMATCH! node.id=${id}, data.sessionId=${nodeData.sessionId}`);
+  }
+
   const selectSession = useAppStore((s) => s.selectSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const renameSession = useAppStore((s) => s.renameSession);
   const deleteSession = useAppStore((s) => s.deleteSession);
+  const setEditingSession = useAppStore((s) => s.setEditingSession);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const editingSessionId = useAppStore((s) => s.editingSessionId);
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
   const isSelected = selectedSessionId === nodeData.sessionId;
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
 
-  const [editing, setEditing] = useState(false);
+  // This session is in editing mode if the global editingSessionId matches
+  const editing = editingSessionId === nodeData.sessionId;
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (editing) inputRef.current?.select();
-  }, [editing]);
+    if (editing) {
+      inputRef.current?.select();
+      console.log(`[SessionNode] Editing started for session ${nodeData.sessionId}`);
+    } else {
+      console.log(`[SessionNode] Editing ended for session ${nodeData.sessionId} - buttons should be visible`);
+    }
+  }, [editing, nodeData.sessionId]);
+
+  // Debug: log when buttons visibility should change
+  useEffect(() => {
+    console.log(`[SessionNode ${nodeData.sessionId}] Buttons should be ${!editing ? 'VISIBLE' : 'HIDDEN'} (editing=${editing})`);
+  }, [editing, nodeData.sessionId]);
 
   const commit = useCallback(() => {
+    console.log(`[SessionNode] commit() called - draft: "${draft}", current label: "${nodeData.label}", sessionId: ${nodeData.sessionId}`);
     const trimmed = draft.trim();
     if (trimmed && trimmed !== nodeData.label) {
+      console.log(`[SessionNode] Calling renameSession(${nodeData.sessionId}, "${trimmed}")`);
       renameSession(nodeData.sessionId, trimmed);
+    } else {
+      console.log(`[SessionNode] No rename needed (empty or unchanged)`);
     }
-    setEditing(false);
-  }, [draft, nodeData.label, nodeData.sessionId, renameSession]);
+    console.log(`[SessionNode] Clearing editing state`);
+    setEditingSession(null);
+  }, [draft, nodeData.label, nodeData.sessionId, renameSession, setEditingSession]);
 
   const handleTitleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setDraft(nodeData.label);
-    setEditing(true);
+    setEditingSession(nodeData.sessionId);
   };
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // Clear any editing state when clicking on a session
+    setEditingSession(null);
     selectSession(nodeData.sessionId);
   };
 
   const handleSend = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // Clear any editing state before opening send dialog
+    setEditingSession(null);
     openSendDialog(nodeData.sessionId);
   };
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    console.log(`[SessionNode] Edit button clicked for session ${nodeData.sessionId}`);
     setDraft(nodeData.label);
-    setEditing(true);
+    setEditingSession(nodeData.sessionId);
   };
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
+    console.log(`[SessionNode] Delete button clicked for session ${nodeData.sessionId}`);
+    // Clear any editing state before showing the confirmation dialog
+    setEditingSession(null);
     if (confirm(`Delete session "${nodeData.label}"?`)) {
       deleteSession(nodeData.sessionId);
     }
@@ -113,7 +145,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
             onBlur={commit}
             onKeyDown={(e) => {
               if (e.key === 'Enter') { e.preventDefault(); commit(); }
-              if (e.key === 'Escape') { e.preventDefault(); setEditing(false); }
+              if (e.key === 'Escape') { e.preventDefault(); setEditingSession(null); }
               e.stopPropagation();
             }}
             onClick={(e) => e.stopPropagation()}
