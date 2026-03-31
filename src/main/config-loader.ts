@@ -44,10 +44,25 @@ function extractClaudeBlock(obj: Record<string, unknown> | null): { command?: st
     result.command = block.command.trim();
   }
   if ('flags' in block && Array.isArray(block.flags)) {
-    const cleaned = (block.flags as unknown[])
-      .filter((f): f is string => typeof f === 'string')
-      .filter((f) => !RESERVED_FLAGS.has(f));
-    result.flags = cleaned;
+    const raw = (block.flags as unknown[]).filter((f): f is string => typeof f === 'string');
+    // Strip reserved flags and their associated values (e.g. --session-id <value> or --session-id=value)
+    const cleaned: string[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const flag = raw[i];
+      // Handle --flag=value form
+      const eqName = flag.split('=')[0];
+      if (RESERVED_FLAGS.has(eqName)) continue;
+      // Handle --flag <value> form: skip the next token too
+      if (RESERVED_FLAGS.has(flag)) {
+        i++; // skip the next argument (the value)
+        continue;
+      }
+      cleaned.push(flag);
+    }
+    // Only set flags if non-empty, so empty array inherits from parent config
+    if (cleaned.length > 0) {
+      result.flags = cleaned;
+    }
   }
   return Object.keys(result).length > 0 ? result : null;
 }

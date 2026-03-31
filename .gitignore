@@ -11,3 +11,4 @@ build/
 *.pem
 .playwright-mcp/
 .claude/settings.local.json
+.claude/

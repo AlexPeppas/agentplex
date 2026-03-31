@@ -270,13 +270,19 @@ ${safeContext}
 
   ipcMain.handle(IPC.SETTINGS_OPEN_GLOBAL, async () => {
     const configPath = ensureGlobalConfig();
-    await shell.openPath(configPath);
+    const error = await shell.openPath(configPath);
+    if (error) {
+      dialog.showErrorBox('Failed to open global settings', error);
+    }
   });
 
   ipcMain.handle(IPC.SETTINGS_OPEN_PROJECT, async (_event, { cwd }: { cwd: string }) => {
     if (typeof cwd !== 'string') return;
     const configPath = ensureProjectConfig(cwd);
-    await shell.openPath(configPath);
+    const error = await shell.openPath(configPath);
+    if (error) {
+      dialog.showErrorBox('Failed to open project settings', error);
+    }
   });
 
   ipcMain.handle(IPC.SHELL_OPEN_PATH, async (_event, { path }: { path: string }) => {

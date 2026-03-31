@@ -92,9 +92,13 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
 
   const handleOpenProjectConfig = useCallback(async () => {
     setProjectMenu(null);
-    const cwd = await window.agentPlex.getSessionCwd(nodeData.sessionId);
-    if (cwd) {
-      window.agentPlex.openProjectConfig(cwd);
+    try {
+      const cwd = await window.agentPlex.getSessionCwd(nodeData.sessionId);
+      if (cwd) {
+        await window.agentPlex.openProjectConfig(cwd);
+      }
+    } catch (error) {
+      console.error('Failed to open project config for session', nodeData.sessionId, error);
     }
   }, [nodeData.sessionId]);
 
