@@ -1,4 +1,4 @@
-import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, AppPreferences, SyncStatusInfo } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   platform: string;
@@ -52,6 +52,29 @@ export interface AgentPlexAPI {
   gitBranchInfo: (sessionId: string) => Promise<GitBranchInfo>;
   canvasLoad: () => Promise<DrawingData>;
   canvasSave: (data: DrawingData) => Promise<void>;
+
+  // Settings sync
+  syncSetupAuto: () => Promise<SyncStatusInfo>;
+  syncSetup: (repoUrl: string) => Promise<SyncStatusInfo>;
+  syncGetGitHubUser: () => Promise<{ username: string; host: string } | null>;
+  syncGhLogin: (host?: string) => Promise<{ status: string; code?: string; error?: string }>;
+  onGhLoginProgress: (callback: (progress: { status: string; code?: string }) => void) => () => void;
+  syncPush: () => Promise<SyncStatusInfo>;
+  syncPull: () => Promise<SyncStatusInfo>;
+  syncDisconnect: () => Promise<void>;
+  syncStatus: () => Promise<SyncStatusInfo>;
+  syncListProfiles: () => Promise<string[]>;
+  syncCreateProfile: (name: string) => Promise<void>;
+  syncSwitchProfile: (name: string) => Promise<void>;
+  syncRenameProfile: (oldName: string, newName: string) => Promise<void>;
+  syncDeleteProfile: (name: string) => Promise<void>;
+  syncActiveProfile: () => Promise<string>;
+  onSyncStatusChanged: (callback: (status: SyncStatusInfo) => void) => () => void;
+
+  // Expanded settings
+  getAllSettings: () => Promise<AppPreferences>;
+  updateSettings: (settings: Partial<AppPreferences>) => Promise<void>;
+  onSettingsChanged: (callback: (settings: AppPreferences) => void) => () => void;
 }
 
 declare global {

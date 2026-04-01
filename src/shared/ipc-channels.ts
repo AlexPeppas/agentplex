@@ -135,6 +135,24 @@ export interface GitCommandResult {
   output: string;
 }
 
+// ── Settings sync types ─────────────────────────────────────────────────────
+
+export type { AppPreferences } from '../main/settings-manager';
+export type { SyncConfig, SyncStatusInfo } from '../main/sync-engine';
+
+export interface SyncConflictFile {
+  path: string;
+  ours: string;
+  theirs: string;
+  language: string;
+}
+
+export interface SyncConflictResolution {
+  path: string;
+  resolution: 'ours' | 'theirs' | 'manual';
+  manualContent?: string;
+}
+
 // ── Drawing canvas types ─────────────────────────────────────────────────────
 
 export interface DrawingElement {
@@ -213,4 +231,27 @@ export const IPC = {
   GIT_BRANCH_INFO: 'git:branchInfo',
   CANVAS_LOAD: 'canvas:load',
   CANVAS_SAVE: 'canvas:save',
+
+  // Settings sync
+  SYNC_SETUP_AUTO: 'sync:setupAuto',
+  SYNC_SETUP: 'sync:setup',
+  SYNC_GET_GITHUB_USER: 'sync:getGitHubUser',
+  SYNC_GH_LOGIN: 'sync:ghLogin',
+  SYNC_GH_LOGIN_PROGRESS: 'sync:ghLoginProgress',
+  SYNC_DISCONNECT: 'sync:disconnect',
+  SYNC_PUSH: 'sync:push',
+  SYNC_PULL: 'sync:pull',
+  SYNC_STATUS: 'sync:status',
+  SYNC_LIST_PROFILES: 'sync:listProfiles',
+  SYNC_CREATE_PROFILE: 'sync:createProfile',
+  SYNC_SWITCH_PROFILE: 'sync:switchProfile',
+  SYNC_RENAME_PROFILE: 'sync:renameProfile',
+  SYNC_DELETE_PROFILE: 'sync:deleteProfile',
+  SYNC_ACTIVE_PROFILE: 'sync:activeProfile',
+  SYNC_STATUS_CHANGED: 'sync:statusChanged',
+
+  // Expanded settings
+  SETTINGS_GET_ALL: 'settings:getAll',
+  SETTINGS_UPDATE: 'settings:update',
+  SETTINGS_CHANGED: 'settings:changed',
 } as const;

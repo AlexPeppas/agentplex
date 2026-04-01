@@ -3,6 +3,7 @@ import path from 'node:path';
 import { sessionManager } from './session-manager';
 import { registerIpcHandlers } from './ipc-handlers';
 import { detectShells } from './shell-detector';
+import { getSyncConfig, startAutoSync, pullSync } from './sync-engine';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -162,6 +163,12 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   sessionManager.start();
   createWindow();
+
+  // Settings sync: pull on startup + start auto-sync if configured
+  if (getSyncConfig()) {
+    pullSync().catch((err) => console.error('[sync] Startup pull failed:', err));
+    startAutoSync();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

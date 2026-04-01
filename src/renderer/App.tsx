@@ -7,6 +7,7 @@ import { SendDialog } from './components/SendDialog';
 import { ProjectLauncher } from './components/ProjectLauncher';
 import { ActivityBar } from './components/ActivityBar';
 import { SidePanel } from './components/SidePanel';
+import { SettingsPanel } from './components/SettingsPanel';
 import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
@@ -40,6 +41,8 @@ export function App() {
   const updateTask = useAppStore((s) => s.updateTask);
   const reconcileTasks = useAppStore((s) => s.reconcileTasks);
   const prevStatuses = useRef<Map<string, SessionStatus>>(new Map());
+  const updateSyncStatus = useAppStore((s) => s.updateSyncStatus);
+  const updatePreferences = useAppStore((s) => s.updatePreferences);
 
   const renameSession = useAppStore((s) => s.renameSession);
 
@@ -103,6 +106,15 @@ export function App() {
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }, [setSidePanelWidth]);
+
+  // Load initial settings and sync status
+  useEffect(() => {
+    window.agentPlex.getAllSettings().then(updatePreferences);
+    window.agentPlex.syncStatus().then(updateSyncStatus);
+    const cleanupSync = window.agentPlex.onSyncStatusChanged(updateSyncStatus);
+    const cleanupSettings = window.agentPlex.onSettingsChanged(updatePreferences);
+    return () => { cleanupSync(); cleanupSettings(); };
+  }, [updateSyncStatus, updatePreferences]);
 
   // Reconnect to existing sessions on mount (e.g. after renderer reload/crash)
   // and restore persisted Claude sessions from state.json
@@ -222,7 +234,7 @@ export function App() {
       <Toolbar />
       <div className="flex flex-1 overflow-hidden" ref={outerRef}>
         <ActivityBar />
-        {activePanelId && (
+        {activePanelId && activePanelId !== 'settings' && (
           <>
             <SidePanel />
             <div
@@ -253,6 +265,14 @@ export function App() {
           )}
         </div>
       </div>
+      {activePanelId === 'settings' && (
+        <div className="absolute inset-0 z-40 flex" style={{ top: 48, left: 48 }}>
+          <div className="w-[360px] h-full bg-surface border-r border-border shadow-xl">
+            <SettingsPanel />
+          </div>
+          <div className="flex-1" onClick={() => useAppStore.getState().togglePanel('settings')} />
+        </div>
+      )}
       {sendDialogSourceId && <SendDialog />}
       {launcherOpen && <ProjectLauncher />}
     </div>

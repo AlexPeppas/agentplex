@@ -7,7 +7,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
 } from '@xyflow/react';
-import { SessionStatus, type SessionInfo, type CliTool } from '../shared/ipc-channels';
+import { SessionStatus, type SessionInfo, type CliTool, type SyncStatusInfo, type AppPreferences } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 
 function getAccentColor(): string {
@@ -55,7 +55,7 @@ interface SubagentEntry {
   spawnedAt: number;
 }
 
-export type PanelId = 'explorer' | 'search';
+export type PanelId = 'explorer' | 'search' | 'settings';
 
 export interface AppState {
   nodes: Node[];
@@ -132,6 +132,12 @@ export interface AppState {
   setDrawTool: (tool: 'pen' | 'eraser' | 'rect' | 'text') => void;
   setDrawColor: (color: string) => void;
 
+  // Settings sync
+  syncStatus: SyncStatusInfo;
+  preferences: AppPreferences;
+  updateSyncStatus: (status: SyncStatusInfo) => void;
+  updatePreferences: (prefs: AppPreferences) => void;
+
   // Imperative handles set by DrawingOverlay (not part of public API)
   _drawUndo?: () => void;
   _drawRedo?: () => void;
@@ -182,6 +188,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSidePanelWidth: (width: number) => {
     set({ sidePanelWidth: Math.max(160, Math.min(400, width)) });
   },
+
+  syncStatus: { status: 'not-configured', lastSyncedAt: null } as SyncStatusInfo,
+  preferences: {} as AppPreferences,
+  updateSyncStatus: (status: SyncStatusInfo) => set({ syncStatus: status }),
+  updatePreferences: (prefs: AppPreferences) => set({ preferences: prefs }),
 
   drawingMode: false,
   drawTool: 'pen' as const,
