@@ -7,6 +7,7 @@ import { SendDialog } from './components/SendDialog';
 import { ProjectLauncher } from './components/ProjectLauncher';
 import { ActivityBar } from './components/ActivityBar';
 import { SidePanel } from './components/SidePanel';
+import { ToastContainer } from './components/ToastContainer';
 import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
@@ -40,6 +41,7 @@ export function App() {
   const updateTask = useAppStore((s) => s.updateTask);
   const reconcileTasks = useAppStore((s) => s.reconcileTasks);
   const prevStatuses = useRef<Map<string, SessionStatus>>(new Map());
+  const lastNotified = useRef<Map<string, number>>(new Map());
 
   const renameSession = useAppStore((s) => s.renameSession);
 
@@ -166,6 +168,24 @@ export function App() {
       const prev = prevStatuses.current.get(id);
       if (status === SessionStatus.WaitingForInput && prev !== SessionStatus.WaitingForInput) {
         playBell();
+        const currentSelected = useAppStore.getState().selectedSessionId;
+        const isSelected = id === currentSelected;
+        const hasFocus = document.hasFocus();
+        if (!isSelected || !hasFocus) {
+          const now = Date.now();
+          const last = lastNotified.current.get(id) || 0;
+          if (now - last > 15_000) {
+            lastNotified.current.set(id, now);
+            const sessions = useAppStore.getState().sessions;
+            const displayNames = useAppStore.getState().displayNames;
+            const name = displayNames[id] || sessions[id]?.title || id;
+            if (hasFocus) {
+              useAppStore.getState().addToast(id, name);
+            } else {
+              window.agentPlex.notifyWaiting(id, name);
+            }
+          }
+        }
       }
       prevStatuses.current.set(id, status);
       updateStatus(id, status);
@@ -255,6 +275,7 @@ export function App() {
       </div>
       {sendDialogSourceId && <SendDialog />}
       {launcherOpen && <ProjectLauncher />}
+      <ToastContainer />
     </div>
   );
 }

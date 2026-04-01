@@ -213,4 +213,5 @@ export const IPC = {
   GIT_BRANCH_INFO: 'git:branchInfo',
   CANVAS_LOAD: 'canvas:load',
   CANVAS_SAVE: 'canvas:save',
+  NOTIFY_WAITING: 'notify:waiting',
 } as const;

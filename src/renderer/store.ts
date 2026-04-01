@@ -67,6 +67,7 @@ export interface AppState {
   shouldFocusNode: boolean;
   sessionBuffers: Record<string, string>;
   displayNames: Record<string, string>;
+  waitingSince: Record<string, number>;
   nodeCounter: number;
 
   // Actions
@@ -111,6 +112,11 @@ export interface AppState {
   terminalTab: 'session' | 'git';
   setTerminalTab: (tab: 'session' | 'git') => void;
 
+  // In-app toasts
+  toasts: { id: string; sessionId: string; name: string; timestamp: number }[];
+  addToast: (sessionId: string, name: string) => void;
+  dismissToast: (id: string) => void;
+
   // Project launcher
   launcherOpen: boolean;
   launcherMode: 'new' | 'resume';
@@ -154,10 +160,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   shouldFocusNode: false,
   sessionBuffers: {},
   displayNames: {},
+  waitingSince: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
   terminalTab: 'session' as const,
   setTerminalTab: (tab: 'session' | 'git') => set({ terminalTab: tab }),
+  toasts: [],
+  addToast: (sessionId: string, name: string) => {
+    const id = `${sessionId}-${Date.now()}`;
+    set((state) => ({ toasts: [...state.toasts, { id, sessionId, name, timestamp: Date.now() }] }));
+    setTimeout(() => {
+      set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+    }, 8000);
+  },
+  dismissToast: (id: string) => {
+    set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+  },
   launcherOpen: false,
   launcherMode: 'new' as const,
   launcherCli: 'claude' as CliTool,
@@ -292,11 +310,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateStatus: (id: string, status: SessionStatus) => {
     set((state) => {
       if (!state.sessions[id]) return state;
+      const prev = state.sessions[id].status;
+      const waitingSince = { ...state.waitingSince };
+      if (status === SessionStatus.WaitingForInput && prev !== SessionStatus.WaitingForInput) {
+        waitingSince[id] = Date.now();
+      } else if (status !== SessionStatus.WaitingForInput) {
+        delete waitingSince[id];
+      }
       return {
         sessions: {
           ...state.sessions,
           [id]: { ...state.sessions[id], status },
         },
+        waitingSince,
         nodes: state.nodes.map((n) =>
           n.id === id && n.type === 'sessionNode'
             ? { ...n, data: { ...n.data, status } }

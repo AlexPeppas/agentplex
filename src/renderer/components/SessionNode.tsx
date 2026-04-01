@@ -17,7 +17,7 @@ const CLI_ICONS: Record<string, { dark: string; light: string }> = {
   copilot: { dark: copilotLight, light: copilotDark },
 };
 
-function CliIcon({ cli, size = 14 }: { cli?: CliTool; size?: number }) {
+export function CliIcon({ cli, size = 14 }: { cli?: CliTool; size?: number }) {
   if (!cli) return null;
   const icons = CLI_ICONS[cli];
   if (!icons) return <Terminal size={size} className="shrink-0 text-fg-muted" />;

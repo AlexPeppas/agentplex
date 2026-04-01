@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
+import { ipcMain, dialog, shell, BrowserWindow, app, Notification, nativeImage } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData } from '../shared/ipc-channels';
@@ -410,5 +410,22 @@ ${safeContext}
   ipcMain.handle(IPC.CANVAS_SAVE, async (_event, data: DrawingData): Promise<void> => {
     fs.mkdirSync(canvasDir, { recursive: true });
     fs.writeFileSync(canvasPath, JSON.stringify(data), 'utf-8');
+  });
+
+  // ── Notifications ─────────────────────────────────────────────
+  const iconBase = app.isPackaged ? path.join(process.resourcesPath) : path.resolve(__dirname, '../../');
+  const iconPath = path.join(iconBase, 'assets', 'logo.png');
+  const notificationIcon = nativeImage.createFromPath(iconPath);
+
+  ipcMain.on(IPC.NOTIFY_WAITING, (_event, { id, name }: { id: string; name: string }) => {
+    if (typeof id !== 'string' || typeof name !== 'string') return;
+    if (!Notification.isSupported()) return;
+    const safeName = name.slice(0, 100);
+    const notification = new Notification({
+      title: 'AgentPlex',
+      body: `${safeName} is waiting for input`,
+      icon: notificationIcon,
+    });
+    notification.show();
   });
 }
