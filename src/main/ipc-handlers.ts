@@ -2,6 +2,7 @@ import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData } from '../shared/ipc-channels';
+import { ensureGlobalConfig, ensureProjectConfig } from './config-loader';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
 import { getDefaultShellId, setDefaultShellId } from './settings-manager';
@@ -60,6 +61,11 @@ export function registerIpcHandlers() {
   ipcMain.handle(IPC.SESSION_GET_BUFFER, (_event, { id }: { id: string }) => {
     if (typeof id !== 'string') return '';
     return sessionManager.getBuffer(id);
+  });
+
+  ipcMain.handle(IPC.SESSION_GET_CWD, (_event, { id }: { id: string }) => {
+    if (typeof id !== 'string') return null;
+    return sessionManager.getCwd(id);
   });
 
   ipcMain.handle(IPC.SUMMARIZE_CONTEXT, async (_event, { sessionId, sourceLabel }: { sessionId: string; sourceLabel: string }) => {
@@ -260,6 +266,23 @@ ${safeContext}
     if (typeof id !== 'string') return;
     if (!getCachedShells().some((s) => s.id === id)) return;
     setDefaultShellId(id);
+  });
+
+  ipcMain.handle(IPC.SETTINGS_OPEN_GLOBAL, async () => {
+    const configPath = ensureGlobalConfig();
+    const error = await shell.openPath(configPath);
+    if (error) {
+      dialog.showErrorBox('Failed to open global settings', error);
+    }
+  });
+
+  ipcMain.handle(IPC.SETTINGS_OPEN_PROJECT, async (_event, { cwd }: { cwd: string }) => {
+    if (typeof cwd !== 'string') return;
+    const configPath = ensureProjectConfig(cwd);
+    const error = await shell.openPath(configPath);
+    if (error) {
+      dialog.showErrorBox('Failed to open project settings', error);
+    }
   });
 
   ipcMain.handle(IPC.SHELL_OPEN_PATH, async (_event, { path }: { path: string }) => {

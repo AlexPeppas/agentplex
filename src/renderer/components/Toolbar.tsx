@@ -86,6 +86,14 @@ export function Toolbar() {
     setContextMenu(null);
   }, []);
 
+  const handleOpenSettings = useCallback(async () => {
+    try {
+      await window.agentPlex.openSettings();
+    } catch (error) {
+      console.error('Failed to open settings', error);
+    }
+  }, []);
+
   useEffect(() => {
     if (!contextMenu) return;
     const handleClick = (e: MouseEvent) => {
@@ -175,6 +183,15 @@ export function Toolbar() {
         <span className="text-sm font-semibold text-accent tracking-wide flex-1">AgentPlex</span>
       </div>
       <div className="[-webkit-app-region:no-drag] flex items-center gap-2.5">
+        <button
+          type="button"
+          className="flex items-center gap-1 h-6 px-2 rounded text-fg-muted text-[11px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"
+          onClick={handleOpenSettings}
+          title="Open settings"
+          aria-label="Open settings"
+        >
+          {'\u2699'}
+        </button>
         <div className="relative" ref={discoverRef}>
           <button
             className="flex items-center gap-1 h-6 px-2 rounded text-fg-muted text-[11px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"

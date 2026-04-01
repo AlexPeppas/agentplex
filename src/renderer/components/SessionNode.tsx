@@ -1,4 +1,5 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Send, ClipboardList, Circle, Check, Terminal } from 'lucide-react';
 import { StatusIndicator } from './StatusIndicator';
@@ -40,10 +41,24 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const [projectMenu, setProjectMenu] = useState<{ x: number; y: number } | null>(null);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
   }, [editing]);
+
+  useEffect(() => {
+    if (!projectMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
+        setProjectMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [projectMenu]);
+
 
   const commit = useCallback(() => {
     const trimmed = draft.trim();
@@ -69,6 +84,24 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     openSendDialog(nodeData.sessionId);
   };
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setProjectMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleOpenProjectConfig = useCallback(async () => {
+    setProjectMenu(null);
+    try {
+      const cwd = await window.agentPlex.getSessionCwd(nodeData.sessionId);
+      if (cwd) {
+        await window.agentPlex.openProjectConfig(cwd);
+      }
+    } catch (error) {
+      console.error('Failed to open project config for session', nodeData.sessionId, error);
+    }
+  }, [nodeData.sessionId]);
+
   const handleEditClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setDraft(nodeData.label);
@@ -86,6 +119,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     <div
       className={`group relative py-2.5 px-3.5 bg-elevated border-2 border-border rounded-[10px] min-w-[160px] cursor-pointer transition-[border-color,box-shadow] duration-150 select-none hover:border-border-strong ${isSelected ? 'border-accent shadow-[0_0_12px_var(--accent-subtle-strong)]' : ''} ${isKilled ? 'opacity-60' : ''}`}
       onClick={handleClick}
+      onContextMenu={handleContextMenu}
     >
       {cli && (
         <span className="absolute -top-2 -left-2 w-5 h-5 flex items-center justify-center bg-elevated border border-border rounded-full z-10 pointer-events-none">
@@ -136,6 +170,23 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
           </button>
         )}
       </div>
+
+      {projectMenu && createPortal(
+        <div
+          ref={projectMenuRef}
+          className="session-node__context-menu"
+          style={{ position: 'fixed', left: projectMenu.x, top: projectMenu.y, zIndex: 1000 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="session-node__context-menu-item"
+            onClick={handleOpenProjectConfig}
+          >
+            Open Project Settings
+          </button>
+        </div>,
+        document.body,
+      )}
 
       {nodeData.mode === 'plan' && (
         <div className="flex items-center gap-1.5 mt-2 py-1 px-2 bg-accent-subtle rounded-md overflow-hidden">

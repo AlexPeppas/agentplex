@@ -92,6 +92,11 @@ export interface PinnedProject {
   label?: string;
 }
 
+export interface ClaudeConfig {
+  command: string;
+  flags: string[];
+}
+
 export interface GitChangedFile {
   path: string;
   status: 'M' | 'A' | 'D' | 'R' | 'U' | '?' | string;
@@ -166,6 +171,7 @@ export const IPC = {
   SESSION_KILL: 'session:kill',
   SESSION_LIST: 'session:list',
   SESSION_GET_BUFFER: 'session:getBuffer',
+  SESSION_GET_CWD: 'session:getCwd',
   SESSION_DATA: 'session:data',
   SESSION_STATUS: 'session:status',
   SESSION_EXIT: 'session:exit',
@@ -192,6 +198,8 @@ export const IPC = {
   SHELL_LIST: 'shell:list',
   SETTINGS_GET_DEFAULT_SHELL: 'settings:getDefaultShell',
   SETTINGS_SET_DEFAULT_SHELL: 'settings:setDefaultShell',
+  SETTINGS_OPEN_GLOBAL: 'settings:openGlobal',
+  SETTINGS_OPEN_PROJECT: 'settings:openProject',
   SHELL_OPEN_PATH: 'shell:openPath',
   GIT_STATUS: 'git:status',
   GIT_FILE_DIFF: 'git:fileDiff',

@@ -33,6 +33,10 @@ const api = {
     return ipcRenderer.invoke(IPC.SESSION_GET_BUFFER, { id });
   },
 
+  getSessionCwd: (id: string): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC.SESSION_GET_CWD, { id });
+  },
+
   onSessionData: (callback: (data: { id: string; data: string }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { id: string; data: string }) => {
       callback(payload);
@@ -183,6 +187,14 @@ const api = {
 
   clipboardReadText: (): string => {
     return clipboard.readText();
+  },
+
+  openSettings: (): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_OPEN_GLOBAL);
+  },
+
+  openProjectConfig: (cwd: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SETTINGS_OPEN_PROJECT, { cwd });
   },
 
   gitStatus: (sessionId: string): Promise<GitStatusResult> => {

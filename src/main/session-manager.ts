@@ -13,6 +13,7 @@ import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
 import { renderJsonlTranscript } from './claude-session-scanner';
 import { PlanTaskDetector } from './plan-task-detector';
+import { resolveClaudeConfig } from './config-loader';
 
 const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
 
@@ -296,9 +297,11 @@ export class SessionManager {
     // smart-resume flow, or JSONL file exists on disk). Fall back to --session-id only
     // when restoring a session that was saved but never had a conversation.
     const hasConversation = forceResume || (fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).size > 0);
+    const config = resolveClaudeConfig(workDir);
+    const flagStr = config.flags.length > 0 ? ' ' + config.flags.join(' ') : '';
     const command = hasConversation
-      ? `${toolDef.command} --resume ${claudeSessionUuid}`
-      : `${toolDef.command} --session-id ${claudeSessionUuid}`;
+      ? `${config.command}${flagStr} --resume ${claudeSessionUuid}`
+      : `${config.command}${flagStr} --session-id ${claudeSessionUuid}`;
     setTimeout(() => {
       try {
         term.write(command + '\r');
@@ -461,9 +464,19 @@ export class SessionManager {
     // Auto-start the selected CLI tool after a short delay for shell to initialize.
     // Raw shell sessions (powershell/bash) skip this — the PTY is already the shell.
     if (!isRawShell) {
-      const command = sessionUuid
-        ? `${toolDef.command} --session-id ${sessionUuid}`
-        : toolDef.command;
+      let command: string;
+      if (cli === 'claude' || cli === 'claude-resume') {
+        const config = resolveClaudeConfig(workDir);
+        const flagStr = config.flags.length > 0 ? ' ' + config.flags.join(' ') : '';
+        if (sessionUuid) {
+          command = `${config.command}${flagStr} --session-id ${sessionUuid}`;
+        } else {
+          // claude-resume: interactive picker
+          command = `${config.command}${flagStr} --resume`;
+        }
+      } else {
+        command = toolDef.command;
+      }
 
       setTimeout(() => {
         try {
@@ -519,6 +532,10 @@ export class SessionManager {
 
   getBuffer(id: string): string {
     return this.sessions.get(id)?.buffer || '';
+  }
+
+  getCwd(id: string): string | null {
+    return this.sessions.get(id)?.cwd ?? null;
   }
 
   list(): SessionInfo[] {

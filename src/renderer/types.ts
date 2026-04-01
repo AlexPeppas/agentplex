@@ -9,6 +9,7 @@ export interface AgentPlexAPI {
   killSession: (id: string) => Promise<void>;
   listSessions: () => Promise<SessionInfo[]>;
   getSessionBuffer: (id: string) => Promise<string>;
+  getSessionCwd: (id: string) => Promise<string | null>;
   onSessionData: (callback: (data: { id: string; data: string }) => void) => () => void;
   onSessionStatus: (callback: (data: { id: string; status: SessionStatus }) => void) => () => void;
   onSessionExit: (callback: (data: { id: string; exitCode: number }) => void) => () => void;
@@ -37,6 +38,8 @@ export interface AgentPlexAPI {
   openPath: (path: string) => Promise<void>;
   clipboardWriteText: (text: string) => void;
   clipboardReadText: () => string;
+  openSettings: () => Promise<void>;
+  openProjectConfig: (cwd: string) => Promise<void>;
   gitStatus: (sessionId: string) => Promise<GitStatusResult>;
   gitFileDiff: (sessionId: string, filePath: string, staged: boolean) => Promise<GitFileDiffResult>;
   gitSaveFile: (sessionId: string, filePath: string, content: string) => Promise<void>;
