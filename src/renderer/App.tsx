@@ -11,8 +11,16 @@ import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
 
+let sharedAudioCtx: AudioContext | null = null;
+
 function playBell() {
-  const ctx = new AudioContext();
+  if (!sharedAudioCtx) {
+    sharedAudioCtx = new AudioContext();
+  }
+  const ctx = sharedAudioCtx;
+  if (ctx.state === 'suspended') {
+    ctx.resume();
+  }
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.connect(gain);
