@@ -1,7 +1,7 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Send, ClipboardList, Circle, Check, Terminal } from 'lucide-react';
+import { Send, ClipboardList, Circle, Check, Terminal, Trash2 } from 'lucide-react';
 import { StatusIndicator } from './StatusIndicator';
 import { useAppStore, type SessionNodeData } from '../store';
 import { SessionStatus, type CliTool } from '../../shared/ipc-channels';
@@ -31,6 +31,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const selectSession = useAppStore((s) => s.selectSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const renameSession = useAppStore((s) => s.renameSession);
+  const deleteSession = useAppStore((s) => s.deleteSession);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
@@ -108,6 +109,13 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     setEditing(true);
   };
 
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(`Delete session "${nodeData.label}"?`)) {
+      deleteSession(nodeData.sessionId);
+    }
+  };
+
   const editIcon = (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -152,22 +160,31 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
           </span>
         )}
         {!editing && (
-          <button
-            className="session-node__edit"
-            onClick={handleEditClick}
-            title="Rename session"
-          >
-            {editIcon}
-          </button>
-        )}
-        {!isKilled && (
-          <button
-            className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-accent cursor-pointer opacity-0 transition-[opacity,background] duration-150 group-hover:opacity-100 hover:bg-accent-subtle"
-            onClick={handleSend}
-            title="Send message to session"
-          >
-            <Send size={14} />
-          </button>
+          <>
+            {!isKilled && (
+              <button
+                className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-accent cursor-pointer opacity-0 transition-[opacity,background] duration-150 group-hover:opacity-100 hover:bg-accent-subtle"
+                onClick={handleSend}
+                title="Send message to session"
+              >
+                <Send size={14} />
+              </button>
+            )}
+            <button
+              className="session-node__edit"
+              onClick={handleEditClick}
+              title="Rename session"
+            >
+              {editIcon}
+            </button>
+            <button
+              className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-error cursor-pointer opacity-0 transition-[opacity,background] duration-150 group-hover:opacity-100 hover:bg-error-subtle"
+              onClick={handleDelete}
+              title="Delete session"
+            >
+              <Trash2 size={14} />
+            </button>
+          </>
         )}
       </div>
 
