@@ -55,7 +55,7 @@ interface SubagentEntry {
   spawnedAt: number;
 }
 
-export type PanelId = 'explorer' | 'search';
+export type PanelId = 'explorer' | 'search' | 'settings';
 
 export interface AppState {
   nodes: Node[];
