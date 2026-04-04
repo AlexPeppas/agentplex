@@ -111,5 +111,5 @@ export class JsonlSessionWatcher extends EventEmitter {
  * C:\Users\foo\project → C--Users-foo-project
  */
 export function encodeProjectPath(cwd: string): string {
-  return cwd.replace(/[\\/]/g, '-').replace(/:/g, '-');
+  return cwd.replace(/[\\/.:]/g, '-');
 }

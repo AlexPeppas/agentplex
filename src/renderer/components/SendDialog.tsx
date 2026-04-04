@@ -115,14 +115,26 @@ export function SendDialog() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [closeSendDialog, handleSend]);
 
-  const handleBackdropClick = (e: React.MouseEvent) => {
+  const downPos = useRef<{ x: number; y: number } | null>(null);
+
+  const handleBackdropMouseDown = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
+      downPos.current = { x: e.clientX, y: e.clientY };
+    }
+  };
+
+  const handleBackdropMouseUp = (e: React.MouseEvent) => {
+    if (e.target !== e.currentTarget || !downPos.current) return;
+    const dx = e.clientX - downPos.current.x;
+    const dy = e.clientY - downPos.current.y;
+    downPos.current = null;
+    if (dx * dx + dy * dy < 25) {
       closeSendDialog();
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-backdrop flex items-center justify-center z-[1000]" onClick={handleBackdropClick}>
+    <div className="fixed inset-0 bg-backdrop flex items-center justify-center z-[1000]" onMouseDown={handleBackdropMouseDown} onMouseUp={handleBackdropMouseUp}>
       <div className="bg-elevated border border-border-strong rounded-xl p-5 w-[520px] max-w-[90vw] shadow-[0_8px_32px_var(--shadow-heavy)]">
         <div className="text-sm font-semibold text-fg mb-3.5">
           Send context from: {sourceLabel}
