@@ -29,31 +29,31 @@ export function SettingsPanel() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-1.5 p-3.5">
+    <div className="flex flex-col gap-1 p-3">
       <button
         onClick={toggleTheme}
-        className="flex items-center justify-between w-full px-3 py-2 rounded-lg bg-elevated hover:bg-border transition-colors cursor-pointer"
+        className="flex items-center justify-between w-full px-2.5 py-1.5 rounded-md bg-elevated hover:bg-border transition-colors cursor-pointer"
       >
-        <div className="flex items-center gap-2.5">
-          {theme === 'dark' ? <Moon size={15} className="text-fg-muted" /> : <Sun size={15} className="text-fg-muted" />}
-          <span className="text-[13px] text-fg">
+        <div className="flex items-center gap-2">
+          {theme === 'dark' ? <Moon size={13} className="text-fg-muted" /> : <Sun size={13} className="text-fg-muted" />}
+          <span className="text-xs text-fg">
             {theme === 'dark' ? 'Dark mode' : 'Light mode'}
           </span>
         </div>
-        <span className="text-[11px] text-fg-muted">
+        <span className="text-[10px] text-fg-muted">
           Switch to {theme === 'dark' ? 'light' : 'dark'}
         </span>
       </button>
 
       <button
         onClick={handleConfigureLaunch}
-        className="flex items-center justify-between w-full px-3 py-2 rounded-lg bg-elevated hover:bg-border transition-colors cursor-pointer"
+        className="flex items-center justify-between w-full px-2.5 py-1.5 rounded-md bg-elevated hover:bg-border transition-colors cursor-pointer"
       >
-        <div className="flex items-center gap-2.5">
-          <ExternalLink size={15} className="text-fg-muted" />
-          <span className="text-[13px] text-fg">Configure launch</span>
+        <div className="flex items-center gap-2">
+          <ExternalLink size={13} className="text-fg-muted" />
+          <span className="text-xs text-fg">Configure launch</span>
         </div>
-        <span className="text-[11px] text-fg-muted">settings.json</span>
+        <span className="text-[10px] text-fg-muted">settings.json</span>
       </button>
     </div>
   );

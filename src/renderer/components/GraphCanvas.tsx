@@ -105,9 +105,15 @@ export function GraphCanvas() {
     [createGroup, addToGroup, removeFromGroup]
   );
 
+  const bumpViewportMove = useAppStore((s) => s.bumpViewportMove);
+
   const onPaneClick = useCallback(() => {
     selectSession(null);
   }, [selectSession]);
+
+  const onMove = useCallback(() => {
+    bumpViewportMove();
+  }, [bumpViewportMove]);
 
   return (
     <div className="graph-canvas w-full h-full relative">
@@ -119,6 +125,7 @@ export function GraphCanvas() {
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}
+        onMove={onMove}
         nodeTypes={nodeTypes}
         fitView
         panOnDrag={!drawingMode}

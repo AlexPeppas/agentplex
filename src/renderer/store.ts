@@ -98,6 +98,10 @@ export interface AppState {
   openSendDialog: (sourceSessionId: string) => void;
   closeSendDialog: () => void;
 
+  /** Bumped on viewport pan/zoom — nodes watch this to dismiss menus */
+  viewportMoveCount: number;
+  bumpViewportMove: () => void;
+
   // Grouping
   createGroup: (nodeIdA: string, nodeIdB: string) => void;
   addToGroup: (groupId: string, nodeId: string) => void;
@@ -157,6 +161,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   displayNames: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
+  viewportMoveCount: 0,
+  bumpViewportMove: () => set((s) => ({ viewportMoveCount: s.viewportMoveCount + 1 })),
   terminalTab: 'session' as const,
   setTerminalTab: (tab: 'session' | 'git') => set({ terminalTab: tab }),
   launcherOpen: false,

@@ -39,6 +39,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
 
+  const viewportMoveCount = useAppStore((s) => s.viewportMoveCount);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,15 +50,31 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     if (editing) inputRef.current?.select();
   }, [editing]);
 
+  // Dismiss on viewport pan/zoom (React Flow's onMove)
+  useEffect(() => {
+    if (projectMenu) setProjectMenu(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewportMoveCount]);
+
+  // Dismiss context menu on any interaction outside it
   useEffect(() => {
     if (!projectMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
-        setProjectMenu(null);
-      }
+    const dismissIfOutside = (e: Event) => {
+      if (projectMenuRef.current && projectMenuRef.current.contains(e.target as Node)) return;
+      setProjectMenu(null);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const dismissAlways = () => setProjectMenu(null);
+    // Capture phase so we fire before React Flow swallows the event
+    document.addEventListener('mousedown', dismissIfOutside, true);
+    document.addEventListener('pointerdown', dismissIfOutside, true);
+    document.addEventListener('wheel', dismissAlways, { capture: true, passive: true });
+    document.addEventListener('keydown', dismissAlways, true);
+    return () => {
+      document.removeEventListener('mousedown', dismissIfOutside, true);
+      document.removeEventListener('pointerdown', dismissIfOutside, true);
+      document.removeEventListener('wheel', dismissAlways, { capture: true } as EventListenerOptions);
+      document.removeEventListener('keydown', dismissAlways, true);
+    };
   }, [projectMenu]);
 
 
