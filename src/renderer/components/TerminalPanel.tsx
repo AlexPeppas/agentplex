@@ -64,9 +64,6 @@ export function TerminalPanel() {
           </button>
         </div>
         <div className="flex items-center gap-2 pr-1">
-          <span className="text-xs text-[#6a5e50] truncate max-w-40">
-            {sessionTitle || 'Terminal'}
-          </span>
           <button
             className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
             onClick={() => selectSession(null)}

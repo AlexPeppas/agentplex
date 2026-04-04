@@ -206,6 +206,8 @@ export const IPC = {
   GIT_SAVE_FILE: 'git:saveFile',
   GIT_STAGE_FILE: 'git:stageFile',
   GIT_UNSTAGE_FILE: 'git:unstageFile',
+  GIT_STAGE_ALL: 'git:stageAll',
+  GIT_UNSTAGE_ALL: 'git:unstageAll',
   GIT_COMMIT: 'git:commit',
   GIT_PUSH: 'git:push',
   GIT_PULL: 'git:pull',

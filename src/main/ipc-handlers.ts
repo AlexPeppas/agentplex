@@ -7,7 +7,7 @@ import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
 import { getDefaultShellId, setDefaultShellId } from './settings-manager';
 import { scanProjects, scanSessionsForProject, getPinnedProjects, updatePinnedProjects, resolveProjectPath } from './claude-session-scanner';
-import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
+import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, stageAll, unstageAll, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
@@ -368,6 +368,24 @@ ${safeContext}
     const status = await getGitStatus(cwd);
     if (!status.isRepo) throw new Error('Not a git repository');
     return unstageFile(status.repoRoot, filePath);
+  });
+
+  ipcMain.handle(IPC.GIT_STAGE_ALL, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return stageAll(status.repoRoot);
+  });
+
+  ipcMain.handle(IPC.GIT_UNSTAGE_ALL, async (_event, { sessionId }: { sessionId: string }) => {
+    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session not found');
+    const status = await getGitStatus(cwd);
+    if (!status.isRepo) throw new Error('Not a git repository');
+    return unstageAll(status.repoRoot);
   });
 
   ipcMain.handle(IPC.GIT_COMMIT, async (_event, { sessionId, message }: { sessionId: string; message: string }) => {

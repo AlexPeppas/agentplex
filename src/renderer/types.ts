@@ -45,6 +45,8 @@ export interface AgentPlexAPI {
   gitSaveFile: (sessionId: string, filePath: string, content: string) => Promise<void>;
   gitStageFile: (sessionId: string, filePath: string) => Promise<void>;
   gitUnstageFile: (sessionId: string, filePath: string) => Promise<void>;
+  gitStageAll: (sessionId: string) => Promise<void>;
+  gitUnstageAll: (sessionId: string) => Promise<void>;
   gitCommit: (sessionId: string, message: string) => Promise<GitCommandResult>;
   gitPush: (sessionId: string) => Promise<GitCommandResult>;
   gitPull: (sessionId: string) => Promise<GitCommandResult>;

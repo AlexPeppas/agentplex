@@ -217,6 +217,14 @@ const api = {
     return ipcRenderer.invoke(IPC.GIT_UNSTAGE_FILE, { sessionId, filePath });
   },
 
+  gitStageAll: (sessionId: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_STAGE_ALL, { sessionId });
+  },
+
+  gitUnstageAll: (sessionId: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_UNSTAGE_ALL, { sessionId });
+  },
+
   gitCommit: (sessionId: string, message: string): Promise<GitCommandResult> => {
     return ipcRenderer.invoke(IPC.GIT_COMMIT, { sessionId, message });
   },

@@ -197,6 +197,18 @@ export async function unstageFile(repoRoot: string, filePath: string): Promise<v
   }
 }
 
+export async function stageAll(repoRoot: string): Promise<void> {
+  await git(['add', '-A'], repoRoot);
+}
+
+export async function unstageAll(repoRoot: string): Promise<void> {
+  try {
+    await git(['reset', 'HEAD'], repoRoot);
+  } catch {
+    await git(['rm', '--cached', '-r', '.'], repoRoot);
+  }
+}
+
 export async function gitCommit(repoRoot: string, message: string): Promise<GitCommandResult> {
   try {
     const output = await git(['commit', '-m', message], repoRoot);
