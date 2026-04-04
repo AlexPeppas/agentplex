@@ -34,7 +34,7 @@ function playBell() {
 }
 
 export function App() {
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const hasOpenPanes = useAppStore((s) => s.openPanes.length > 0);
   const sendDialogSourceId = useAppStore((s) => s.sendDialogSourceId);
   const launcherOpen = useAppStore((s) => s.launcherOpen);
   const addSession = useAppStore((s) => s.addSession);
@@ -242,13 +242,13 @@ export function App() {
         <div className="flex flex-1 min-w-0 overflow-hidden" ref={mainAreaRef}>
           <div
             className="flex-1 min-w-0 h-full"
-            style={selectedSessionId ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
+            style={hasOpenPanes ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
           >
             <ReactFlowProvider>
               <GraphCanvas />
             </ReactFlowProvider>
           </div>
-          {selectedSessionId && (
+          {hasOpenPanes && (
             <>
               <div
                 className="flex-[0_0_4px] cursor-col-resize bg-border transition-colors duration-[120ms] hover:bg-accent active:bg-accent"

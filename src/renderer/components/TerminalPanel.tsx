@@ -1,4 +1,4 @@
-import { useRef, lazy, Suspense, useEffect } from 'react';
+import { useRef, lazy, Suspense, useEffect, useCallback } from 'react';
 import { X, GitBranch, Terminal } from 'lucide-react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useAppStore } from '../store';
@@ -12,18 +12,19 @@ const GitDiffPanel = lazy(() =>
 // Initialize Monaco theme once
 let themeInitialized = false;
 
-export function TerminalPanel() {
+/** A single terminal pane for one session */
+function TerminalPane({ sessionId }: { sessionId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const sessionTitle = useAppStore(
-    (s) => selectedSessionId
-      ? s.displayNames[selectedSessionId] || s.sessions[selectedSessionId]?.title
-      : null
+    (s) => s.displayNames[sessionId] || s.sessions[sessionId]?.title || sessionId
   );
-  const selectSession = useAppStore((s) => s.selectSession);
+  const activePaneId = useAppStore((s) => s.activePaneId);
+  const closePane = useAppStore((s) => s.closePane);
   const terminalTab = useAppStore((s) => s.terminalTab);
   const setTerminalTab = useAppStore((s) => s.setTerminalTab);
-  useTerminal(containerRef);
+  const isActive = activePaneId === sessionId;
+
+  useTerminal(containerRef, sessionId);
 
   // Initialize Monaco theme on first git tab open
   useEffect(() => {
@@ -33,12 +34,22 @@ export function TerminalPanel() {
     }
   }, [terminalTab]);
 
-  if (!selectedSessionId) return null;
+  const handleActivate = useCallback(() => {
+    useAppStore.getState().openPane(sessionId);
+  }, [sessionId]);
+
+  const handleClose = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    closePane(sessionId);
+  }, [sessionId, closePane]);
 
   return (
-    <div className="flex flex-col h-full bg-[#1e1c18]">
-      {/* Header with tabs */}
-      <div className="flex items-center justify-between py-0 px-1 bg-[#262420] border-b border-[#3e3830]">
+    <div
+      className={`flex flex-col flex-1 min-w-0 h-full ${isActive ? '' : 'opacity-80'}`}
+      onClick={handleActivate}
+    >
+      {/* Pane header */}
+      <div className={`flex items-center justify-between py-0 px-1 bg-[#262420] border-b ${isActive ? 'border-[#d18a7a]' : 'border-[#3e3830]'}`}>
         <div className="flex items-center gap-0.5">
           <button
             className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
@@ -49,7 +60,7 @@ export function TerminalPanel() {
             onClick={() => setTerminalTab('session')}
           >
             <Terminal size={12} />
-            Session
+            {sessionTitle}
           </button>
           <button
             className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
@@ -66,8 +77,8 @@ export function TerminalPanel() {
         <div className="flex items-center gap-2 pr-1">
           <button
             className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
-            onClick={() => selectSession(null)}
-            title="Close terminal"
+            onClick={handleClose}
+            title="Close pane"
           >
             <X size={14} />
           </button>
@@ -91,10 +102,29 @@ export function TerminalPanel() {
               </div>
             }
           >
-            <GitDiffPanel sessionId={selectedSessionId} />
+            <GitDiffPanel sessionId={sessionId} />
           </Suspense>
         </div>
       )}
+    </div>
+  );
+}
+
+export function TerminalPanel() {
+  const openPanes = useAppStore((s) => s.openPanes);
+
+  if (openPanes.length === 0) return null;
+
+  return (
+    <div className="flex h-full bg-[#1e1c18]">
+      {openPanes.map((sessionId, idx) => (
+        <div key={sessionId} className="flex flex-1 min-w-0 h-full">
+          {idx > 0 && (
+            <div className="flex-[0_0_1px] bg-[#3e3830]" />
+          )}
+          <TerminalPane sessionId={sessionId} />
+        </div>
+      ))}
     </div>
   );
 }

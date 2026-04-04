@@ -32,10 +32,9 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const renameSession = useAppStore((s) => s.renameSession);
   const deleteSession = useAppStore((s) => s.deleteSession);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const isSelected = useAppStore((s) => s.openPanes.includes(nodeData.sessionId));
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
-  const isSelected = selectedSessionId === nodeData.sessionId;
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
 

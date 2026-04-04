@@ -35,7 +35,7 @@ type ContextMenu =
 export function ExplorerPanel() {
   const sessions = useAppStore((s) => s.sessions);
   const displayNames = useAppStore((s) => s.displayNames);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const openPanes = useAppStore((s) => s.openPanes);
   const selectSession = useAppStore((s) => s.selectSession);
   const removeSession = useAppStore((s) => s.removeSession);
   const renameSession = useAppStore((s) => s.renameSession);
@@ -182,7 +182,7 @@ export function ExplorerPanel() {
           </button>
           {!collapsed.has(dir.cwd) &&
             dir.sessions.map((s) => {
-              const isSelected = selectedSessionId === s.id;
+              const isSelected = openPanes.includes(s.id);
               const isRenaming = renamingId === s.id;
               return (
                 <button
