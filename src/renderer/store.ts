@@ -62,7 +62,12 @@ export interface AppState {
   edges: Edge[];
   sessions: Record<string, SessionInfo>;
   subagents: Record<string, SubagentEntry>;
+  /** @deprecated Use activePaneId instead. Kept for backward compat — returns activePaneId. */
   selectedSessionId: string | null;
+  /** Ordered list of open terminal pane session IDs (max ~3) */
+  openPanes: string[];
+  /** Which pane is currently active/focused */
+  activePaneId: string | null;
   /** When true, GraphCanvas should focus/zoom the selected node */
   shouldFocusNode: boolean;
   sessionBuffers: Record<string, string>;
@@ -75,6 +80,8 @@ export interface AppState {
   deleteSession: (id: string) => Promise<void>;
   updateStatus: (id: string, status: SessionStatus) => void;
   selectSession: (id: string | null, focus?: boolean) => void;
+  openPane: (sessionId: string) => void;
+  closePane: (sessionId: string) => void;
   appendBuffer: (id: string, data: string) => void;
 
   // Sub-agent actions
@@ -156,6 +163,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessions: {},
   subagents: {},
   selectedSessionId: null,
+  openPanes: [],
+  activePaneId: null,
   shouldFocusNode: false,
   sessionBuffers: {},
   displayNames: {},
@@ -284,6 +293,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
+      const newOpenPanes = state.openPanes.filter((pid) => pid !== id);
+      let newActivePaneId = state.activePaneId;
+      if (state.activePaneId === id) {
+        newActivePaneId = newOpenPanes.length > 0 ? newOpenPanes[newOpenPanes.length - 1] : null;
+      }
+
       return {
         nodes,
         edges,
@@ -291,7 +306,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         sessionBuffers: restBuffers,
         displayNames: restDisplayNames,
         subagents: restSubagents,
-        selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
+        openPanes: newOpenPanes,
+        activePaneId: newActivePaneId,
+        selectedSessionId: newActivePaneId,
       };
     });
   },
@@ -321,7 +338,41 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectSession: (id: string | null, focus = false) => {
-    set({ selectedSessionId: id, shouldFocusNode: focus, terminalTab: 'session' });
+    if (id === null) {
+      // Close all panes
+      set({ openPanes: [], activePaneId: null, selectedSessionId: null, shouldFocusNode: focus, terminalTab: 'session' });
+    } else {
+      // Open or activate pane
+      get().openPane(id);
+      set({ shouldFocusNode: focus, terminalTab: 'session' });
+    }
+  },
+
+  openPane: (sessionId: string) => {
+    const { openPanes } = get();
+    if (openPanes.includes(sessionId)) {
+      // Already open — just activate it
+      set({ activePaneId: sessionId, selectedSessionId: sessionId });
+    } else {
+      // Add new pane (cap at 3 — remove the oldest non-active pane if needed)
+      let newPanes = [...openPanes, sessionId];
+      if (newPanes.length > 3) {
+        // Remove the first pane that isn't the new one
+        newPanes = [...newPanes.slice(1)];
+      }
+      set({ openPanes: newPanes, activePaneId: sessionId, selectedSessionId: sessionId });
+    }
+  },
+
+  closePane: (sessionId: string) => {
+    const { openPanes, activePaneId } = get();
+    const newPanes = openPanes.filter((id) => id !== sessionId);
+    let newActive = activePaneId;
+    if (activePaneId === sessionId) {
+      // Activate the last remaining pane, or null
+      newActive = newPanes.length > 0 ? newPanes[newPanes.length - 1] : null;
+    }
+    set({ openPanes: newPanes, activePaneId: newActive, selectedSessionId: newActive });
   },
 
   appendBuffer: (id: string, data: string) => {

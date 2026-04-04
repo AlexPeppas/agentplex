@@ -33,13 +33,41 @@ const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 let terminalFontSize = DEFAULT_FONT_SIZE;
 
-export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+/** Registry of all live terminal instances — zoom applies to all of them. */
+const liveTerminals = new Set<{ term: Terminal; fitAddon: FitAddon; sessionId: string }>();
+
+// Single global zoom listener (registered lazily, never removed — harmless)
+let zoomListenerRegistered = false;
+
+function ensureGlobalZoomListener() {
+  if (zoomListenerRegistered) return;
+  zoomListenerRegistered = true;
+  window.agentPlex.onZoom((direction) => {
+    let newSize: number;
+    if (direction === 'in') newSize = Math.min(terminalFontSize + 2, MAX_FONT_SIZE);
+    else if (direction === 'out') newSize = Math.max(terminalFontSize - 2, MIN_FONT_SIZE);
+    else newSize = DEFAULT_FONT_SIZE;
+    if (newSize !== terminalFontSize) {
+      terminalFontSize = newSize;
+      for (const entry of liveTerminals) {
+        entry.term.options.fontSize = newSize;
+        try {
+          entry.fitAddon.fit();
+          window.agentPlex.resizeSession(entry.sessionId, entry.term.cols, entry.term.rows);
+        } catch { /* ignore */ }
+      }
+    }
+  });
+}
+
+export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string) {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current || !selectedSessionId) return;
+    if (!containerRef.current || !sessionId) return;
+
+    ensureGlobalZoomListener();
 
     // Create terminal
     const term = new Terminal({
@@ -59,13 +87,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     requestAnimationFrame(() => {
       try {
         fitAddon.fit();
-        if (selectedSessionId) {
-          window.agentPlex.resizeSession(
-            selectedSessionId,
-            term.cols,
-            term.rows
-          );
-        }
+        window.agentPlex.resizeSession(sessionId, term.cols, term.rows);
       } catch {
         // container might not be ready
       }
@@ -73,8 +95,11 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     termRef.current = term;
 
+    // Register in global set for zoom
+    const entry = { term, fitAddon, sessionId };
+    liveTerminals.add(entry);
+
     // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
-    const sessionId_ = selectedSessionId;
     const isMac = window.agentPlex.platform === 'darwin';
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       const modKey = isMac ? e.metaKey : e.ctrlKey;
@@ -113,11 +138,14 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       }
       if (newSize !== terminalFontSize) {
         terminalFontSize = newSize;
-        term.options.fontSize = newSize;
-        try {
-          fitAddon.fit();
-          window.agentPlex.resizeSession(sessionId_, term.cols, term.rows);
-        } catch { /* ignore */ }
+        // Apply to ALL live terminals
+        for (const e of liveTerminals) {
+          e.term.options.fontSize = newSize;
+          try {
+            e.fitAddon.fit();
+            window.agentPlex.resizeSession(e.sessionId, e.term.cols, e.term.rows);
+          } catch { /* ignore */ }
+        }
       }
       e.preventDefault();
       return false;
@@ -125,18 +153,17 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
 
     // Write buffered output
-    const buffer = useAppStore.getState().sessionBuffers[selectedSessionId];
+    const buffer = useAppStore.getState().sessionBuffers[sessionId];
     if (buffer) {
       term.write(buffer);
     }
 
     // Forward keystrokes to pty
-    const sessionId = selectedSessionId;
     term.onData((data) => {
       window.agentPlex.writeSession(sessionId, data);
     });
 
-    // Subscribe to pty output
+    // Subscribe to pty output — filter by this pane's sessionId
     const cleanup = window.agentPlex.onSessionData(({ id, data }) => {
       if (id === sessionId && termRef.current) {
         termRef.current.write(data);
@@ -167,32 +194,15 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     };
     container.addEventListener('contextmenu', handleContextMenu);
 
-    // Zoom via main process menu accelerator (Ctrl+=/Ctrl+-/Ctrl+0)
-    const zoomCleanup = window.agentPlex.onZoom((direction) => {
-      if (!termRef.current) return;
-      let newSize: number;
-      if (direction === 'in') newSize = Math.min(terminalFontSize + 2, MAX_FONT_SIZE);
-      else if (direction === 'out') newSize = Math.max(terminalFontSize - 2, MIN_FONT_SIZE);
-      else newSize = DEFAULT_FONT_SIZE;
-      if (newSize !== terminalFontSize) {
-        terminalFontSize = newSize;
-        termRef.current.options.fontSize = newSize;
-        try {
-          fitAddon.fit();
-          window.agentPlex.resizeSession(sessionId, termRef.current.cols, termRef.current.rows);
-        } catch { /* ignore */ }
-      }
-    });
-
     return () => {
       disposed = true;
+      liveTerminals.delete(entry);
       container.removeEventListener('contextmenu', handleContextMenu);
       resizeObserver.disconnect();
-      zoomCleanup();
       cleanup();
       term.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [selectedSessionId]); // intentionally only depend on session change
+  }, [sessionId]); // intentionally only depend on session change
 }
