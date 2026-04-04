@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
-  Controls,
   useReactFlow,
   type Node,
   type OnNodeDrag,
@@ -138,7 +137,6 @@ export function GraphCanvas() {
         proOptions={{ hideAttribution: true }}
       >
         <Background />
-        <Controls />
       </ReactFlow>
       <DrawingOverlay />
     </div>
