@@ -167,10 +167,28 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     };
     container.addEventListener('contextmenu', handleContextMenu);
 
+    // Zoom via main process menu accelerator (Ctrl+=/Ctrl+-/Ctrl+0)
+    const zoomCleanup = window.agentPlex.onZoom((direction) => {
+      if (!termRef.current) return;
+      let newSize: number;
+      if (direction === 'in') newSize = Math.min(terminalFontSize + 2, MAX_FONT_SIZE);
+      else if (direction === 'out') newSize = Math.max(terminalFontSize - 2, MIN_FONT_SIZE);
+      else newSize = DEFAULT_FONT_SIZE;
+      if (newSize !== terminalFontSize) {
+        terminalFontSize = newSize;
+        termRef.current.options.fontSize = newSize;
+        try {
+          fitAddon.fit();
+          window.agentPlex.resizeSession(sessionId, termRef.current.cols, termRef.current.rows);
+        } catch { /* ignore */ }
+      }
+    });
+
     return () => {
       disposed = true;
       container.removeEventListener('contextmenu', handleContextMenu);
       resizeObserver.disconnect();
+      zoomCleanup();
       cleanup();
       term.dispose();
       termRef.current = null;

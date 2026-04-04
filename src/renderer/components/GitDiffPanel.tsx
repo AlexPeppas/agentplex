@@ -39,6 +39,7 @@ export function GitDiffPanel({ sessionId }: Props) {
   const [isModified, setIsModified] = useState(false);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const currentSessionRef = useRef(sessionId);
+  const [editorFontSize, setEditorFontSize] = useState(13);
 
   // Commit state
   const [commitMsg, setCommitMsg] = useState('');
@@ -244,6 +245,23 @@ export function GitDiffPanel({ sessionId }: Props) {
       () => handleSave(),
     );
   }, [handleSave]);
+
+  // Sync font size to editor when it changes
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.getOriginalEditor().updateOptions({ fontSize: editorFontSize });
+      editorRef.current.getModifiedEditor().updateOptions({ fontSize: editorFontSize });
+    }
+  }, [editorFontSize]);
+
+  // Ctrl+=/Ctrl+-/Ctrl+0 zoom via main process menu accelerator
+  useEffect(() => {
+    return window.agentPlex.onZoom((direction) => {
+      if (direction === 'in') setEditorFontSize((s) => Math.min(s + 2, 32));
+      else if (direction === 'out') setEditorFontSize((s) => Math.max(s - 2, 8));
+      else if (direction === 'reset') setEditorFontSize(13);
+    });
+  }, []);
 
   const handleToggleLog = useCallback(() => {
     if (!logOpen) refreshLog();
@@ -529,7 +547,7 @@ export function GitDiffPanel({ sessionId }: Props) {
                 renderSideBySide: true,
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
-                fontSize: 13,
+                fontSize: editorFontSize,
                 fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
                 lineNumbers: 'on',
                 glyphMargin: false,

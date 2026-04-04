@@ -245,6 +245,14 @@ const api = {
     return ipcRenderer.invoke(IPC.GIT_BRANCH_INFO, { sessionId });
   },
 
+  onZoom: (callback: (direction: 'in' | 'out' | 'reset') => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, direction: 'in' | 'out' | 'reset') => {
+      callback(direction);
+    };
+    ipcRenderer.on('app:zoom', handler);
+    return () => ipcRenderer.removeListener('app:zoom', handler);
+  },
+
   canvasLoad: (): Promise<DrawingData> => {
     return ipcRenderer.invoke(IPC.CANVAS_LOAD);
   },

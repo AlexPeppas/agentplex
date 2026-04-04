@@ -112,6 +112,22 @@ function createWindow() {
   template.push({
     label: 'View',
     submenu: [
+      {
+        label: 'Zoom In',
+        accelerator: 'CmdOrCtrl+=',
+        click: (_item, win) => { (win as BrowserWindow)?.webContents.send('app:zoom', 'in'); },
+      },
+      {
+        label: 'Zoom Out',
+        accelerator: 'CmdOrCtrl+-',
+        click: (_item, win) => { (win as BrowserWindow)?.webContents.send('app:zoom', 'out'); },
+      },
+      {
+        label: 'Reset Zoom',
+        accelerator: 'CmdOrCtrl+0',
+        click: (_item, win) => { (win as BrowserWindow)?.webContents.send('app:zoom', 'reset'); },
+      },
+      { type: 'separator' },
       { role: 'toggleDevTools' },
       { type: 'separator' },
       { role: 'togglefullscreen' },

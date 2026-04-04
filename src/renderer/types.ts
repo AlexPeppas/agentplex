@@ -52,6 +52,7 @@ export interface AgentPlexAPI {
   gitPull: (sessionId: string) => Promise<GitCommandResult>;
   gitLog: (sessionId: string) => Promise<GitLogEntry[]>;
   gitBranchInfo: (sessionId: string) => Promise<GitBranchInfo>;
+  onZoom: (callback: (direction: 'in' | 'out' | 'reset') => void) => () => void;
   canvasLoad: () => Promise<DrawingData>;
   canvasSave: (data: DrawingData) => Promise<void>;
 }
