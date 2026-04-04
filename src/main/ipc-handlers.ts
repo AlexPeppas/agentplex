@@ -285,9 +285,32 @@ ${safeContext}
     }
   });
 
-  ipcMain.handle(IPC.SHELL_OPEN_PATH, async (_event, { path }: { path: string }) => {
-    if (typeof path !== 'string') return;
-    const error = await shell.openPath(path);
+  ipcMain.handle(IPC.SHELL_OPEN_PATH, async (_event, { path: reqPath }: { path: string }) => {
+    if (typeof reqPath !== 'string') return;
+
+    // Security: only allow opening directories that are known session cwds.
+    // This prevents the renderer from opening arbitrary files/executables.
+    const resolved = path.resolve(reqPath);
+    const knownCwds = new Set(
+      sessionManager.list().map((s) => path.resolve(s.cwd))
+    );
+
+    if (!knownCwds.has(resolved)) {
+      console.warn('[openPath] Blocked — not a known session cwd:', resolved);
+      throw new Error('Path is not a known session working directory');
+    }
+
+    try {
+      const stat = fs.statSync(resolved);
+      if (!stat.isDirectory()) {
+        throw new Error('Path is not a directory');
+      }
+    } catch (err: any) {
+      if (err.code === 'ENOENT') throw new Error('Path does not exist', { cause: err });
+      throw err;
+    }
+
+    const error = await shell.openPath(resolved);
     if (error) {
       console.error('Failed to open path:', error);
       throw new Error(error);
