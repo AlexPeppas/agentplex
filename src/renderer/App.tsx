@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { Toolbar } from './components/Toolbar';
 import { GraphCanvas } from './components/GraphCanvas';
@@ -10,6 +10,25 @@ import { SidePanel } from './components/SidePanel';
 import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[ErrorBoundary]', error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return <div style={{ padding: 20, color: '#e07070', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+        <h2>Renderer crashed</h2>
+        <p>{this.state.error.message}</p>
+        <pre>{this.state.error.stack}</pre>
+        <button onClick={() => this.setState({ error: null })} style={{ marginTop: 10, padding: '4px 12px' }}>Retry</button>
+      </div>;
+    }
+    return this.props.children;
+  }
+}
 
 let sharedAudioCtx: AudioContext | null = null;
 
@@ -255,7 +274,9 @@ export function App() {
                 onMouseDown={handleResizeStart}
               />
               <div className="min-w-0 h-full" style={{ flex: `0 0 ${terminalWidth}%` }}>
-                <TerminalPanel />
+                <ErrorBoundary>
+                  <TerminalPanel />
+                </ErrorBoundary>
               </div>
             </>
           )}
