@@ -1,8 +1,28 @@
-import { useRef, lazy, Suspense, useEffect, useCallback } from 'react';
+import { useRef, lazy, Suspense, useEffect, useCallback, useState } from 'react';
 import { X, GitBranch, Terminal } from 'lucide-react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useAppStore } from '../store';
 import { defineAgentPlexTheme } from '../monaco-theme';
+import type { CliTool } from '../../shared/ipc-channels';
+import claudeLogo from '../../../assets/claude-logo.svg';
+import codexDark from '../../../assets/codex-dark.svg';
+import codexLight from '../../../assets/codex-light.svg';
+import copilotDark from '../../../assets/githubcopilot-dark.svg';
+import copilotLight from '../../../assets/githubcopilot-light.svg';
+
+const CLI_ICONS: Record<string, { dark: string; light: string }> = {
+  claude: { dark: claudeLogo, light: claudeLogo },
+  codex: { dark: codexLight, light: codexDark },
+  copilot: { dark: copilotLight, light: copilotDark },
+};
+
+function CliIcon({ cli, size = 12 }: { cli?: CliTool; size?: number }) {
+  if (!cli) return <Terminal size={size} className="shrink-0" />;
+  const icons = CLI_ICONS[cli];
+  if (!icons) return <Terminal size={size} className="shrink-0" />;
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  return <img src={theme === 'dark' ? icons.dark : icons.light} alt="" style={{ width: size, height: size }} className="shrink-0" />;
+}
 
 // Lazy-load GitDiffPanel so Monaco is only loaded when needed
 const GitDiffPanel = lazy(() =>
@@ -18,10 +38,10 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
   const sessionTitle = useAppStore(
     (s) => s.displayNames[sessionId] || s.sessions[sessionId]?.title || sessionId
   );
+  const cli = useAppStore((s) => s.sessions[sessionId]?.cli);
   const activePaneId = useAppStore((s) => s.activePaneId);
   const closePane = useAppStore((s) => s.closePane);
-  const terminalTab = useAppStore((s) => s.terminalTab);
-  const setTerminalTab = useAppStore((s) => s.setTerminalTab);
+  const [terminalTab, setTerminalTab] = useState<'session' | 'git'>('session');
   const isActive = activePaneId === sessionId;
 
   useTerminal(containerRef, sessionId);
@@ -59,7 +79,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
             }`}
             onClick={() => setTerminalTab('session')}
           >
-            <Terminal size={12} />
+            <CliIcon cli={cli} size={12} />
             {sessionTitle}
           </button>
           <button
@@ -74,7 +94,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
             Git
           </button>
         </div>
-        <div className="flex items-center gap-2 pr-1">
+        <div className="flex items-center gap-1 pr-1">
           <button
             className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
             onClick={handleClose}
@@ -85,7 +105,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
-      {/* Terminal body - always mounted, hidden when git tab active */}
+      {/* Terminal body */}
       <div
         className="terminal-body flex-1 p-1 overflow-hidden"
         ref={containerRef}
