@@ -250,6 +250,7 @@ export function Toolbar() {
                   </button>
                 </div>
               </div>
+
               <div className="h-px bg-border my-1" />
               {CLI_TOOLS.filter((t) => t.id !== 'claude').map((tool) => (
                 <button

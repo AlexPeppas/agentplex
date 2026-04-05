@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { FolderOpen, Search, Pencil, Eraser, Square, Type, Undo2, Redo2, Trash2, Palette, Settings } from 'lucide-react';
+import { FolderOpen, Search, LayoutTemplate, Pencil, Eraser, Square, Type, Undo2, Redo2, Trash2, Palette, Settings } from 'lucide-react';
 import { useAppStore, type PanelId } from '../store';
 
 const PANELS: { id: PanelId; icon: typeof FolderOpen }[] = [
   { id: 'explorer', icon: FolderOpen },
   { id: 'search', icon: Search },
+  { id: 'templates', icon: LayoutTemplate },
 ];
 
 const PRESET_COLORS = [

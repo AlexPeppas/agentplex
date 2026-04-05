@@ -31,6 +31,7 @@ export interface SessionInfo {
   pid: number;
   cwd: string;
   cli: CliTool;
+  claudeSessionUuid: string | null;
 }
 
 export interface SubagentInfo {
@@ -164,6 +165,23 @@ export interface DrawingData {
   version: number;
 }
 
+// ── Workspace template types ─────────────────────────────────────────────────
+
+export interface WorkspaceTemplateSession {
+  name: string;
+  cwd: string;
+  cli: CliTool;
+  /** Claude session UUID for resume */
+  sessionId?: string;
+}
+
+export interface WorkspaceTemplate {
+  id: string;
+  name: string;
+  sessions: WorkspaceTemplateSession[];
+  createdAt: string;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -215,4 +233,7 @@ export const IPC = {
   GIT_BRANCH_INFO: 'git:branchInfo',
   CANVAS_LOAD: 'canvas:load',
   CANVAS_SAVE: 'canvas:save',
+  TEMPLATES_LOAD: 'templates:load',
+  TEMPLATES_SAVE: 'templates:save',
+  SESSION_GET_PERSISTED: 'session:getPersisted',
 } as const;

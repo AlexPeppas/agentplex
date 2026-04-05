@@ -1,4 +1,4 @@
-import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   platform: string;
@@ -55,6 +55,9 @@ export interface AgentPlexAPI {
   onZoom: (callback: (direction: 'in' | 'out' | 'reset') => void) => () => void;
   canvasLoad: () => Promise<DrawingData>;
   canvasSave: (data: DrawingData) => Promise<void>;
+  getPersistedState: () => Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; claudeSessionUuid: string | null }> }>;
+  templatesLoad: () => Promise<WorkspaceTemplate[]>;
+  templatesSave: (templates: WorkspaceTemplate[]) => Promise<void>;
 }
 
 declare global {

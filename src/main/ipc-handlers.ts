@@ -1,7 +1,7 @@
 import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData } from '../shared/ipc-channels';
+import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData, type WorkspaceTemplate } from '../shared/ipc-channels';
 import { ensureGlobalConfig, ensureProjectConfig } from './config-loader';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
@@ -427,11 +427,11 @@ ${safeContext}
   });
 
   ipcMain.handle(IPC.GIT_BRANCH_INFO, async (_event, { sessionId }: { sessionId: string }) => {
-    if (typeof sessionId !== 'string') throw new Error('Invalid parameters');
+    if (typeof sessionId !== 'string') return null;
     const cwd = sessionManager.getSessionCwd(sessionId);
-    if (!cwd) throw new Error('Session not found');
+    if (!cwd) return null;
     const status = await getGitStatus(cwd);
-    if (!status.isRepo) throw new Error('Not a git repository');
+    if (!status.isRepo) return null;
     return gitBranchInfo(status.repoRoot);
   });
 
@@ -451,5 +451,26 @@ ${safeContext}
   ipcMain.handle(IPC.CANVAS_SAVE, async (_event, data: DrawingData): Promise<void> => {
     fs.mkdirSync(canvasDir, { recursive: true });
     fs.writeFileSync(canvasPath, JSON.stringify(data), 'utf-8');
+  });
+
+  // Return persisted state (state.json) so renderer can read UUIDs
+  ipcMain.handle(IPC.SESSION_GET_PERSISTED, async () => {
+    return sessionManager.loadState();
+  });
+
+  // ── Workspace templates ────────────────────────────────────────────────────
+  const templatesPath = path.join(canvasDir, 'templates.json');
+
+  ipcMain.handle(IPC.TEMPLATES_LOAD, async (): Promise<WorkspaceTemplate[]> => {
+    try {
+      return JSON.parse(fs.readFileSync(templatesPath, 'utf-8'));
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle(IPC.TEMPLATES_SAVE, async (_event, templates: WorkspaceTemplate[]): Promise<void> => {
+    fs.mkdirSync(canvasDir, { recursive: true });
+    fs.writeFileSync(templatesPath, JSON.stringify(templates, null, 2), 'utf-8');
   });
 }
