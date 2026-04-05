@@ -1,7 +1,7 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Send, ClipboardList, Circle, Check, Terminal, Trash2 } from 'lucide-react';
+import { Send, ClipboardList, Circle, Check, Terminal, Trash2, GitBranch } from 'lucide-react';
 import { StatusIndicator } from './StatusIndicator';
 import { useAppStore, type SessionNodeData } from '../store';
 import { SessionStatus, type CliTool } from '../../shared/ipc-channels';
@@ -41,6 +41,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const viewportMoveCount = useAppStore((s) => s.viewportMoveCount);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const [branchName, setBranchName] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [projectMenu, setProjectMenu] = useState<{ x: number; y: number } | null>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
@@ -48,6 +49,23 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   useEffect(() => {
     if (editing) inputRef.current?.select();
   }, [editing]);
+
+  // Fetch git branch name on mount and periodically
+  useEffect(() => {
+    if (isKilled) return;
+    let cancelled = false;
+    const fetchBranch = () => {
+      window.agentPlex.gitBranchInfo(nodeData.sessionId).then((info) => {
+        if (!cancelled) setBranchName(info?.current ?? null);
+      }).catch(() => {
+        if (!cancelled) setBranchName(null);
+      });
+    };
+    fetchBranch();
+    const interval = setInterval(fetchBranch, 30_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [nodeData.sessionId, isKilled]);
+
 
   // Dismiss on viewport pan/zoom (React Flow's onMove)
   useEffect(() => {
@@ -203,6 +221,12 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
           </>
         )}
       </div>
+      {branchName && (
+        <div className="flex items-center gap-1 mt-1 text-[10px] text-fg-muted">
+          <GitBranch size={9} className="shrink-0" />
+          <span className="truncate">{branchName}</span>
+        </div>
+      )}
 
       {projectMenu && createPortal(
         <div
