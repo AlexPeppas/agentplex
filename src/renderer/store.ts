@@ -9,6 +9,7 @@ import {
 } from '@xyflow/react';
 import { SessionStatus, type SessionInfo, type CliTool } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
+import { getSplitPaneEnabled } from './components/panels/SettingsPanel';
 
 function getAccentColor(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#d18a7a';
@@ -360,11 +361,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (openPanes.includes(sessionId)) {
       // Already open — just activate it
       set({ activePaneId: sessionId, selectedSessionId: sessionId });
+    } else if (!getSplitPaneEnabled()) {
+      // Split pane disabled — replace all panes with the new one
+      set({ openPanes: [sessionId], activePaneId: sessionId, selectedSessionId: sessionId });
     } else {
       // Add new pane (cap at 3 — remove the oldest non-active pane if needed)
       let newPanes = [...openPanes, sessionId];
       if (newPanes.length > 3) {
-        // Remove the first pane that isn't the new one
         newPanes = [...newPanes.slice(1)];
       }
       set({ openPanes: newPanes, activePaneId: sessionId, selectedSessionId: sessionId });

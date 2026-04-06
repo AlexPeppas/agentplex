@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, Sun, Moon } from 'lucide-react';
+import { ExternalLink, Sun, Moon, Columns2 } from 'lucide-react';
 
 function getInitialTheme(): 'dark' | 'light' {
   const saved = localStorage.getItem('agentplex-theme');
@@ -7,8 +7,14 @@ function getInitialTheme(): 'dark' | 'light' {
   return 'dark';
 }
 
+export function getSplitPaneEnabled(): boolean {
+  const val = localStorage.getItem('agentplex-split-pane');
+  return val === null ? true : val === 'true';
+}
+
 export function SettingsPanel() {
   const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
+  const [splitPane, setSplitPane] = useState(() => getSplitPaneEnabled());
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -18,6 +24,14 @@ export function SettingsPanel() {
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+  }, []);
+
+  const toggleSplitPane = useCallback(() => {
+    setSplitPane((prev) => {
+      const next = !prev;
+      localStorage.setItem('agentplex-split-pane', String(next));
+      return next;
+    });
   }, []);
 
   const handleConfigureLaunch = useCallback(async () => {
@@ -42,6 +56,19 @@ export function SettingsPanel() {
         </div>
         <span className="text-[10px] text-fg-muted">
           Switch to {theme === 'dark' ? 'light' : 'dark'}
+        </span>
+      </button>
+
+      <button
+        onClick={toggleSplitPane}
+        className="flex items-center justify-between w-full px-2.5 py-1.5 rounded-md bg-elevated hover:bg-border transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-2">
+          <Columns2 size={13} className="text-fg-muted" />
+          <span className="text-xs text-fg">Split pane</span>
+        </div>
+        <span className="text-[10px] text-fg-muted">
+          {splitPane ? 'On' : 'Off'}
         </span>
       </button>
 
