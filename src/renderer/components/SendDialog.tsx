@@ -13,7 +13,7 @@ export function SendDialog() {
   const sessions = useAppStore((s) => s.sessions);
   const sessionBuffers = useAppStore((s) => s.sessionBuffers);
   const displayNames = useAppStore((s) => s.displayNames);
-  const [targetId, setTargetId] = useState<string>('');
+  const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
   const [instruction, setInstruction] = useState('');
   const [summarize, setSummarize] = useState(true);
   const [sending, setSending] = useState(false);
@@ -29,6 +29,8 @@ export function SendDialog() {
     ? displayNames[sourceId] || sessions[sourceId]?.title || sourceId
     : sourceId;
 
+  const allSelected = targetSessions.length > 0 && targetSessions.every((s) => selectedTargets.has(s.id));
+
   // Build a preview from the terminal buffer (just for display — the actual
   // summarization reads the full JSONL on the main process side)
   useEffect(() => {
@@ -41,22 +43,46 @@ export function SendDialog() {
     setContextPreview(tail || '(no output yet)');
   }, [sourceId, sessionBuffers]);
 
-  // Pick first available target, or reset if current target is gone
+  // Auto-select first target when dialog opens or targets change
   useEffect(() => {
-    const validTarget = targetSessions.find((s) => s.id === targetId);
-    if (!validTarget && targetSessions.length > 0) {
-      setTargetId(targetSessions[0].id);
-    } else if (targetSessions.length === 0) {
-      setTargetId('');
-    }
-  }, [targetSessions, targetId]);
+    setSelectedTargets((prev) => {
+      // Remove targets that no longer exist
+      const validIds = new Set(targetSessions.map((s) => s.id));
+      const cleaned = new Set([...prev].filter((id) => validIds.has(id)));
+      // If nothing is selected yet and there are targets, select the first one
+      if (cleaned.size === 0 && targetSessions.length > 0) {
+        cleaned.add(targetSessions[0].id);
+      }
+      return cleaned;
+    });
+  }, [targetSessions.map((s) => s.id).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     instructionRef.current?.focus();
   }, []);
 
+  const toggleTarget = useCallback((id: string) => {
+    setSelectedTargets((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    if (allSelected) {
+      setSelectedTargets(new Set());
+    } else {
+      setSelectedTargets(new Set(targetSessions.map((s) => s.id)));
+    }
+  }, [allSelected, targetSessions]);
+
   const handleSend = useCallback(async () => {
-    if (!targetId || !instruction.trim() || sending || !sourceId) return;
+    if (selectedTargets.size === 0 || !instruction.trim() || sending || !sourceId) return;
 
     let contextBlock = contextPreview;
 
@@ -87,21 +113,24 @@ export function SendDialog() {
     // Use bracketed paste so Claude CLI treats multi-line input as a single paste,
     // then send Enter after a generous delay so the TUI fully processes the paste.
     const bracketedPaste = `\x1b[200~${message}\x1b[201~`;
-    const tid = targetId;
-    window.agentPlex.writeSession(tid, bracketedPaste);
-    const sendEnter = (delay: number) => {
-      setTimeout(() => {
-        window.agentPlex.writeSession(tid, '\r');
-      }, delay);
-    };
-    sendEnter(800);
-    sendEnter(1500);
-    sendEnter(2200);
 
-    flashMessageEdge(sourceId, tid);
+    for (const tid of selectedTargets) {
+      window.agentPlex.writeSession(tid, bracketedPaste);
+      const sendEnter = (targetId: string, delay: number) => {
+        setTimeout(() => {
+          window.agentPlex.writeSession(targetId, '\r');
+        }, delay);
+      };
+      sendEnter(tid, 800);
+      sendEnter(tid, 1500);
+      sendEnter(tid, 2200);
+
+      flashMessageEdge(sourceId, tid);
+    }
+
     setInstruction('');
     closeSendDialog();
-  }, [targetId, instruction, sourceId, sourceLabel, contextPreview, summarize, sending, closeSendDialog, flashMessageEdge]);
+  }, [selectedTargets, instruction, sourceId, sourceLabel, contextPreview, summarize, sending, closeSendDialog, flashMessageEdge]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -133,6 +162,16 @@ export function SendDialog() {
     }
   };
 
+  const selectedCount = selectedTargets.size;
+  const totalCount = targetSessions.length;
+  const sendLabel = sending
+    ? 'Summarizing...'
+    : selectedCount === totalCount && totalCount > 1
+      ? `Broadcast to all (${totalCount})`
+      : selectedCount > 1
+        ? `Send to ${selectedCount}`
+        : 'Send';
+
   return (
     <div className="fixed inset-0 bg-backdrop flex items-center justify-center z-[1000]" onMouseDown={handleBackdropMouseDown} onMouseUp={handleBackdropMouseUp}>
       <div className="bg-elevated border border-border-strong rounded-xl p-5 w-[520px] max-w-[90vw] shadow-[0_8px_32px_var(--shadow-heavy)]">
@@ -144,17 +183,31 @@ export function SendDialog() {
         {targetSessions.length === 0 ? (
           <div className="py-2 px-2.5 text-[13px] text-fg-muted mb-3">No other active sessions</div>
         ) : (
-          <select
-            className="w-full py-2 px-2.5 bg-surface border border-border-strong rounded-lg text-fg text-[13px] outline-none mb-3 cursor-pointer transition-colors focus:border-accent"
-            value={targetId}
-            onChange={(e) => setTargetId(e.target.value)}
-          >
+          <div className="w-full max-h-[140px] overflow-y-auto bg-surface border border-border-strong rounded-lg text-fg text-[13px] mb-3">
+            <label className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border cursor-pointer hover:bg-border/30 transition-colors">
+              <input
+                type="checkbox"
+                className="accent-accent cursor-pointer"
+                checked={allSelected}
+                onChange={toggleAll}
+              />
+              <span className="text-fg-muted text-xs font-medium">Select All</span>
+            </label>
             {targetSessions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {displayNames[s.id] || s.title}
-              </option>
+              <label
+                key={s.id}
+                className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer hover:bg-border/30 transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  className="accent-accent cursor-pointer"
+                  checked={selectedTargets.has(s.id)}
+                  onChange={() => toggleTarget(s.id)}
+                />
+                <span>{displayNames[s.id] || s.title}</span>
+              </label>
             ))}
-          </select>
+          </div>
         )}
 
         <label className="block text-xs font-medium text-fg-muted mb-1.5">Context preview:</label>
@@ -191,9 +244,9 @@ export function SendDialog() {
           <button
             className="py-1.5 px-3.5 bg-accent text-surface border-none rounded-md text-[13px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={handleSend}
-            disabled={!instruction.trim() || !targetId || sending}
+            disabled={!instruction.trim() || selectedTargets.size === 0 || sending}
           >
-            {sending ? 'Summarizing...' : <><span>Send</span> <CornerDownLeft size={13} className="inline -mt-px" /></>}
+            {sending ? sendLabel : <><span>{sendLabel}</span> <CornerDownLeft size={13} className="inline -mt-px" /></>}
           </button>
         </div>
       </div>

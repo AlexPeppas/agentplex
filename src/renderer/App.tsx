@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { Toolbar } from './components/Toolbar';
 import { GraphCanvas } from './components/GraphCanvas';
@@ -11,8 +11,35 @@ import { useAppStore } from './store';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[ErrorBoundary]', error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return <div style={{ padding: 20, color: '#e07070', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+        <h2>Renderer crashed</h2>
+        <p>{this.state.error.message}</p>
+        <pre>{this.state.error.stack}</pre>
+        <button onClick={() => this.setState({ error: null })} style={{ marginTop: 10, padding: '4px 12px' }}>Retry</button>
+      </div>;
+    }
+    return this.props.children;
+  }
+}
+
+let sharedAudioCtx: AudioContext | null = null;
+
 function playBell() {
-  const ctx = new AudioContext();
+  if (!sharedAudioCtx) {
+    sharedAudioCtx = new AudioContext();
+  }
+  const ctx = sharedAudioCtx;
+  if (ctx.state === 'suspended') {
+    ctx.resume();
+  }
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.connect(gain);
@@ -26,7 +53,7 @@ function playBell() {
 }
 
 export function App() {
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const hasOpenPanes = useAppStore((s) => s.openPanes.length > 0);
   const sendDialogSourceId = useAppStore((s) => s.sendDialogSourceId);
   const launcherOpen = useAppStore((s) => s.launcherOpen);
   const addSession = useAppStore((s) => s.addSession);
@@ -234,20 +261,22 @@ export function App() {
         <div className="flex flex-1 min-w-0 overflow-hidden" ref={mainAreaRef}>
           <div
             className="flex-1 min-w-0 h-full"
-            style={selectedSessionId ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
+            style={hasOpenPanes ? { flex: `0 0 ${100 - terminalWidth}%` } : undefined}
           >
             <ReactFlowProvider>
               <GraphCanvas />
             </ReactFlowProvider>
           </div>
-          {selectedSessionId && (
+          {hasOpenPanes && (
             <>
               <div
                 className="flex-[0_0_4px] cursor-col-resize bg-border transition-colors duration-[120ms] hover:bg-accent active:bg-accent"
                 onMouseDown={handleResizeStart}
               />
               <div className="min-w-0 h-full" style={{ flex: `0 0 ${terminalWidth}%` }}>
-                <TerminalPanel />
+                <ErrorBoundary>
+                  <TerminalPanel />
+                </ErrorBoundary>
               </div>
             </>
           )}

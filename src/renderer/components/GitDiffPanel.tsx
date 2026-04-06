@@ -39,6 +39,7 @@ export function GitDiffPanel({ sessionId }: Props) {
   const [isModified, setIsModified] = useState(false);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const currentSessionRef = useRef(sessionId);
+  const [editorFontSize, setEditorFontSize] = useState(13);
 
   // Commit state
   const [commitMsg, setCommitMsg] = useState('');
@@ -161,6 +162,24 @@ export function GitDiffPanel({ sessionId }: Props) {
     }
   }, [sessionId, refreshFiles]);
 
+  const handleStageAll = useCallback(async () => {
+    try {
+      await window.agentPlex.gitStageAll(sessionId);
+      refreshFiles();
+    } catch (err: any) {
+      setError(err.message || 'Failed to stage all');
+    }
+  }, [sessionId, refreshFiles]);
+
+  const handleUnstageAll = useCallback(async () => {
+    try {
+      await window.agentPlex.gitUnstageAll(sessionId);
+      refreshFiles();
+    } catch (err: any) {
+      setError(err.message || 'Failed to unstage all');
+    }
+  }, [sessionId, refreshFiles]);
+
   const handleCommit = useCallback(async () => {
     if (!commitMsg.trim()) return;
     setCommitting(true);
@@ -226,6 +245,23 @@ export function GitDiffPanel({ sessionId }: Props) {
       () => handleSave(),
     );
   }, [handleSave]);
+
+  // Sync font size to editor when it changes
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.getOriginalEditor().updateOptions({ fontSize: editorFontSize });
+      editorRef.current.getModifiedEditor().updateOptions({ fontSize: editorFontSize });
+    }
+  }, [editorFontSize]);
+
+  // Ctrl+=/Ctrl+-/Ctrl+0 zoom via main process menu accelerator
+  useEffect(() => {
+    return window.agentPlex.onZoom((direction) => {
+      if (direction === 'in') setEditorFontSize((s) => Math.min(s + 2, 32));
+      else if (direction === 'out') setEditorFontSize((s) => Math.max(s - 2, 8));
+      else if (direction === 'reset') setEditorFontSize(13);
+    });
+  }, []);
 
   const handleToggleLog = useCallback(() => {
     if (!logOpen) refreshLog();
@@ -330,16 +366,34 @@ export function GitDiffPanel({ sessionId }: Props) {
           )}
           {stagedFiles.length > 0 && (
             <>
-              <div className="px-2 py-1 text-[10px] font-semibold text-[#6a5e50] uppercase tracking-wider">
-                Staged
+              <div className="flex items-center justify-between px-2 py-1">
+                <span className="text-[10px] font-semibold text-[#6a5e50] uppercase tracking-wider">
+                  Staged
+                </span>
+                <button
+                  className="p-0.5 rounded text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]"
+                  onClick={handleUnstageAll}
+                  title="Unstage all"
+                >
+                  <Minus size={12} />
+                </button>
               </div>
               {stagedFiles.map(renderFileEntry)}
             </>
           )}
           {unstagedFiles.length > 0 && (
             <>
-              <div className="px-2 py-1 text-[10px] font-semibold text-[#6a5e50] uppercase tracking-wider">
-                {stagedFiles.length > 0 ? 'Unstaged' : 'Changes'}
+              <div className="flex items-center justify-between px-2 py-1">
+                <span className="text-[10px] font-semibold text-[#6a5e50] uppercase tracking-wider">
+                  {stagedFiles.length > 0 ? 'Unstaged' : 'Changes'}
+                </span>
+                <button
+                  className="p-0.5 rounded text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]"
+                  onClick={handleStageAll}
+                  title="Stage all"
+                >
+                  <Plus size={12} />
+                </button>
               </div>
               {unstagedFiles.map(renderFileEntry)}
             </>
@@ -493,7 +547,7 @@ export function GitDiffPanel({ sessionId }: Props) {
                 renderSideBySide: true,
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
-                fontSize: 13,
+                fontSize: editorFontSize,
                 fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
                 lineNumbers: 'on',
                 glyphMargin: false,

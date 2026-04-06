@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -217,6 +217,14 @@ const api = {
     return ipcRenderer.invoke(IPC.GIT_UNSTAGE_FILE, { sessionId, filePath });
   },
 
+  gitStageAll: (sessionId: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_STAGE_ALL, { sessionId });
+  },
+
+  gitUnstageAll: (sessionId: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GIT_UNSTAGE_ALL, { sessionId });
+  },
+
   gitCommit: (sessionId: string, message: string): Promise<GitCommandResult> => {
     return ipcRenderer.invoke(IPC.GIT_COMMIT, { sessionId, message });
   },
@@ -237,12 +245,32 @@ const api = {
     return ipcRenderer.invoke(IPC.GIT_BRANCH_INFO, { sessionId });
   },
 
+  onZoom: (callback: (direction: 'in' | 'out' | 'reset') => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, direction: 'in' | 'out' | 'reset') => {
+      callback(direction);
+    };
+    ipcRenderer.on('app:zoom', handler);
+    return () => ipcRenderer.removeListener('app:zoom', handler);
+  },
+
   canvasLoad: (): Promise<DrawingData> => {
     return ipcRenderer.invoke(IPC.CANVAS_LOAD);
   },
 
   canvasSave: (data: DrawingData): Promise<void> => {
     return ipcRenderer.invoke(IPC.CANVAS_SAVE, data);
+  },
+
+  getPersistedState: (): Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; claudeSessionUuid: string | null }> }> => {
+    return ipcRenderer.invoke(IPC.SESSION_GET_PERSISTED);
+  },
+
+  templatesLoad: (): Promise<WorkspaceTemplate[]> => {
+    return ipcRenderer.invoke(IPC.TEMPLATES_LOAD);
+  },
+
+  templatesSave: (templates: WorkspaceTemplate[]): Promise<void> => {
+    return ipcRenderer.invoke(IPC.TEMPLATES_SAVE, templates);
   },
 };
 

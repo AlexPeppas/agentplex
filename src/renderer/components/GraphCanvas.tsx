@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
-  Controls,
   useReactFlow,
   type Node,
   type OnNodeDrag,
@@ -29,7 +28,7 @@ export function GraphCanvas() {
   const createGroup = useAppStore((s) => s.createGroup);
   const addToGroup = useAppStore((s) => s.addToGroup);
   const removeFromGroup = useAppStore((s) => s.removeFromGroup);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const activePaneId = useAppStore((s) => s.activePaneId);
   const shouldFocusNode = useAppStore((s) => s.shouldFocusNode);
   const drawingMode = useAppStore((s) => s.drawingMode);
   const { fitView } = useReactFlow();
@@ -39,8 +38,8 @@ export function GraphCanvas() {
     if (!shouldFocusNode) return;
     const timer = setTimeout(() => {
       try {
-        if (selectedSessionId) {
-          fitView({ nodes: [{ id: selectedSessionId }], duration: 200, maxZoom: 1.5 });
+        if (activePaneId) {
+          fitView({ nodes: [{ id: activePaneId }], duration: 200, maxZoom: 1.5 });
         } else {
           const currentNodes = useAppStore.getState().nodes;
           if (currentNodes.length > 0) {
@@ -52,7 +51,7 @@ export function GraphCanvas() {
       }
     }, 100);
     return () => clearTimeout(timer);
-  }, [selectedSessionId, shouldFocusNode, fitView]);
+  }, [activePaneId, shouldFocusNode, fitView]);
 
   const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     dragStartParent.current = node.parentId;
@@ -105,9 +104,15 @@ export function GraphCanvas() {
     [createGroup, addToGroup, removeFromGroup]
   );
 
+  const bumpViewportMove = useAppStore((s) => s.bumpViewportMove);
+
   const onPaneClick = useCallback(() => {
     selectSession(null);
   }, [selectSession]);
+
+  const onMove = useCallback(() => {
+    bumpViewportMove();
+  }, [bumpViewportMove]);
 
   return (
     <div className="graph-canvas w-full h-full relative">
@@ -119,6 +124,7 @@ export function GraphCanvas() {
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}
+        onMove={onMove}
         nodeTypes={nodeTypes}
         fitView
         panOnDrag={!drawingMode}
@@ -131,7 +137,6 @@ export function GraphCanvas() {
         proOptions={{ hideAttribution: true }}
       >
         <Background />
-        <Controls />
       </ReactFlow>
       <DrawingOverlay />
     </div>

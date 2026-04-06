@@ -308,7 +308,7 @@ export class SessionManager {
       } catch { /* session may have been killed */ }
     }, 1000);
 
-    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli };
+    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli, claudeSessionUuid: session.claudeSessionUuid };
   }
 
   stop() {
@@ -489,7 +489,7 @@ export class SessionManager {
 
     this.saveState();
 
-    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli };
+    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli, claudeSessionUuid: session.claudeSessionUuid };
   }
 
   write(id: string, data: string) {
@@ -546,6 +546,7 @@ export class SessionManager {
       pid: s.pty.pid,
       cwd: s.cwd,
       cli: s.cli,
+      claudeSessionUuid: s.claudeSessionUuid,
     }));
   }
 
@@ -824,6 +825,8 @@ export class SessionManager {
     const now = Date.now();
     // Minimum new visible bytes before we consider the session "responded" after HITL
     const HITL_RESPONSE_THRESHOLD = 80;
+    // JSONL must have been written within this window to count as "Running"
+    const JSONL_ACTIVE_MS = 5000;
 
     for (const session of this.sessions.values()) {
       if (session.status === SessionStatus.Killed) continue;
@@ -842,31 +845,37 @@ export class SessionManager {
 
       const promptDetected = atPrompt || matchesFull || matchesLine;
 
+      // Use JSONL file mtime as the ground truth for "Running".
+      // When Claude is actively working, it writes to the JSONL file.
+      // Terminal output is too noisy (redraws, cursor repositioning) to be reliable.
+      let jsonlActive = false;
+      if (session.jsonlWatcher) {
+        try {
+          const jsonlPath = (session.jsonlWatcher as any).jsonlPath;
+          if (jsonlPath) {
+            const stat = fs.statSync(jsonlPath);
+            jsonlActive = (now - stat.mtimeMs) < JSONL_ACTIVE_MS;
+          }
+        } catch { /* file may not exist yet */ }
+      }
+
       let newStatus: SessionStatus;
       if (promptDetected) {
         newStatus = SessionStatus.WaitingForInput;
-        // Mark the moment and buffer length when HITL was first detected
         if (session.waitingSince === 0) {
           session.waitingSince = now;
           session.waitingBufferLen = session.buffer.length;
         }
       } else if (session.waitingSince > 0) {
-        // HITL was previously detected — only transition away if we see
-        // substantial new output (meaning the user actually responded and
-        // the CLI is producing real content, not just terminal redraws).
         const newBytes = session.buffer.length - session.waitingBufferLen;
         if (newBytes > HITL_RESPONSE_THRESHOLD) {
-          // Real response detected — clear the sticky lock
           session.waitingSince = 0;
           session.waitingBufferLen = 0;
-          newStatus = now - session.lastVisibleOutput < 2000
-            ? SessionStatus.Running
-            : SessionStatus.Idle;
+          newStatus = jsonlActive ? SessionStatus.Running : SessionStatus.Idle;
         } else {
-          // Not enough new output — keep WaitingForInput sticky
           newStatus = SessionStatus.WaitingForInput;
         }
-      } else if (now - session.lastVisibleOutput < 2000) {
+      } else if (jsonlActive) {
         newStatus = SessionStatus.Running;
       } else {
         newStatus = SessionStatus.Idle;

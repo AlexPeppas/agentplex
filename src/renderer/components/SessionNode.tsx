@@ -1,7 +1,7 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Send, ClipboardList, Circle, Check, Terminal } from 'lucide-react';
+import { Send, ClipboardList, Circle, Check, Terminal, Trash2, GitBranch } from 'lucide-react';
 import { StatusIndicator } from './StatusIndicator';
 import { useAppStore, type SessionNodeData } from '../store';
 import { SessionStatus, type CliTool } from '../../shared/ipc-channels';
@@ -31,15 +31,17 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const selectSession = useAppStore((s) => s.selectSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const renameSession = useAppStore((s) => s.renameSession);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const deleteSession = useAppStore((s) => s.deleteSession);
+  const isSelected = useAppStore((s) => s.openPanes.includes(nodeData.sessionId));
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
-  const isSelected = selectedSessionId === nodeData.sessionId;
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
 
+  const viewportMoveCount = useAppStore((s) => s.viewportMoveCount);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const [branchName, setBranchName] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [projectMenu, setProjectMenu] = useState<{ x: number; y: number } | null>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
@@ -48,15 +50,48 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     if (editing) inputRef.current?.select();
   }, [editing]);
 
+  // Fetch git branch name on mount and periodically
+  useEffect(() => {
+    if (isKilled) return;
+    let cancelled = false;
+    const fetchBranch = () => {
+      window.agentPlex.gitBranchInfo(nodeData.sessionId).then((info) => {
+        if (!cancelled) setBranchName(info?.current ?? null);
+      }).catch(() => {
+        if (!cancelled) setBranchName(null);
+      });
+    };
+    fetchBranch();
+    const interval = setInterval(fetchBranch, 30_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [nodeData.sessionId, isKilled]);
+
+
+  // Dismiss on viewport pan/zoom (React Flow's onMove)
+  useEffect(() => {
+    if (projectMenu) setProjectMenu(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewportMoveCount]);
+
+  // Dismiss context menu on any interaction outside it
   useEffect(() => {
     if (!projectMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
-        setProjectMenu(null);
-      }
+    const dismissIfOutside = (e: Event) => {
+      if (projectMenuRef.current && projectMenuRef.current.contains(e.target as Node)) return;
+      setProjectMenu(null);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const dismissAlways = () => setProjectMenu(null);
+    // Capture phase so we fire before React Flow swallows the event
+    document.addEventListener('mousedown', dismissIfOutside, true);
+    document.addEventListener('pointerdown', dismissIfOutside, true);
+    document.addEventListener('wheel', dismissAlways, { capture: true, passive: true });
+    document.addEventListener('keydown', dismissAlways, true);
+    return () => {
+      document.removeEventListener('mousedown', dismissIfOutside, true);
+      document.removeEventListener('pointerdown', dismissIfOutside, true);
+      document.removeEventListener('wheel', dismissAlways, { capture: true } as EventListenerOptions);
+      document.removeEventListener('keydown', dismissAlways, true);
+    };
   }, [projectMenu]);
 
 
@@ -108,6 +143,13 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
     setEditing(true);
   };
 
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(`Delete session "${nodeData.label}"?`)) {
+      deleteSession(nodeData.sessionId);
+    }
+  };
+
   const editIcon = (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -152,24 +194,39 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
           </span>
         )}
         {!editing && (
-          <button
-            className="session-node__edit"
-            onClick={handleEditClick}
-            title="Rename session"
-          >
-            {editIcon}
-          </button>
-        )}
-        {!isKilled && (
-          <button
-            className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-accent cursor-pointer opacity-0 transition-[opacity,background] duration-150 group-hover:opacity-100 hover:bg-accent-subtle"
-            onClick={handleSend}
-            title="Send message to session"
-          >
-            <Send size={14} />
-          </button>
+          <>
+            {!isKilled && (
+              <button
+                className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-accent cursor-pointer opacity-0 transition-[opacity,background] duration-150 group-hover:opacity-100 hover:bg-accent-subtle"
+                onClick={handleSend}
+                title="Send message to session"
+              >
+                <Send size={14} />
+              </button>
+            )}
+            <button
+              className="session-node__edit"
+              onClick={handleEditClick}
+              title="Rename session"
+            >
+              {editIcon}
+            </button>
+            <button
+              className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-error cursor-pointer opacity-0 transition-[opacity,background] duration-150 group-hover:opacity-100 hover:bg-error-subtle"
+              onClick={handleDelete}
+              title="Delete session"
+            >
+              <Trash2 size={14} />
+            </button>
+          </>
         )}
       </div>
+      {branchName && (
+        <div className="flex items-center gap-1 mt-1 text-[10px] text-fg-muted">
+          <GitBranch size={9} className="shrink-0" />
+          <span className="truncate">{branchName}</span>
+        </div>
+      )}
 
       {projectMenu && createPortal(
         <div
