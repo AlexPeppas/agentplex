@@ -136,6 +136,10 @@ export interface AppState {
   togglePanel: (panelId: PanelId) => void;
   setSidePanelWidth: (width: number) => void;
 
+  // Terminal fullscreen
+  terminalFullscreen: boolean;
+  toggleTerminalFullscreen: () => void;
+
   // Drawing overlay
   drawingMode: boolean;
   drawTool: 'pen' | 'eraser' | 'rect' | 'text';
@@ -198,6 +202,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSidePanelWidth: (width: number) => {
     set({ sidePanelWidth: Math.max(160, Math.min(400, width)) });
   },
+
+  terminalFullscreen: false,
+  toggleTerminalFullscreen: () => set((s) => ({ terminalFullscreen: !s.terminalFullscreen })),
 
   drawingMode: false,
   drawTool: 'pen' as const,
@@ -372,7 +379,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Activate the last remaining pane, or null
       newActive = newPanes.length > 0 ? newPanes[newPanes.length - 1] : null;
     }
-    set({ openPanes: newPanes, activePaneId: newActive, selectedSessionId: newActive });
+    const updates: Partial<AppState> = { openPanes: newPanes, activePaneId: newActive, selectedSessionId: newActive };
+    if (newPanes.length === 0) updates.terminalFullscreen = false;
+    set(updates);
   },
 
   appendBuffer: (id: string, data: string) => {
