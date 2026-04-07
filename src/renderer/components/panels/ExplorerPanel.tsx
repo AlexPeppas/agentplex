@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { ChevronRight, Terminal, Pencil, Trash2, Send, Plus, FolderOpen } from 'lucide-react';
+import { ChevronRight, Terminal, Pencil, Trash2, Send, FolderOpen, Star } from 'lucide-react';
 import { useAppStore } from '../../store';
-import { SessionStatus, type CliTool } from '../../../shared/ipc-channels';
+import { CLI_TOOLS, SessionStatus, type CliTool, type DetectedShell } from '../../../shared/ipc-channels';
 import claudeLogo from '../../../../assets/claude-logo.svg';
 import codexDark from '../../../../assets/codex-dark.svg';
 import codexLight from '../../../../assets/codex-light.svg';
@@ -13,6 +13,7 @@ const CLI_ICONS: Record<string, { dark: string; light: string }> = {
   codex: { dark: codexLight, light: codexDark },
   copilot: { dark: copilotLight, light: copilotDark },
 };
+
 
 function CliIcon({ cli }: { cli: CliTool }) {
   const icons = CLI_ICONS[cli];
@@ -41,6 +42,7 @@ export function ExplorerPanel() {
   const renameSession = useAppStore((s) => s.renameSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const addSession = useAppStore((s) => s.addSession);
+  const openLauncher = useAppStore((s) => s.openLauncher);
 
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -48,6 +50,13 @@ export function ExplorerPanel() {
   const [renameDraft, setRenameDraft] = useState('');
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const [shells, setShells] = useState<DetectedShell[]>([]);
+  const [defaultShellId, setDefaultShellId] = useState<string | null>(null);
+
+  useEffect(() => {
+    window.agentPlex.getShells().then(setShells);
+    window.agentPlex.getDefaultShell().then(setDefaultShellId);
+  }, []);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -120,13 +129,19 @@ export function ExplorerPanel() {
     setContextMenu(null);
   }, [contextMenu]);
 
-  const handleNewSessionInDir = useCallback(async () => {
+  const handleNewSessionInDir = useCallback(async (cli: CliTool) => {
     if (!contextMenu || contextMenu.type !== 'dir') return;
     const cwd = contextMenu.cwd;
     setContextMenu(null);
-    const info = await window.agentPlex.createSession(cwd, 'claude');
+    const info = await window.agentPlex.createSession(cwd, cli);
     addSession(info);
   }, [contextMenu, addSession]);
+
+  const handleResumeInDir = useCallback(() => {
+    if (!contextMenu || contextMenu.type !== 'dir') return;
+    setContextMenu(null);
+    openLauncher('resume', 'claude');
+  }, [contextMenu, openLauncher]);
 
   const tree = useMemo(() => {
     const dirs = new Map<string, DirEntry>();
@@ -249,12 +264,61 @@ export function ExplorerPanel() {
             </>
           ) : (
             <>
-              <button
-                className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
-                onClick={handleNewSessionInDir}
-              >
-                <Plus size={12} /> New Session
-              </button>
+              <div className="py-1 px-2.5">
+                <span className="flex items-center gap-1.5 text-[10px] font-semibold text-fg-muted uppercase tracking-wide mb-1">
+                  <img src={claudeLogo} alt="" className="w-3 h-3" />
+                  Claude
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    className="flex-1 py-[4px] bg-border border-none rounded text-fg text-[11px] font-medium cursor-pointer transition-colors hover:bg-border-strong"
+                    onClick={() => handleNewSessionInDir('claude')}
+                  >
+                    New
+                  </button>
+                  <button
+                    className="flex-1 py-[4px] bg-border border-none rounded text-fg text-[11px] font-medium cursor-pointer transition-colors hover:bg-border-strong"
+                    onClick={handleResumeInDir}
+                  >
+                    Resume
+                  </button>
+                </div>
+              </div>
+              <div className="h-px bg-border my-1" />
+              {CLI_TOOLS.filter((t) => t.id !== 'claude').map((tool) => {
+                const icons = CLI_ICONS[tool.id];
+                const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+                const iconSrc = icons ? (theme === 'dark' ? icons.dark : icons.light) : null;
+                return (
+                  <button
+                    key={tool.id}
+                    className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
+                    onClick={() => handleNewSessionInDir(tool.id)}
+                  >
+                    {iconSrc ? <img src={iconSrc} alt="" className="w-3.5 h-3.5" /> : <Terminal size={13} />}
+                    {tool.label}
+                  </button>
+                );
+              })}
+              {shells.length > 0 && (
+                <>
+                  <div className="h-px bg-border my-1" />
+                  {shells.map((shell) => (
+                    <button
+                      key={shell.id}
+                      className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
+                      onClick={() => handleNewSessionInDir(shell.id as CliTool)}
+                    >
+                      <Terminal size={13} className="text-fg-muted" />
+                      {shell.id === defaultShellId && (
+                        <Star size={10} className="text-[#f0c040] fill-[#f0c040]" />
+                      )}
+                      {shell.label}
+                    </button>
+                  ))}
+                </>
+              )}
+              <div className="h-px bg-border my-1" />
               <button
                 className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
                 onClick={handleOpenFolder}
