@@ -1,5 +1,5 @@
 import { useRef, lazy, Suspense, useEffect, useCallback, useState } from 'react';
-import { X, GitBranch, Terminal } from 'lucide-react';
+import { X, GitBranch, Terminal, Maximize2, Minimize2 } from 'lucide-react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useAppStore } from '../store';
 import { defineAgentPlexTheme } from '../monaco-theme';
@@ -41,6 +41,8 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
   const cli = useAppStore((s) => s.sessions[sessionId]?.cli);
   const activePaneId = useAppStore((s) => s.activePaneId);
   const closePane = useAppStore((s) => s.closePane);
+  const terminalFullscreen = useAppStore((s) => s.terminalFullscreen);
+  const toggleTerminalFullscreen = useAppStore((s) => s.toggleTerminalFullscreen);
   const [terminalTab, setTerminalTab] = useState<'session' | 'git'>('session');
   const isActive = activePaneId === sessionId;
 
@@ -95,6 +97,13 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
           </button>
         </div>
         <div className="flex items-center gap-1 pr-1">
+          <button
+            className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
+            onClick={toggleTerminalFullscreen}
+            title={terminalFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            {terminalFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
           <button
             className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
             onClick={handleClose}
