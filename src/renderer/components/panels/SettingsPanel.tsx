@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Sun, Moon, Columns2 } from 'lucide-react';
 
 function getInitialTheme(): 'dark' | 'light' {
@@ -13,10 +13,19 @@ export function getSplitPaneEnabled(): boolean {
 }
 
 export function SettingsPanel() {
-  const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme);
+  // Read current theme from the DOM (source of truth) instead of localStorage
+  const [theme, setTheme] = useState<'dark' | 'light'>(
+    () => (document.documentElement.getAttribute('data-theme') as 'dark' | 'light') || 'dark'
+  );
   const [splitPane, setSplitPane] = useState(() => getSplitPaneEnabled());
+  const mountedRef = useRef(false);
 
   useEffect(() => {
+    // Skip the initial mount — only apply when user toggles
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('agentplex-theme', theme);
     window.agentPlex.setTheme(theme);
