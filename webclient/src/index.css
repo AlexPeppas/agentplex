@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #1a1814;
+  color: #ece4d8;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+#root {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* xterm */
+.xterm { height: 100%; }
+.xterm-viewport { overflow-y: hidden !important; }
+
+/* React Flow — hide default node border/shadow, we style our own */
+.react-flow__node { box-shadow: none !important; }
+.react-flow__node.selected > * { box-shadow: none !important; }
+.react-flow__handle { display: none; }

@@ -1,0 +1,29 @@
+app = "agentplex-relay"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  LISTEN_ADDR = ":8080"
+  DB_PATH = "/data/relay.db"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 10000
+    soft_limit = 8000
+
+[mounts]
+  source = "relay_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -47,6 +47,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwindcss": "^4.2.2",
+    "ws": "^8.20.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -58,6 +59,7 @@
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.1",
     "electron": "^41.0.4",
     "eslint": "^10.1.0",
