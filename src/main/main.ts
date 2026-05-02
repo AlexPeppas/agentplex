@@ -3,6 +3,7 @@ import path from 'node:path';
 import { sessionManager } from './session-manager';
 import { registerIpcHandlers } from './ipc-handlers';
 import { detectShells } from './shell-detector';
+import { startRemoteServer, stopRemoteServer } from './remote';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -177,6 +178,12 @@ app.whenReady().then(() => {
   detectShells().catch((err) => console.error('[shell-detector] Detection failed:', err));
   registerIpcHandlers();
   sessionManager.start();
+
+  // Start the remote API server (HTTP + WebSocket) for web/mobile clients
+  startRemoteServer().catch((err: any) => {
+    console.error('[remote] Failed to start remote server:', err.message);
+  });
+
   createWindow();
 
   app.on('activate', () => {
@@ -187,6 +194,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  stopRemoteServer();
   sessionManager.stop();
   if (process.platform !== 'darwin') {
     app.quit();

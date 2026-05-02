@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { execSync } from 'child_process';
+import { EventEmitter } from 'events';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
 import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL } from '../shared/ipc-channels';
@@ -98,6 +99,9 @@ export class SessionManager {
   private sessions = new Map<string, Session>();
   private statusInterval: ReturnType<typeof setInterval> | null = null;
   private window: BrowserWindow | null = null;
+
+  /** Event bus for remote API server — emits the same events as webContents.send() */
+  public readonly events = new EventEmitter();
 
   setWindow(win: BrowserWindow) {
     this.window = win;
@@ -895,6 +899,8 @@ export class SessionManager {
     if (this.window && !this.window.isDestroyed()) {
       this.window.webContents.send(channel, data);
     }
+    // Emit on public event bus so the remote API server can forward to WS clients
+    this.events.emit(channel, data);
   }
 }
 
