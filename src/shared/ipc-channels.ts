@@ -31,7 +31,8 @@ export interface SessionInfo {
   pid: number;
   cwd: string;
   cli: CliTool;
-  claudeSessionUuid: string | null;
+  /** Per-CLI session ID used to resume on restart (Claude UUID, Copilot UUID, …) */
+  resumeSessionId: string | null;
 }
 
 export interface SubagentInfo {
@@ -171,7 +172,7 @@ export interface WorkspaceTemplateSession {
   name: string;
   cwd: string;
   cli: CliTool;
-  /** Claude session UUID for resume */
+  /** Per-CLI session ID for resume (Claude UUID, Copilot UUID, …) */
   sessionId?: string;
 }
 

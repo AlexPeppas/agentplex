@@ -27,13 +27,13 @@ export function TemplatesPanel() {
     if (!name || liveSessions.length === 0) return;
     setSaving(true);
 
-    // Read persisted state.json to get Claude session UUIDs
+    // Read persisted state.json to get per-CLI resume session IDs (Claude UUIDs, Copilot UUIDs).
     const persisted = await window.agentPlex.getPersistedState();
-    // Build a lookup: displayName → claudeSessionUuid
+    // Build a lookup: displayName → resumeSessionId
     const uuidByName = new Map<string, string>();
     for (const [, ps] of Object.entries(persisted.sessions)) {
-      if (ps.claudeSessionUuid) {
-        uuidByName.set(ps.displayName, ps.claudeSessionUuid);
+      if (ps.resumeSessionId) {
+        uuidByName.set(ps.displayName, ps.resumeSessionId);
       }
     }
 
@@ -72,7 +72,7 @@ export function TemplatesPanel() {
     for (const s of Object.values(currentSessions)) {
       if (s.status === SessionStatus.Killed) continue;
       activeNames.add(currentNames[s.id] || s.title);
-      if (s.claudeSessionUuid) activeUuids.add(s.claudeSessionUuid);
+      if (s.resumeSessionId) activeUuids.add(s.resumeSessionId);
     }
 
     let skipped = 0;

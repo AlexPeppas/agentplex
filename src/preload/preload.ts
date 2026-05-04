@@ -261,7 +261,7 @@ const api = {
     return ipcRenderer.invoke(IPC.CANVAS_SAVE, data);
   },
 
-  getPersistedState: (): Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; claudeSessionUuid: string | null }> }> => {
+  getPersistedState: (): Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }> => {
     return ipcRenderer.invoke(IPC.SESSION_GET_PERSISTED);
   },
 

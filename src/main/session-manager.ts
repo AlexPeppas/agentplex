@@ -67,7 +67,8 @@ interface Session {
   displayName: string;
   cli: CliTool;
   cwd: string;
-  claudeSessionUuid: string | null;
+  /** Per-CLI session ID used to resume (Claude UUID, Copilot UUID, …) */
+  resumeSessionId: string | null;
   pty: pty.IPty;
   status: SessionStatus;
   lastOutput: number;
@@ -82,6 +83,15 @@ interface Session {
 }
 
 interface PersistedSession {
+  displayName: string;
+  cwd: string;
+  cli: CliTool;
+  /** Per-CLI session ID used to resume on restart */
+  resumeSessionId: string | null;
+}
+
+/** Old persisted-session shape with `claudeSessionUuid` — read for one-shot migration. */
+interface LegacyPersistedSession {
   displayName: string;
   cwd: string;
   cli: CliTool;
@@ -103,10 +113,18 @@ export class SessionManager {
     this.window = win;
   }
 
-  /** Load persisted state from disk */
+  /** Load persisted state from disk. Migrates old `claudeSessionUuid` → `resumeSessionId`. */
   loadState(): PersistedState {
     try {
-      return JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'));
+      const raw = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'));
+      if (raw && typeof raw === 'object' && raw.sessions && typeof raw.sessions === 'object') {
+        for (const ps of Object.values(raw.sessions) as Array<PersistedSession & Partial<LegacyPersistedSession>>) {
+          if (ps && ps.resumeSessionId === undefined) {
+            ps.resumeSessionId = ps.claudeSessionUuid ?? null;
+          }
+        }
+      }
+      return raw as PersistedState;
     } catch {
       return { sessions: {} };
     }
@@ -120,7 +138,7 @@ export class SessionManager {
         displayName: session.displayName,
         cwd: session.cwd,
         cli: session.cli,
-        claudeSessionUuid: session.claudeSessionUuid,
+        resumeSessionId: session.resumeSessionId,
       };
     }
     try {
@@ -145,7 +163,7 @@ export class SessionManager {
   }
 
   /**
-   * Restore persisted Claude sessions from state.json.
+   * Restore persisted sessions (Claude + Copilot) from state.json.
    * Returns SessionInfo[] for each restored session so the renderer can add them.
    */
   restoreAll(): { info: SessionInfo; displayName: string }[] {
@@ -153,22 +171,22 @@ export class SessionManager {
     const results: { info: SessionInfo; displayName: string }[] = [];
 
     for (const [oldId, persisted] of Object.entries(state.sessions)) {
-      // Only Claude sessions with a UUID can be resumed
-      if (!persisted.claudeSessionUuid) continue;
+      // Only sessions with a known resume ID for a supported CLI can be restored
+      if (!persisted.resumeSessionId) continue;
+      if (persisted.cli !== 'claude' && persisted.cli !== 'claude-resume' && persisted.cli !== 'copilot') continue;
       try {
         // Validate cwd exists before restoring
         if (!fs.existsSync(persisted.cwd) || !fs.statSync(persisted.cwd).isDirectory()) {
           console.warn(`[restore] Skipping ${oldId}: cwd "${persisted.cwd}" does not exist`);
           continue;
         }
-        // Create a new session that resumes the Claude conversation
         const info = this.createWithUuid(
           persisted.cwd,
           persisted.cli,
-          persisted.claudeSessionUuid
+          persisted.resumeSessionId
         );
         results.push({ info, displayName: persisted.displayName });
-        console.log(`[restore] Restored "${persisted.displayName}" (${persisted.claudeSessionUuid})`);
+        console.log(`[restore] Restored "${persisted.displayName}" (${persisted.cli}: ${persisted.resumeSessionId})`);
       } catch (err: any) {
         console.error(`[restore] Failed to restore ${oldId}:`, err.message);
       }
@@ -181,18 +199,30 @@ export class SessionManager {
   }
 
   /**
-   * Create a session with a specific Claude session UUID (for restore).
+   * Create a session with a pre-known resume ID. Used for:
+   *  - Restoring persisted sessions on app start
+   *  - Resuming an existing Claude session picked from the launcher
+   *  - Adopting an external Claude session
+   *  - Launching a new session (Claude or Copilot) where we mint the UUID upfront
+   *    so app restart and templates can resume it later
+   *
+   * `forceResume = true` means "we already know the conversation exists" — skip the
+   * file existence probe and use --resume immediately. (Claude only — for Copilot
+   * the resume command shape is the same whether the session is new or existing.)
    */
-  private createWithUuid(cwd: string, cli: CliTool, claudeSessionUuid: string, forceResume = false): SessionInfo {
-    if (!UUID_RE.test(claudeSessionUuid)) {
-      throw new Error(`Invalid session UUID: ${claudeSessionUuid}`);
+  private createWithUuid(cwd: string, cli: CliTool, resumeSessionId: string, forceResume = false): SessionInfo {
+    if (!UUID_RE.test(resumeSessionId)) {
+      throw new Error(`Invalid session UUID: ${resumeSessionId}`);
+    }
+    if (cli !== 'claude' && cli !== 'claude-resume' && cli !== 'copilot') {
+      throw new Error(`createWithUuid: CLI '${cli}' does not support resume`);
     }
     sessionCounter++;
     const id = `session-${sessionCounter}`;
     const workDir = cwd;
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
-    const toolDef = CLI_TOOLS.find((t) => t.id === cli) || CLI_TOOLS[0];
     const title = `Session ${sessionCounter} — ${dirName}`;
+    const isClaude = cli === 'claude' || cli === 'claude-resume';
 
     const shell = resolveDefaultShell();
     const term = pty.spawn(shell, [], {
@@ -204,10 +234,15 @@ export class SessionManager {
     });
 
     const home = homedir();
-    const encodedPath = encodeProjectPath(workDir);
-    const jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${claudeSessionUuid}.jsonl`);
-    const jsonlWatcher = this.createJsonlWatcher(jsonlPath, id);
-    jsonlWatcher.start();
+
+    let jsonlPath: string | null = null;
+    let jsonlWatcher: JsonlSessionWatcher | null = null;
+    if (isClaude) {
+      const encodedPath = encodeProjectPath(workDir);
+      jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${resumeSessionId}.jsonl`);
+      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id);
+      jsonlWatcher.start();
+    }
 
     const planDetector = new PlanTaskDetector((event) => {
       switch (event.type) {
@@ -250,7 +285,7 @@ export class SessionManager {
       displayName: title,
       cli,
       cwd: workDir,
-      claudeSessionUuid,
+      resumeSessionId,
       pty: term,
       status: SessionStatus.Running,
       lastOutput: Date.now(),
@@ -285,30 +320,41 @@ export class SessionManager {
     this.sessions.set(id, session);
 
     // Pre-populate the terminal with the JSONL transcript so the user sees
-    // the familiar conversation history before the --resume recap.
-    if (forceResume) {
+    // the familiar conversation history before the --resume recap. (Claude only —
+    // Copilot has no equivalent transcript renderer.)
+    if (isClaude && forceResume && jsonlPath) {
       const transcript = renderJsonlTranscript(jsonlPath);
       if (transcript) {
         this.send(IPC.SESSION_DATA, { id, data: transcript });
       }
     }
 
-    // Use --resume if we know this is a real conversation to resume (forceResume from
-    // smart-resume flow, or JSONL file exists on disk). Fall back to --session-id only
-    // when restoring a session that was saved but never had a conversation.
-    const hasConversation = forceResume || (fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).size > 0);
-    const config = resolveClaudeConfig(workDir);
-    const flagStr = config.flags.length > 0 ? ' ' + config.flags.join(' ') : '';
-    const command = hasConversation
-      ? `${config.command}${flagStr} --resume ${claudeSessionUuid}`
-      : `${config.command}${flagStr} --session-id ${claudeSessionUuid}`;
+    // Build the launch command for the chosen CLI.
+    let command: string;
+    if (isClaude) {
+      // Use --resume if we know this is a real conversation to resume (forceResume from
+      // smart-resume flow, or JSONL file exists on disk). Fall back to --session-id only
+      // when restoring a session that was saved but never had a conversation.
+      const hasConversation = forceResume || (jsonlPath !== null && fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).size > 0);
+      const config = resolveClaudeConfig(workDir);
+      const flagStr = config.flags.length > 0 ? ' ' + config.flags.join(' ') : '';
+      command = hasConversation
+        ? `${config.command}${flagStr} --resume ${resumeSessionId}`
+        : `${config.command}${flagStr} --session-id ${resumeSessionId}`;
+    } else {
+      // Copilot: --resume=<uuid> works for both new (with pre-set UUID) and existing
+      // sessions per `copilot --help`. The `--` separator stops gh from interpreting
+      // any future flags as its own.
+      command = `gh copilot -- --resume=${resumeSessionId}`;
+    }
+
     setTimeout(() => {
       try {
         term.write(command + '\r');
       } catch { /* session may have been killed */ }
     }, 1000);
 
-    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli, claudeSessionUuid: session.claudeSessionUuid };
+    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli, resumeSessionId: session.resumeSessionId };
   }
 
   stop() {
@@ -330,13 +376,23 @@ export class SessionManager {
   }
 
   create(cwd?: string, cli: CliTool = 'claude', resumeSessionId?: string): SessionInfo {
-    // Direct resume by UUID — delegate to createWithUuid which handles --resume <uuid>.
-    // forceResume=true because the session was picked from the scanner, so we know
-    // the JSONL exists — avoids a path-encoding mismatch that could cause a fallback
-    // to --session-id instead of --resume.
-    if (resumeSessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resumeSessionId)) {
+    // Direct resume by UUID — delegate to createWithUuid which knows the per-CLI shape.
+    // forceResume=true (Claude path) because the session was picked from the scanner or
+    // a template, so we know the JSONL exists — avoids a path-encoding mismatch that
+    // could cause a fallback to --session-id instead of --resume.
+    if (resumeSessionId && UUID_RE.test(resumeSessionId)) {
       const workDir = cwd || homedir();
-      const info = this.createWithUuid(workDir, 'claude', resumeSessionId, true);
+      const resumeCli: CliTool = (cli === 'claude' || cli === 'claude-resume' || cli === 'copilot') ? cli : 'claude';
+      const info = this.createWithUuid(workDir, resumeCli, resumeSessionId, true);
+      this.saveState();
+      return info;
+    }
+
+    // New Copilot session: mint a UUID upfront and launch via --resume=<uuid> so the
+    // session can be restored on app restart and saved into templates with parity to Claude.
+    if (cli === 'copilot') {
+      const workDir = cwd || homedir();
+      const info = this.createWithUuid(workDir, 'copilot', crypto.randomUUID(), false);
       this.saveState();
       return info;
     }
@@ -427,7 +483,7 @@ export class SessionManager {
       displayName: title,
       cli,
       cwd: workDir,
-      claudeSessionUuid: sessionUuid,
+      resumeSessionId: sessionUuid,
       pty: term,
       status: SessionStatus.Running,
       lastOutput: Date.now(),
@@ -489,7 +545,7 @@ export class SessionManager {
 
     this.saveState();
 
-    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli, claudeSessionUuid: session.claudeSessionUuid };
+    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli, resumeSessionId: session.resumeSessionId };
   }
 
   write(id: string, data: string) {
@@ -546,7 +602,7 @@ export class SessionManager {
       pid: s.pty.pid,
       cwd: s.cwd,
       cli: s.cli,
-      claudeSessionUuid: s.claudeSessionUuid,
+      resumeSessionId: s.resumeSessionId,
     }));
   }
 
@@ -555,13 +611,14 @@ export class SessionManager {
     return this.sessions.get(id)?.cwd ?? null;
   }
 
-  /** Return the JSONL conversation file path for a session, or null */
+  /** Return the JSONL conversation file path for a Claude session, or null. */
   getJsonlPath(id: string): string | null {
     const session = this.sessions.get(id);
-    if (!session?.claudeSessionUuid || !session.cwd) return null;
+    if (!session?.resumeSessionId || !session.cwd) return null;
+    if (session.cli !== 'claude' && session.cli !== 'claude-resume') return null;
     const home = homedir();
     const encodedPath = encodeProjectPath(session.cwd);
-    return path.join(home, '.claude', 'projects', encodedPath, `${session.claudeSessionUuid}.jsonl`);
+    return path.join(home, '.claude', 'projects', encodedPath, `${session.resumeSessionId}.jsonl`);
   }
 
   /** Return { sessionId → displayName } from in-memory sessions */
@@ -646,7 +703,7 @@ export class SessionManager {
               // Extract UUID from filename and persist so session can be restored
               const discoveredUuid = file.replace('.jsonl', '');
               if (UUID_RE.test(discoveredUuid)) {
-                session.claudeSessionUuid = discoveredUuid;
+                session.resumeSessionId = discoveredUuid;
                 session.cli = 'claude'; // normalize — it's a regular Claude session now
                 this.saveState();
               }
@@ -674,14 +731,20 @@ export class SessionManager {
       return [];
     }
 
-    // Collect UUIDs already managed by AgentPlex (in-memory + persisted)
+    // Collect UUIDs already managed by AgentPlex (in-memory + persisted).
+    // We only need Claude UUIDs here — copilot resume IDs live in a different namespace
+    // and can never collide with the JSONLs in ~/.claude/projects.
     const managedUuids = new Set<string>();
     for (const s of this.sessions.values()) {
-      if (s.claudeSessionUuid) managedUuids.add(s.claudeSessionUuid);
+      if (s.resumeSessionId && (s.cli === 'claude' || s.cli === 'claude-resume')) {
+        managedUuids.add(s.resumeSessionId);
+      }
     }
     const persisted = this.loadState();
     for (const ps of Object.values(persisted.sessions)) {
-      if (ps.claudeSessionUuid) managedUuids.add(ps.claudeSessionUuid);
+      if (ps.resumeSessionId && (ps.cli === 'claude' || ps.cli === 'claude-resume')) {
+        managedUuids.add(ps.resumeSessionId);
+      }
     }
 
     const results: ExternalSession[] = [];
@@ -806,14 +869,19 @@ export class SessionManager {
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
       throw new Error(`Working directory does not exist: ${cwd}`);
     }
-    // Re-resolve at adoption time, excluding AgentPlex-managed sessions (in-memory + persisted)
+    // Re-resolve at adoption time, excluding AgentPlex-managed Claude sessions
+    // (in-memory + persisted). Copilot resume IDs live in a different namespace.
     const managedUuids = new Set<string>();
     for (const s of this.sessions.values()) {
-      if (s.claudeSessionUuid) managedUuids.add(s.claudeSessionUuid);
+      if (s.resumeSessionId && (s.cli === 'claude' || s.cli === 'claude-resume')) {
+        managedUuids.add(s.resumeSessionId);
+      }
     }
     const persisted = this.loadState();
     for (const ps of Object.values(persisted.sessions)) {
-      if (ps.claudeSessionUuid) managedUuids.add(ps.claudeSessionUuid);
+      if (ps.resumeSessionId && (ps.cli === 'claude' || ps.cli === 'claude-resume')) {
+        managedUuids.add(ps.resumeSessionId);
+      }
     }
     const activeUuid = this.resolveActiveSessionId(cwd, sessionUuid, managedUuids);
     const info = this.createWithUuid(cwd, 'claude', activeUuid, true);

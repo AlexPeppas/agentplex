@@ -55,7 +55,7 @@ export interface AgentPlexAPI {
   onZoom: (callback: (direction: 'in' | 'out' | 'reset') => void) => () => void;
   canvasLoad: () => Promise<DrawingData>;
   canvasSave: (data: DrawingData) => Promise<void>;
-  getPersistedState: () => Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; claudeSessionUuid: string | null }> }>;
+  getPersistedState: () => Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }>;
   templatesLoad: () => Promise<WorkspaceTemplate[]>;
   templatesSave: (templates: WorkspaceTemplate[]) => Promise<void>;
 }
