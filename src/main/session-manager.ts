@@ -10,7 +10,7 @@ import type { SessionInfo, CliTool, ExternalSession } from '../shared/ipc-channe
 import { getShellById } from './shell-detector';
 import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
-import { JsonlSessionWatcher, encodeProjectPath } from './jsonl-session-watcher';
+import { JsonlSessionWatcher, encodeProjectPath, type WatcherFormat } from './jsonl-session-watcher';
 import { renderJsonlTranscript } from './claude-session-scanner';
 import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
@@ -240,7 +240,14 @@ export class SessionManager {
     if (isClaude) {
       const encodedPath = encodeProjectPath(workDir);
       jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${resumeSessionId}.jsonl`);
-      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id);
+      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id, 'claude');
+      jsonlWatcher.start();
+    } else if (cli === 'copilot') {
+      // ~/.copilot/session-state/<uuid>/events.jsonl is the append-only event log.
+      // Used both for sub-agent detection (subagent.started + tool.execution_complete)
+      // and for "Running" status detection via mtime in checkStatuses().
+      jsonlPath = path.join(home, '.copilot', 'session-state', resumeSessionId, 'events.jsonl');
+      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id, 'copilot');
       jsonlWatcher.start();
     }
 
@@ -630,8 +637,8 @@ export class SessionManager {
     return names;
   }
 
-  private createJsonlWatcher(jsonlPath: string, sessionId: string): JsonlSessionWatcher {
-    const watcher = new JsonlSessionWatcher(jsonlPath);
+  private createJsonlWatcher(jsonlPath: string, sessionId: string, format: WatcherFormat = 'claude'): JsonlSessionWatcher {
+    const watcher = new JsonlSessionWatcher(jsonlPath, format);
 
     watcher.on('agent-spawn', (event: { toolUseId: string; description: string; subagentType: string }) => {
       this.send(IPC.SUBAGENT_SPAWN, {
@@ -913,17 +920,16 @@ export class SessionManager {
 
       const promptDetected = atPrompt || matchesFull || matchesLine;
 
-      // Use JSONL file mtime as the ground truth for "Running".
-      // When Claude is actively working, it writes to the JSONL file.
-      // Terminal output is too noisy (redraws, cursor repositioning) to be reliable.
+      // Use the watcher's JSONL file mtime as the ground truth for "Running".
+      // Claude writes ~/.claude/projects/<encodedPath>/<uuid>.jsonl while working;
+      // Copilot writes ~/.copilot/session-state/<uuid>/events.jsonl. Both append
+      // continuously while the CLI is active. Terminal output is too noisy
+      // (redraws, cursor repositioning) to be a reliable signal.
       let jsonlActive = false;
       if (session.jsonlWatcher) {
         try {
-          const jsonlPath = (session.jsonlWatcher as any).jsonlPath;
-          if (jsonlPath) {
-            const stat = fs.statSync(jsonlPath);
-            jsonlActive = (now - stat.mtimeMs) < JSONL_ACTIVE_MS;
-          }
+          const stat = fs.statSync(session.jsonlWatcher.jsonlPath);
+          jsonlActive = (now - stat.mtimeMs) < JSONL_ACTIVE_MS;
         } catch { /* file may not exist yet */ }
       }
 

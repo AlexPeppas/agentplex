@@ -11,16 +11,21 @@ export interface AgentCompleteEvent {
   toolUseId: string;
 }
 
+export type WatcherFormat = 'claude' | 'copilot';
+
 export class JsonlSessionWatcher extends EventEmitter {
-  private jsonlPath: string;
+  /** Public so SessionManager can read mtime for "Running" status detection. */
+  jsonlPath: string;
+  private format: WatcherFormat;
   private offset = 0;
   private partialLine = '';
   private activeAgents = new Map<string, { description: string; subagentType: string }>();
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(jsonlPath: string) {
+  constructor(jsonlPath: string, format: WatcherFormat = 'claude') {
     super();
     this.jsonlPath = jsonlPath;
+    this.format = format;
   }
 
   start(): void {
@@ -77,6 +82,11 @@ export class JsonlSessionWatcher extends EventEmitter {
       return; // malformed line
     }
 
+    if (this.format === 'claude') this.processClaudeRecord(record);
+    else this.processCopilotRecord(record);
+  }
+
+  private processClaudeRecord(record: any): void {
     const type = record.type;
     const content = record.message?.content;
     if (!Array.isArray(content)) return;
@@ -101,6 +111,37 @@ export class JsonlSessionWatcher extends EventEmitter {
             this.emit('agent-complete', { toolUseId } satisfies AgentCompleteEvent);
           }
         }
+      }
+    }
+  }
+
+  /**
+   * Copilot's events.jsonl uses a flat event-typed format. Sub-agents:
+   *   - `subagent.started` carries `data.toolCallId`, `data.agentName`, `data.agentDisplayName`,
+   *     `data.agentDescription`. There is no explicit `subagent.completed` event;
+   *     completion is signaled by `tool.execution_complete` with the matching `toolCallId`
+   *     (the underlying tool call is `task`).
+   */
+  private processCopilotRecord(record: any): void {
+    const type = record.type;
+    const data = record.data;
+    if (!type || !data || typeof data !== 'object') return;
+
+    if (type === 'subagent.started') {
+      const toolUseId: string | undefined = data.toolCallId;
+      if (typeof toolUseId !== 'string') return;
+      const description: string =
+        data.agentDescription || data.agentDisplayName || data.agentName || 'Sub-agent';
+      const subagentType: string = data.agentName || 'general-purpose';
+      this.activeAgents.set(toolUseId, { description, subagentType });
+      this.emit('agent-spawn', { toolUseId, description, subagentType } satisfies AgentSpawnEvent);
+    } else if (type === 'tool.execution_complete') {
+      const toolUseId: string | undefined = data.toolCallId;
+      if (typeof toolUseId !== 'string') return;
+      // Only emit complete if we tracked a spawn for this id — filters out non-task tool calls.
+      if (this.activeAgents.has(toolUseId)) {
+        this.activeAgents.delete(toolUseId);
+        this.emit('agent-complete', { toolUseId } satisfies AgentCompleteEvent);
       }
     }
   }
