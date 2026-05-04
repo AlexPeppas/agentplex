@@ -77,6 +77,8 @@ interface Session {
   waitingSince: number;
   /** Buffer length at the time HITL was detected — used to tell real output from redraws */
   waitingBufferLen: number;
+  /** Copilot-only: true while a permission.requested has not been resolved by permission.completed */
+  waitingForPermission: boolean;
   buffer: string;
   jsonlWatcher: JsonlSessionWatcher | null;
   planTaskDetector: PlanTaskDetector;
@@ -299,6 +301,7 @@ export class SessionManager {
       lastVisibleOutput: Date.now(),
       waitingSince: 0,
       waitingBufferLen: 0,
+      waitingForPermission: false,
       buffer: '',
       jsonlWatcher,
       planTaskDetector: planDetector,
@@ -313,7 +316,10 @@ export class SessionManager {
       if (session.buffer.length > BUFFER_CAP) {
         session.buffer = session.buffer.slice(-BUFFER_CAP);
       }
-      planDetector.feed(data);
+      // The PlanTaskDetector regex set is Claude-specific (matches "plan mode on",
+      // ~/.claude/plans/<slug>.md, TodoWrite checkbox glyphs). Don't feed Copilot
+      // output through it — plan/permission state for Copilot comes from events.jsonl.
+      if (isClaude) planDetector.feed(data);
       this.send(IPC.SESSION_DATA, { id, data });
     });
 
@@ -497,6 +503,7 @@ export class SessionManager {
       lastVisibleOutput: Date.now(),
       waitingSince: 0,
       waitingBufferLen: 0,
+      waitingForPermission: false,
       buffer: '',
       jsonlWatcher,
       planTaskDetector: planDetector,
@@ -654,6 +661,52 @@ export class SessionManager {
         subagentId: event.toolUseId,
       });
     });
+
+    if (format === 'copilot') {
+      // Copilot's plan.md is a sibling of events.jsonl — read it for the plan title
+      // (mirrors how Claude reads ~/.claude/plans/<slug>.md from a slug in the event).
+      const planMdPath = path.join(path.dirname(jsonlPath), 'plan.md');
+
+      watcher.on('plan-changed', () => {
+        let planTitle = 'Plan Mode';
+        try {
+          const content = fs.readFileSync(planMdPath, 'utf-8');
+          const headingMatch = content.match(/^#\s+(.+)/m);
+          if (headingMatch) {
+            const extracted = headingMatch[1].trim();
+            // Reject empty or punctuation/dash-only titles (file may not be fully written yet).
+            if (extracted && !/^[\s\-—–_.…]+$/.test(extracted)) {
+              planTitle = extracted;
+            }
+          }
+        } catch { /* plan.md may not exist yet — fall back to default title */ }
+        this.send(IPC.PLAN_ENTER, { sessionId, planTitle });
+      });
+
+      watcher.on('plan-deleted', () => {
+        this.send(IPC.PLAN_EXIT, { sessionId });
+      });
+
+      // Permission events drive WaitingForInput status immediately — no need to wait
+      // for the next 500ms checkStatuses tick. The flag is also consulted there to
+      // keep the status sticky across ticks until the user resolves the request.
+      watcher.on('permission-requested', () => {
+        const session = this.sessions.get(sessionId);
+        if (!session) return;
+        session.waitingForPermission = true;
+        if (session.status !== SessionStatus.WaitingForInput) {
+          session.status = SessionStatus.WaitingForInput;
+          this.send(IPC.SESSION_STATUS, { id: sessionId, status: SessionStatus.WaitingForInput });
+        }
+      });
+
+      watcher.on('permission-completed', () => {
+        const session = this.sessions.get(sessionId);
+        if (!session) return;
+        session.waitingForPermission = false;
+        // Status normalizes to Running/Idle on the next checkStatuses tick (within 500ms).
+      });
+    }
 
     return watcher;
   }
@@ -934,7 +987,12 @@ export class SessionManager {
       }
 
       let newStatus: SessionStatus;
-      if (promptDetected) {
+      if (session.waitingForPermission) {
+        // Copilot fast-path: an outstanding permission.requested event holds the session
+        // in WaitingForInput until permission.completed arrives. Don't touch
+        // waitingSince/waitingBufferLen — those are owned by the buffer-pattern HITL path.
+        newStatus = SessionStatus.WaitingForInput;
+      } else if (promptDetected) {
         newStatus = SessionStatus.WaitingForInput;
         if (session.waitingSince === 0) {
           session.waitingSince = now;

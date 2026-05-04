@@ -11,6 +11,21 @@ export interface AgentCompleteEvent {
   toolUseId: string;
 }
 
+/** Copilot only — fires when `session.plan_changed` event indicates plan creation/update. */
+export interface PlanChangedEvent {
+  operation: string;
+}
+
+/** Copilot only — fires when the agent requests interactive permission. */
+export interface PermissionRequestedEvent {
+  requestId: string;
+}
+
+/** Copilot only — fires when the user resolves a previous request. */
+export interface PermissionCompletedEvent {
+  requestId: string;
+}
+
 export type WatcherFormat = 'claude' | 'copilot';
 
 export class JsonlSessionWatcher extends EventEmitter {
@@ -116,11 +131,16 @@ export class JsonlSessionWatcher extends EventEmitter {
   }
 
   /**
-   * Copilot's events.jsonl uses a flat event-typed format. Sub-agents:
-   *   - `subagent.started` carries `data.toolCallId`, `data.agentName`, `data.agentDisplayName`,
-   *     `data.agentDescription`. There is no explicit `subagent.completed` event;
-   *     completion is signaled by `tool.execution_complete` with the matching `toolCallId`
-   *     (the underlying tool call is `task`).
+   * Copilot's events.jsonl uses a flat event-typed format. Mappings:
+   *   - `subagent.started` → agent-spawn (toolCallId is the spawn id).
+   *     There's no explicit `subagent.completed`; completion comes from
+   *     `tool.execution_complete` with the matching toolCallId (the underlying
+   *     tool call is `task`).
+   *   - `session.plan_changed` → plan-changed (create/update) or plan-deleted.
+   *     The plan title lives in `<session-state>/plan.md`; the listener reads
+   *     that file to extract the heading.
+   *   - `permission.requested` / `permission.completed` → drive WaitingForInput
+   *     status immediately (avoids the 500ms terminal-pattern poll lag).
    */
   private processCopilotRecord(record: any): void {
     const type = record.type;
@@ -143,6 +163,22 @@ export class JsonlSessionWatcher extends EventEmitter {
         this.activeAgents.delete(toolUseId);
         this.emit('agent-complete', { toolUseId } satisfies AgentCompleteEvent);
       }
+    } else if (type === 'session.plan_changed') {
+      const operation: string = typeof data.operation === 'string' ? data.operation : 'create';
+      if (operation === 'delete') {
+        this.emit('plan-deleted');
+      } else {
+        // create / update / anything else → re-read plan.md
+        this.emit('plan-changed', { operation } satisfies PlanChangedEvent);
+      }
+    } else if (type === 'permission.requested') {
+      const requestId: string | undefined = data.requestId;
+      if (typeof requestId !== 'string') return;
+      this.emit('permission-requested', { requestId } satisfies PermissionRequestedEvent);
+    } else if (type === 'permission.completed') {
+      const requestId: string | undefined = data.requestId;
+      if (typeof requestId !== 'string') return;
+      this.emit('permission-completed', { requestId } satisfies PermissionCompletedEvent);
     }
   }
 }
