@@ -12,6 +12,7 @@ import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath, type WatcherFormat } from './jsonl-session-watcher';
 import { renderJsonlTranscript } from './claude-session-scanner';
+import { renderCopilotTranscript } from './copilot-session-scanner';
 import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
 
@@ -332,11 +333,20 @@ export class SessionManager {
 
     this.sessions.set(id, session);
 
-    // Pre-populate the terminal with the JSONL transcript so the user sees
-    // the familiar conversation history before the --resume recap. (Claude only —
-    // Copilot has no equivalent transcript renderer.)
-    if (isClaude && forceResume && jsonlPath) {
-      const transcript = renderJsonlTranscript(jsonlPath);
+    // Pre-populate the terminal with the conversation transcript so the user sees
+    // their history immediately on resume.
+    //
+    //   - Claude: the CLI replays the conversation itself on `--resume`, so we only
+    //     pre-render on smart-resume (forceResume=true) as a UX nicety to fill the
+    //     1s gap before the CLI starts.
+    //   - Copilot: the CLI does NOT replay visually on `--resume=<uuid>` (only the
+    //     interactive picker form does). Always pre-render — the renderer returns
+    //     an empty string for missing/empty events.jsonl, so brand-new sessions get
+    //     no spurious transcript.
+    if (jsonlPath) {
+      const transcript = isClaude
+        ? (forceResume ? renderJsonlTranscript(jsonlPath) : '')
+        : renderCopilotTranscript(jsonlPath);
       if (transcript) {
         this.send(IPC.SESSION_DATA, { id, data: transcript });
       }
