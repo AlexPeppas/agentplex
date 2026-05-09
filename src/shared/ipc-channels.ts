@@ -1,4 +1,4 @@
-export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | (string & {});
+export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | 'copilot-resume' | (string & {});
 
 export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'claude', label: 'Claude', command: 'claude' },
@@ -15,6 +15,12 @@ export interface DetectedShell {
 
 export const RESUME_TOOL: { id: CliTool; label: string; command: string } = {
   id: 'claude-resume', label: 'Claude Resume', command: 'claude --resume',
+};
+
+/** Launches the Copilot CLI's interactive picker. AgentPlex polls the
+ *  ~/.copilot/session-state directory for the chosen UUID once the user picks. */
+export const COPILOT_RESUME_TOOL: { id: CliTool; label: string; command: string } = {
+  id: 'copilot-resume', label: 'Copilot Resume', command: 'gh copilot --resume',
 };
 
 export enum SessionStatus {
@@ -194,6 +200,9 @@ export const IPC = {
   SESSION_DATA: 'session:data',
   SESSION_STATUS: 'session:status',
   SESSION_EXIT: 'session:exit',
+  /** Partial SessionInfo update from main (e.g. after copilot-resume discovery
+   *  captures the real UUID + cwd from workspace.yaml). */
+  SESSION_INFO_UPDATE: 'session:infoUpdate',
   DIALOG_OPEN_DIR: 'dialog:openDirectory',
   SUBAGENT_SPAWN: 'subagent:spawn',
   SUBAGENT_COMPLETE: 'subagent:complete',

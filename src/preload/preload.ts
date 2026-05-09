@@ -61,6 +61,14 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.SESSION_EXIT, handler);
   },
 
+  onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null }) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.SESSION_INFO_UPDATE, handler);
+    return () => ipcRenderer.removeListener(IPC.SESSION_INFO_UPDATE, handler);
+  },
+
   onSubagentSpawn: (callback: (data: SubagentInfo) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: SubagentInfo) => {
       callback(payload);

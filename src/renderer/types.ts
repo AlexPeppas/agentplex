@@ -13,6 +13,7 @@ export interface AgentPlexAPI {
   onSessionData: (callback: (data: { id: string; data: string }) => void) => () => void;
   onSessionStatus: (callback: (data: { id: string; status: SessionStatus }) => void) => () => void;
   onSessionExit: (callback: (data: { id: string; exitCode: number }) => void) => () => void;
+  onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null }) => void) => () => void;
   onSubagentSpawn: (callback: (data: SubagentInfo) => void) => () => void;
   onSubagentComplete: (callback: (data: SubagentInfo) => void) => () => void;
   onPlanEnter: (callback: (data: PlanInfo) => void) => () => void;

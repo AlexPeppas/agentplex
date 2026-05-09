@@ -75,6 +75,17 @@ export function Toolbar() {
     addSession(info);
   }, [addSession]);
 
+  // Copilot Resume: spawn a session that runs `gh copilot --resume` (no UUID).
+  // The CLI shows its native session picker; once the user picks, AgentPlex captures
+  // the chosen UUID via mtime polling and persists it so app restart and templates
+  // can resume it later. No directory pick — the picker is global, and the
+  // discovered session.cwd is updated from the resumed session's workspace.yaml.
+  const handleCopilotResume = useCallback(async () => {
+    setMenuOpen(false);
+    const info = await window.agentPlex.createSession(undefined, 'copilot-resume');
+    addSession(info);
+  }, [addSession]);
+
   const handleShellContextMenu = useCallback((e: React.MouseEvent, shellId: string) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, shellId });
@@ -252,7 +263,34 @@ export function Toolbar() {
               </div>
 
               <div className="h-px bg-border my-1" />
-              {CLI_TOOLS.filter((t) => t.id !== 'claude').map((tool) => (
+              <div className="py-1.5 px-2.5">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-fg uppercase tracking-wide mb-1.5">
+                  <img
+                    src={(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? copilotLight : copilotDark}
+                    alt=""
+                    className="w-3.5 h-3.5"
+                  />
+                  GitHub Copilot
+                </span>
+                <div className="flex gap-1.5">
+                  <button
+                    className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
+                    onClick={() => handlePick('copilot')}
+                  >
+                    New
+                  </button>
+                  <button
+                    className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
+                    onClick={handleCopilotResume}
+                    title="Resume an existing Copilot session via the CLI's native picker"
+                  >
+                    Resume
+                  </button>
+                </div>
+              </div>
+
+              <div className="h-px bg-border my-1" />
+              {CLI_TOOLS.filter((t) => t.id !== 'claude' && t.id !== 'copilot').map((tool) => (
                 <button
                   key={tool.id}
                   className="flex items-center gap-2 w-full py-2 px-3 bg-transparent border-none rounded-md text-fg text-[13px] font-medium text-left cursor-pointer transition-colors hover:bg-border"

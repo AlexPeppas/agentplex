@@ -5,7 +5,7 @@ import * as crypto from 'crypto';
 import { execSync } from 'child_process';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
-import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL } from '../shared/ipc-channels';
+import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL } from '../shared/ipc-channels';
 import type { SessionInfo, CliTool, ExternalSession } from '../shared/ipc-channels';
 import { getShellById } from './shell-detector';
 import { getDefaultShellId } from './settings-manager';
@@ -176,7 +176,12 @@ export class SessionManager {
     for (const [oldId, persisted] of Object.entries(state.sessions)) {
       // Only sessions with a known resume ID for a supported CLI can be restored
       if (!persisted.resumeSessionId) continue;
-      if (persisted.cli !== 'claude' && persisted.cli !== 'claude-resume' && persisted.cli !== 'copilot') continue;
+      if (
+        persisted.cli !== 'claude' &&
+        persisted.cli !== 'claude-resume' &&
+        persisted.cli !== 'copilot' &&
+        persisted.cli !== 'copilot-resume'
+      ) continue;
       try {
         // Validate cwd exists before restoring
         if (!fs.existsSync(persisted.cwd) || !fs.statSync(persisted.cwd).isDirectory()) {
@@ -217,7 +222,7 @@ export class SessionManager {
     if (!UUID_RE.test(resumeSessionId)) {
       throw new Error(`Invalid session UUID: ${resumeSessionId}`);
     }
-    if (cli !== 'claude' && cli !== 'claude-resume' && cli !== 'copilot') {
+    if (cli !== 'claude' && cli !== 'claude-resume' && cli !== 'copilot' && cli !== 'copilot-resume') {
       throw new Error(`createWithUuid: CLI '${cli}' does not support resume`);
     }
     sessionCounter++;
@@ -424,7 +429,7 @@ export class SessionManager {
     const id = `session-${sessionCounter}`;
     const workDir = cwd || homedir();
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
-    const cliTools = [...CLI_TOOLS, RESUME_TOOL];
+    const cliTools = [...CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL];
     const matchedCliTool = cliTools.find((t) => t.id === cli);
     const isRawShell = !matchedCliTool;
     const toolDef = matchedCliTool || CLI_TOOLS[0];
@@ -459,6 +464,11 @@ export class SessionManager {
       // Resume: the user picks the session interactively, so we discover the
       // session ID by polling ~/.claude/sessions/<pid>.json after the CLI starts.
       this.discoverResumedSession(term.pid, home, encodedPath, id);
+    } else if (cli === 'copilot-resume') {
+      // Same idea for Copilot: launch `gh copilot --resume` (no UUID), let the CLI's
+      // native picker take input, then poll ~/.copilot/session-state for whichever
+      // events.jsonl gets newly written to. That tells us which session was picked.
+      this.discoverResumedCopilotSession(home, id);
     }
 
     const planDetector = new PlanTaskDetector((event) => {
@@ -783,6 +793,92 @@ export class SessionManager {
           } catch { /* skip */ }
         }
       } catch { /* dir doesn't exist yet */ }
+    }, 500);
+  }
+
+  /**
+   * For `gh copilot --resume` (no UUID, interactive picker): the user picks the
+   * session in the CLI's UI, so we discover the chosen UUID by polling
+   * ~/.copilot/session-state for whichever session's events.jsonl starts
+   * receiving new writes after launch. The directory name IS the UUID.
+   *
+   * Also reads workspace.yaml for the original session's cwd and updates
+   * session.cwd so the AgentPlex UI shows the correct directory.
+   */
+  private discoverResumedCopilotSession(home: string, sessionId: string): void {
+    const stateDir = path.join(home, '.copilot', 'session-state');
+    const launchTime = Date.now();
+    let attempts = 0;
+    const maxAttempts = 120; // 60 seconds at 500ms intervals
+
+    // Snapshot existing events.jsonl mtimes per session-state dir.
+    // Sessions without an events.jsonl get baseline 0 (they'd appear as "newly written"
+    // if the user picks one and the CLI starts writing).
+    const baselineMtimes = new Map<string, number>();
+    try {
+      for (const dir of fs.readdirSync(stateDir)) {
+        if (!UUID_RE.test(dir)) continue;
+        const eventsPath = path.join(stateDir, dir, 'events.jsonl');
+        try {
+          baselineMtimes.set(dir, fs.statSync(eventsPath).mtimeMs);
+        } catch {
+          baselineMtimes.set(dir, 0);
+        }
+      }
+    } catch { /* stateDir may not exist yet */ }
+
+    const poll = setInterval(() => {
+      attempts++;
+      const session = this.sessions.get(sessionId);
+      if (!session || session.status === SessionStatus.Killed || attempts > maxAttempts) {
+        clearInterval(poll);
+        return;
+      }
+
+      try {
+        for (const dir of fs.readdirSync(stateDir)) {
+          if (!UUID_RE.test(dir)) continue;
+          const eventsPath = path.join(stateDir, dir, 'events.jsonl');
+          let stat: fs.Stats;
+          try {
+            stat = fs.statSync(eventsPath);
+          } catch { continue; }
+          const baseline = baselineMtimes.get(dir) ?? 0;
+          if (stat.mtimeMs > launchTime && stat.mtimeMs > baseline) {
+            // Discovered the picked session.
+            session.resumeSessionId = dir;
+            session.cli = 'copilot'; // normalize — picker is done, it's a regular Copilot session
+            // Wire the events.jsonl watcher (sub-agent + plan + permission detection).
+            const watcher = this.createJsonlWatcher(eventsPath, sessionId, 'copilot');
+            session.jsonlWatcher = watcher;
+            watcher.start();
+            // Update session.cwd from workspace.yaml so the UI / git panel reflect the
+            // session's real working directory rather than wherever the PTY was spawned.
+            try {
+              const wsPath = path.join(stateDir, dir, 'workspace.yaml');
+              const wsContent = fs.readFileSync(wsPath, 'utf-8');
+              const cwdMatch = wsContent.match(/^cwd:\s*(.+)$/m);
+              if (cwdMatch) {
+                const realCwd = cwdMatch[1].trim();
+                if (realCwd && fs.existsSync(realCwd) && fs.statSync(realCwd).isDirectory()) {
+                  session.cwd = realCwd;
+                }
+              }
+            } catch { /* workspace.yaml absent or unreadable — keep PTY cwd */ }
+            // Push the corrected SessionInfo to the renderer so templates pick up the
+            // real cwd and the git/explorer panels use the right directory.
+            this.send(IPC.SESSION_INFO_UPDATE, {
+              id: sessionId,
+              cli: session.cli,
+              cwd: session.cwd,
+              resumeSessionId: session.resumeSessionId,
+            });
+            this.saveState();
+            clearInterval(poll);
+            return;
+          }
+        }
+      } catch { /* stateDir doesn't exist yet */ }
     }, 500);
   }
 

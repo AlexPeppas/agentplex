@@ -60,6 +60,7 @@ export function App() {
   const addSession = useAppStore((s) => s.addSession);
   const appendBuffer = useAppStore((s) => s.appendBuffer);
   const updateStatus = useAppStore((s) => s.updateStatus);
+  const updateSessionInfo = useAppStore((s) => s.updateSessionInfo);
   const spawnSubagent = useAppStore((s) => s.spawnSubagent);
   const completeSubagent = useAppStore((s) => s.completeSubagent);
   const enterPlan = useAppStore((s) => s.enterPlan);
@@ -203,6 +204,10 @@ export function App() {
       updateStatus(id, SessionStatus.Killed);
     });
 
+    const cleanupInfoUpdate = window.agentPlex.onSessionInfoUpdate(({ id, cli, cwd, resumeSessionId }) => {
+      updateSessionInfo(id, { cli: cli as never, cwd, resumeSessionId });
+    });
+
     const cleanupSpawn = window.agentPlex.onSubagentSpawn(({ sessionId, subagentId, description }) => {
       spawnSubagent(sessionId, subagentId, description);
     });
@@ -235,6 +240,7 @@ export function App() {
       cleanupData();
       cleanupStatus();
       cleanupExit();
+      cleanupInfoUpdate();
       cleanupSpawn();
       cleanupComplete();
       cleanupPlanEnter();
@@ -243,7 +249,7 @@ export function App() {
       cleanupTaskUpdate();
       cleanupTaskList();
     };
-  }, [appendBuffer, updateStatus, spawnSubagent, completeSubagent, enterPlan, exitPlan, createTask, updateTask, reconcileTasks]);
+  }, [appendBuffer, updateStatus, updateSessionInfo, spawnSubagent, completeSubagent, enterPlan, exitPlan, createTask, updateTask, reconcileTasks]);
 
   return (
     <div className="flex flex-col h-full">
