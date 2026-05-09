@@ -18,6 +18,22 @@ import { resolveClaudeConfig } from './config-loader';
 
 const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
 
+/**
+ * Default delay between PTY spawn and the auto-launched CLI command.
+ * Gives the underlying shell a moment to initialize before we type into it.
+ */
+const DEFAULT_LAUNCH_DELAY_MS = 1000;
+
+/**
+ * Per-session stagger added during restoreAll to avoid concurrent writes to
+ * shared CLI config files (notably ~/.claude.json). The Claude CLI auto-saves
+ * its config on every launch; if N processes spawn simultaneously they race
+ * on read-modify-write and produce malformed JSON, which Claude then resets
+ * to defaults — wiping the user's project history. Spreading launches by 1s
+ * means each Claude finishes its config write before the next one starts.
+ */
+const RESTORE_STAGGER_MS = 1000;
+
 const PROMPT_PATTERNS = [
   /\[Y\/n\]/i,                                   // [Y/n], [y/N] variants
   /\(y\/n\)/i,                                   // (y/N), (Y/n) variants
@@ -173,6 +189,11 @@ export class SessionManager {
     const state = this.loadState();
     const results: { info: SessionInfo; displayName: string }[] = [];
 
+    // Stagger CLI launches so multiple Claude/Copilot processes don't race on
+    // shared config files (notably ~/.claude.json — a known Windows footgun
+    // when 10+ sessions all `claude --resume` within the same second).
+    let staggerIndex = 0;
+
     for (const [oldId, persisted] of Object.entries(state.sessions)) {
       // Only sessions with a known resume ID for a supported CLI can be restored
       if (!persisted.resumeSessionId) continue;
@@ -188,13 +209,17 @@ export class SessionManager {
           console.warn(`[restore] Skipping ${oldId}: cwd "${persisted.cwd}" does not exist`);
           continue;
         }
+        const launchDelayMs = DEFAULT_LAUNCH_DELAY_MS + staggerIndex * RESTORE_STAGGER_MS;
+        staggerIndex++;
         const info = this.createWithUuid(
           persisted.cwd,
           persisted.cli,
-          persisted.resumeSessionId
+          persisted.resumeSessionId,
+          false,
+          launchDelayMs,
         );
         results.push({ info, displayName: persisted.displayName });
-        console.log(`[restore] Restored "${persisted.displayName}" (${persisted.cli}: ${persisted.resumeSessionId})`);
+        console.log(`[restore] Restored "${persisted.displayName}" (${persisted.cli}: ${persisted.resumeSessionId}) — launch in ${launchDelayMs}ms`);
       } catch (err: any) {
         console.error(`[restore] Failed to restore ${oldId}:`, err.message);
       }
@@ -217,8 +242,12 @@ export class SessionManager {
    * `forceResume = true` means "we already know the conversation exists" — skip the
    * file existence probe and use --resume immediately. (Claude only — for Copilot
    * the resume command shape is the same whether the session is new or existing.)
+   *
+   * `launchDelayMs` controls how long to wait after PTY spawn before writing the
+   * auto-launch command. restoreAll passes increasing values per session to
+   * stagger Claude/Copilot startups and avoid racing on shared config files.
    */
-  private createWithUuid(cwd: string, cli: CliTool, resumeSessionId: string, forceResume = false): SessionInfo {
+  private createWithUuid(cwd: string, cli: CliTool, resumeSessionId: string, forceResume = false, launchDelayMs: number = DEFAULT_LAUNCH_DELAY_MS): SessionInfo {
     if (!UUID_RE.test(resumeSessionId)) {
       throw new Error(`Invalid session UUID: ${resumeSessionId}`);
     }
@@ -380,7 +409,7 @@ export class SessionManager {
       try {
         term.write(command + '\r');
       } catch { /* session may have been killed */ }
-    }, 1000);
+    }, launchDelayMs);
 
     return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli, resumeSessionId: session.resumeSessionId };
   }
