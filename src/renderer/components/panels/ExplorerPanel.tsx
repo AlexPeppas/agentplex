@@ -137,10 +137,10 @@ export function ExplorerPanel() {
     addSession(info);
   }, [contextMenu, addSession]);
 
-  const handleResumeInDir = useCallback(() => {
+  const handleResumeInDir = useCallback((cli: 'claude' | 'copilot' = 'claude') => {
     if (!contextMenu || contextMenu.type !== 'dir') return;
     setContextMenu(null);
-    openLauncher('resume', 'claude');
+    openLauncher('resume', cli);
   }, [contextMenu, openLauncher]);
 
   const tree = useMemo(() => {
@@ -278,14 +278,39 @@ export function ExplorerPanel() {
                   </button>
                   <button
                     className="flex-1 py-[4px] bg-border border-none rounded text-fg text-[11px] font-medium cursor-pointer transition-colors hover:bg-border-strong"
-                    onClick={handleResumeInDir}
+                    onClick={() => handleResumeInDir('claude')}
                   >
                     Resume
                   </button>
                 </div>
               </div>
               <div className="h-px bg-border my-1" />
-              {CLI_TOOLS.filter((t) => t.id !== 'claude').map((tool) => {
+              <div className="py-1 px-2.5">
+                <span className="flex items-center gap-1.5 text-[10px] font-semibold text-fg-muted uppercase tracking-wide mb-1">
+                  <img
+                    src={(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? copilotLight : copilotDark}
+                    alt=""
+                    className="w-3 h-3"
+                  />
+                  GitHub Copilot
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    className="flex-1 py-[4px] bg-border border-none rounded text-fg text-[11px] font-medium cursor-pointer transition-colors hover:bg-border-strong"
+                    onClick={() => handleNewSessionInDir('copilot')}
+                  >
+                    New
+                  </button>
+                  <button
+                    className="flex-1 py-[4px] bg-border border-none rounded text-fg text-[11px] font-medium cursor-pointer transition-colors hover:bg-border-strong"
+                    onClick={() => handleResumeInDir('copilot')}
+                  >
+                    Resume
+                  </button>
+                </div>
+              </div>
+              <div className="h-px bg-border my-1" />
+              {CLI_TOOLS.filter((t) => t.id !== 'claude' && t.id !== 'copilot').map((tool) => {
                 const icons = CLI_ICONS[tool.id];
                 const theme = document.documentElement.getAttribute('data-theme') || 'dark';
                 const iconSrc = icons ? (theme === 'dark' ? icons.dark : icons.light) : null;
