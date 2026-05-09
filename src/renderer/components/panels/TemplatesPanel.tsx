@@ -25,40 +25,48 @@ export function TemplatesPanel() {
   const handleSave = useCallback(async () => {
     const name = saveName.trim();
     if (!name || liveSessions.length === 0) return;
+    // Clear the input optimistically so the user can immediately start typing the next
+    // template name without waiting for the round-trip. With many active sessions firing
+    // IPC events, the templatesSave invoke can queue behind streaming output for seconds.
+    setSaveName('');
     setSaving(true);
 
-    // Read persisted state.json to get per-CLI resume session IDs (Claude UUIDs, Copilot UUIDs).
-    const persisted = await window.agentPlex.getPersistedState();
-    // Build a lookup: displayName → resumeSessionId
-    const uuidByName = new Map<string, string>();
-    for (const [, ps] of Object.entries(persisted.sessions)) {
-      if (ps.resumeSessionId) {
-        uuidByName.set(ps.displayName, ps.resumeSessionId);
+    try {
+      // Read persisted state.json to get per-CLI resume session IDs (Claude UUIDs, Copilot UUIDs).
+      const persisted = await window.agentPlex.getPersistedState();
+      // Build a lookup: displayName → resumeSessionId
+      const uuidByName = new Map<string, string>();
+      for (const [, ps] of Object.entries(persisted.sessions)) {
+        if (ps.resumeSessionId) {
+          uuidByName.set(ps.displayName, ps.resumeSessionId);
+        }
       }
-    }
 
-    const templateSessions: WorkspaceTemplateSession[] = liveSessions.map((s) => {
-      const name = displayNames[s.id] || s.title;
-      return {
+      const templateSessions: WorkspaceTemplateSession[] = liveSessions.map((s) => {
+        const sessionName = displayNames[s.id] || s.title;
+        return {
+          name: sessionName,
+          cwd: s.cwd,
+          cli: s.cli,
+          sessionId: uuidByName.get(sessionName) || undefined,
+        };
+      });
+
+      const template: WorkspaceTemplate = {
+        id: `tpl_${Date.now()}`,
         name,
-        cwd: s.cwd,
-        cli: s.cli,
-        sessionId: uuidByName.get(name) || undefined,
+        sessions: templateSessions,
+        createdAt: new Date().toISOString(),
       };
-    });
 
-    const template: WorkspaceTemplate = {
-      id: `tpl_${Date.now()}`,
-      name,
-      sessions: templateSessions,
-      createdAt: new Date().toISOString(),
-    };
-
-    const updated = [...templates, template];
-    await window.agentPlex.templatesSave(updated);
-    setTemplates(updated);
-    setSaveName('');
-    setSaving(false);
+      const updated = [...templates, template];
+      setTemplates(updated);
+      await window.agentPlex.templatesSave(updated);
+    } catch (err) {
+      console.error('[templates] save failed:', err);
+    } finally {
+      setSaving(false);
+    }
   }, [saveName, liveSessions, displayNames, templates]);
 
   const handleLaunch = useCallback(async (template: WorkspaceTemplate) => {
@@ -97,8 +105,14 @@ export function TemplatesPanel() {
 
   const handleDelete = useCallback(async (templateId: string) => {
     const updated = templates.filter((t) => t.id !== templateId);
-    await window.agentPlex.templatesSave(updated);
+    // Optimistic — update the list now so the input is immediately usable.
+    // The IPC save can take seconds when streaming sessions are saturating the bridge.
     setTemplates(updated);
+    try {
+      await window.agentPlex.templatesSave(updated);
+    } catch (err) {
+      console.error('[templates] delete save failed:', err);
+    }
   }, [templates]);
 
   const handleStartRename = useCallback((t: WorkspaceTemplate) => {
@@ -110,14 +124,18 @@ export function TemplatesPanel() {
   const handleCommitRename = useCallback(async () => {
     if (!editingId) return;
     const trimmed = editName.trim();
+    setEditingId(null);
     if (trimmed) {
       const updated = templates.map((t) =>
         t.id === editingId ? { ...t, name: trimmed } : t
       );
-      await window.agentPlex.templatesSave(updated);
       setTemplates(updated);
+      try {
+        await window.agentPlex.templatesSave(updated);
+      } catch (err) {
+        console.error('[templates] rename save failed:', err);
+      }
     }
-    setEditingId(null);
   }, [editingId, editName, templates]);
 
   return (
