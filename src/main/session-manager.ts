@@ -32,7 +32,7 @@ const DEFAULT_LAUNCH_DELAY_MS = 1000;
  * to defaults — wiping the user's project history. Spreading launches by 1s
  * means each Claude finishes its config write before the next one starts.
  */
-const RESTORE_STAGGER_MS = 1000;
+const RESTORE_STAGGER_MS = 300;
 
 const PROMPT_PATTERNS = [
   /\[Y\/n\]/i,                                   // [Y/n], [y/N] variants
