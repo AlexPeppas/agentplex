@@ -13,6 +13,7 @@ export interface AgentPlexAPI {
   onSessionData: (callback: (data: { id: string; data: string }) => void) => () => void;
   onSessionStatus: (callback: (data: { id: string; status: SessionStatus }) => void) => () => void;
   onSessionExit: (callback: (data: { id: string; exitCode: number }) => void) => () => void;
+  onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null }) => void) => () => void;
   onSubagentSpawn: (callback: (data: SubagentInfo) => void) => () => void;
   onSubagentComplete: (callback: (data: SubagentInfo) => void) => () => void;
   onPlanEnter: (callback: (data: PlanInfo) => void) => () => void;
@@ -25,9 +26,9 @@ export interface AgentPlexAPI {
   summarizeContext: (sessionId: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
   getDisplayNames: () => Promise<Record<string, string>>;
   discoverExternal: () => Promise<ExternalSession[]>;
-  adoptExternal: (sessionUuid: string, cwd: string) => Promise<SessionInfo>;
-  scanProjects: () => Promise<DiscoveredProject[]>;
-  scanSessions: (encodedPath: string) => Promise<DiscoveredSession[]>;
+  adoptExternal: (sessionUuid: string, cwd: string, cli?: 'claude' | 'copilot') => Promise<SessionInfo>;
+  scanProjects: (cli?: 'claude' | 'copilot') => Promise<DiscoveredProject[]>;
+  scanSessions: (encodedPath: string, cli?: 'claude' | 'copilot') => Promise<DiscoveredSession[]>;
   getPinnedProjects: () => Promise<PinnedProject[]>;
   updatePinnedProjects: (pins: PinnedProject[]) => Promise<void>;
   resolveProjectPath: (encodedPath: string) => Promise<string | null>;
@@ -55,7 +56,7 @@ export interface AgentPlexAPI {
   onZoom: (callback: (direction: 'in' | 'out' | 'reset') => void) => () => void;
   canvasLoad: () => Promise<DrawingData>;
   canvasSave: (data: DrawingData) => Promise<void>;
-  getPersistedState: () => Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; claudeSessionUuid: string | null }> }>;
+  getPersistedState: () => Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }>;
   templatesLoad: () => Promise<WorkspaceTemplate[]>;
   templatesSave: (templates: WorkspaceTemplate[]) => Promise<void>;
 }

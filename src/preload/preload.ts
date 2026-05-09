@@ -61,6 +61,14 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.SESSION_EXIT, handler);
   },
 
+  onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null }) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.SESSION_INFO_UPDATE, handler);
+    return () => ipcRenderer.removeListener(IPC.SESSION_INFO_UPDATE, handler);
+  },
+
   onSubagentSpawn: (callback: (data: SubagentInfo) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: SubagentInfo) => {
       callback(payload);
@@ -137,16 +145,16 @@ const api = {
     return ipcRenderer.invoke(IPC.DISCOVER_EXTERNAL);
   },
 
-  adoptExternal: (sessionUuid: string, cwd: string): Promise<SessionInfo> => {
-    return ipcRenderer.invoke(IPC.ADOPT_EXTERNAL, { sessionUuid, cwd });
+  adoptExternal: (sessionUuid: string, cwd: string, cli: 'claude' | 'copilot' = 'claude'): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.ADOPT_EXTERNAL, { sessionUuid, cwd, cli });
   },
 
-  scanProjects: (): Promise<DiscoveredProject[]> => {
-    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_PROJECTS);
+  scanProjects: (cli: 'claude' | 'copilot' = 'claude'): Promise<DiscoveredProject[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_PROJECTS, { cli });
   },
 
-  scanSessions: (encodedPath: string): Promise<DiscoveredSession[]> => {
-    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_SESSIONS, { encodedPath });
+  scanSessions: (encodedPath: string, cli: 'claude' | 'copilot' = 'claude'): Promise<DiscoveredSession[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_SESSIONS, { encodedPath, cli });
   },
 
   getPinnedProjects: (): Promise<PinnedProject[]> => {
@@ -261,7 +269,7 @@ const api = {
     return ipcRenderer.invoke(IPC.CANVAS_SAVE, data);
   },
 
-  getPersistedState: (): Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; claudeSessionUuid: string | null }> }> => {
+  getPersistedState: (): Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }> => {
     return ipcRenderer.invoke(IPC.SESSION_GET_PERSISTED);
   },
 

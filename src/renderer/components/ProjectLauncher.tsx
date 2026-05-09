@@ -34,7 +34,8 @@ export function ProjectLauncher() {
   // Load projects on mount
   useEffect(() => {
     setLoading(true);
-    window.agentPlex.scanProjects().then((p) => {
+    const scanCli = launcherCli === 'copilot' ? 'copilot' : 'claude';
+    window.agentPlex.scanProjects(scanCli).then((p) => {
       console.log('[launcher] got projects:', JSON.stringify(p?.length));
       setProjects(Array.isArray(p) ? p : []);
       setLoading(false);
@@ -42,7 +43,7 @@ export function ProjectLauncher() {
       console.error('[launcher] scanProjects failed:', err);
       setLoading(false);
     });
-  }, []);
+  }, [launcherCli]);
 
   // Focus search input
   useEffect(() => {
@@ -56,11 +57,12 @@ export function ProjectLauncher() {
       return;
     }
     setSessionsLoading(true);
-    window.agentPlex.scanSessions(selectedProject.encodedPath).then((s) => {
+    const scanCli = launcherCli === 'copilot' ? 'copilot' : 'claude';
+    window.agentPlex.scanSessions(selectedProject.encodedPath, scanCli).then((s) => {
       setSessions(s);
       setSessionsLoading(false);
     }).catch(() => setSessionsLoading(false));
-  }, [selectedProject, launcherMode]);
+  }, [selectedProject, launcherMode, launcherCli]);
 
   // Escape to close
   useEffect(() => {
@@ -82,7 +84,8 @@ export function ProjectLauncher() {
       closeLauncher();
       try {
         // Resolve the real filesystem path lazily from JSONL
-        const resolvedPath = project.encodedPath
+        const needsClaudeResolve = launcherCli === 'claude';
+        const resolvedPath = needsClaudeResolve && project.encodedPath
           ? (await window.agentPlex.resolveProjectPath(project.encodedPath)) || project.realPath
           : project.realPath;
         const info = await window.agentPlex.createSession(resolvedPath, launcherCli);
@@ -98,12 +101,13 @@ export function ProjectLauncher() {
   const handleSessionClick = useCallback(async (session: DiscoveredSession) => {
     closeLauncher();
     try {
-      const info = await window.agentPlex.createSession(session.projectPath, 'claude', session.sessionId);
+      const resumeCli = launcherCli === 'copilot' ? 'copilot' : 'claude';
+      const info = await window.agentPlex.createSession(session.projectPath, resumeCli, session.sessionId);
       addSession(info);
     } catch (err) {
       console.error('Failed to resume session:', err);
     }
-  }, [closeLauncher, addSession]);
+  }, [closeLauncher, addSession, launcherCli]);
 
   const handleBrowse = useCallback(async () => {
     const cwd = await window.agentPlex.pickDirectory();

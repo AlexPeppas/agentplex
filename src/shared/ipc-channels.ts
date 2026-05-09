@@ -1,4 +1,4 @@
-export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | (string & {});
+export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | 'copilot-resume' | (string & {});
 
 export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'claude', label: 'Claude', command: 'claude' },
@@ -17,6 +17,12 @@ export const RESUME_TOOL: { id: CliTool; label: string; command: string } = {
   id: 'claude-resume', label: 'Claude Resume', command: 'claude --resume',
 };
 
+/** Launches the Copilot CLI's interactive picker. AgentPlex polls the
+ *  ~/.copilot/session-state directory for the chosen UUID once the user picks. */
+export const COPILOT_RESUME_TOOL: { id: CliTool; label: string; command: string } = {
+  id: 'copilot-resume', label: 'Copilot Resume', command: 'gh copilot --resume',
+};
+
 export enum SessionStatus {
   Running = 'running',
   Idle = 'idle',
@@ -31,7 +37,8 @@ export interface SessionInfo {
   pid: number;
   cwd: string;
   cli: CliTool;
-  claudeSessionUuid: string | null;
+  /** Per-CLI session ID used to resume on restart (Claude UUID, Copilot UUID, …) */
+  resumeSessionId: string | null;
 }
 
 export interface SubagentInfo {
@@ -63,7 +70,8 @@ export interface TaskListInfo {
 }
 
 export interface ExternalSession {
-  pid: number;
+  cli: 'claude' | 'copilot';
+  pid?: number;
   sessionId: string;
   cwd: string;
   startedAt: number;
@@ -171,7 +179,7 @@ export interface WorkspaceTemplateSession {
   name: string;
   cwd: string;
   cli: CliTool;
-  /** Claude session UUID for resume */
+  /** Per-CLI session ID for resume (Claude UUID, Copilot UUID, …) */
   sessionId?: string;
 }
 
@@ -193,6 +201,9 @@ export const IPC = {
   SESSION_DATA: 'session:data',
   SESSION_STATUS: 'session:status',
   SESSION_EXIT: 'session:exit',
+  /** Partial SessionInfo update from main (e.g. after copilot-resume discovery
+   *  captures the real UUID + cwd from workspace.yaml). */
+  SESSION_INFO_UPDATE: 'session:infoUpdate',
   DIALOG_OPEN_DIR: 'dialog:openDirectory',
   SUBAGENT_SPAWN: 'subagent:spawn',
   SUBAGENT_COMPLETE: 'subagent:complete',

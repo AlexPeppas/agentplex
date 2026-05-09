@@ -1,17 +1,28 @@
 import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { IPC, CLI_TOOLS, RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData, type WorkspaceTemplate } from '../shared/ipc-channels';
+import { IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData, type WorkspaceTemplate } from '../shared/ipc-channels';
 import { ensureGlobalConfig, ensureProjectConfig } from './config-loader';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
 import { getDefaultShellId, setDefaultShellId } from './settings-manager';
-import { scanProjects, scanSessionsForProject, getPinnedProjects, updatePinnedProjects, resolveProjectPath } from './claude-session-scanner';
+import {
+  scanProjects as scanClaudeProjects,
+  scanSessionsForProject as scanClaudeSessionsForProject,
+  getPinnedProjects,
+  updatePinnedProjects,
+  resolveProjectPath,
+} from './claude-session-scanner';
+import {
+  scanProjects as scanCopilotProjects,
+  scanSessionsForProject as scanCopilotSessionsForProject,
+} from './copilot-session-scanner';
 import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, stageAll, unstageAll, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
   RESUME_TOOL.id,
+  COPILOT_RESUME_TOOL.id,
 ]);
 
 function isValidCli(id: string): boolean {
@@ -193,11 +204,12 @@ ${safeContext}
     return sessionManager.discoverExternal();
   });
 
-  ipcMain.handle(IPC.ADOPT_EXTERNAL, (_event, { sessionUuid, cwd }: { sessionUuid: string; cwd: string }) => {
+  ipcMain.handle(IPC.ADOPT_EXTERNAL, (_event, { sessionUuid, cwd, cli }: { sessionUuid: string; cwd: string; cli?: 'claude' | 'copilot' }) => {
     if (typeof sessionUuid !== 'string' || typeof cwd !== 'string') {
       throw new Error('Invalid parameters');
     }
-    return sessionManager.adoptExternal(sessionUuid, cwd);
+    const safeCli = cli === 'copilot' ? 'copilot' : 'claude';
+    return sessionManager.adoptExternal(sessionUuid, cwd, safeCli);
   });
 
   ipcMain.handle(IPC.DISPLAY_NAMES_GET, () => {
@@ -209,10 +221,13 @@ ${safeContext}
     light: { titleBar: '#ebe5da', symbol: '#3a3428', bg: '#f5f0e8' },
   };
 
-  ipcMain.handle(IPC.LAUNCHER_SCAN_PROJECTS, async () => {
-    console.log('[launcher] scanProjects called');
+  ipcMain.handle(IPC.LAUNCHER_SCAN_PROJECTS, async (_event, { cli }: { cli?: 'claude' | 'copilot' } = {}) => {
+    const safeCli = cli === 'copilot' ? 'copilot' : 'claude';
+    console.log('[launcher] scanProjects called for', safeCli);
     try {
-      const result = await scanProjects();
+      const result = safeCli === 'copilot'
+        ? await scanCopilotProjects()
+        : await scanClaudeProjects();
       console.log('[launcher] scanProjects done:', result.length, 'projects');
       return result;
     } catch (err) {
@@ -221,9 +236,11 @@ ${safeContext}
     }
   });
 
-  ipcMain.handle(IPC.LAUNCHER_SCAN_SESSIONS, async (_event, { encodedPath }: { encodedPath: string }) => {
+  ipcMain.handle(IPC.LAUNCHER_SCAN_SESSIONS, async (_event, { encodedPath, cli }: { encodedPath: string; cli?: 'claude' | 'copilot' }) => {
     if (typeof encodedPath !== 'string') return [];
-    return scanSessionsForProject(encodedPath);
+    return cli === 'copilot'
+      ? scanCopilotSessionsForProject(encodedPath)
+      : scanClaudeSessionsForProject(encodedPath);
   });
 
   ipcMain.handle(IPC.LAUNCHER_GET_PINS, () => {

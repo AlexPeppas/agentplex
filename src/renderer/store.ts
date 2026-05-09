@@ -80,6 +80,7 @@ export interface AppState {
   removeSession: (id: string) => void;
   deleteSession: (id: string) => Promise<void>;
   updateStatus: (id: string, status: SessionStatus) => void;
+  updateSessionInfo: (id: string, partial: Partial<SessionInfo>) => void;
   selectSession: (id: string | null, focus?: boolean) => void;
   openPane: (sessionId: string) => void;
   closePane: (sessionId: string) => void;
@@ -339,6 +340,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         nodes: state.nodes.map((n) =>
           n.id === id && n.type === 'sessionNode'
             ? { ...n, data: { ...n.data, status } }
+            : n
+        ),
+      };
+    });
+  },
+
+  updateSessionInfo: (id: string, partial: Partial<SessionInfo>) => {
+    set((state) => {
+      if (!state.sessions[id]) return state;
+      const merged = { ...state.sessions[id], ...partial };
+      return {
+        sessions: {
+          ...state.sessions,
+          [id]: merged,
+        },
+        nodes: state.nodes.map((n) =>
+          n.id === id && n.type === 'sessionNode'
+            ? { ...n, data: { ...n.data, cli: merged.cli, cwd: merged.cwd } }
             : n
         ),
       };

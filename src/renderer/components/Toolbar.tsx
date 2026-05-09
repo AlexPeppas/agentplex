@@ -75,6 +75,12 @@ export function Toolbar() {
     addSession(info);
   }, [addSession]);
 
+  // Copilot parity with Claude: open the same project/session launcher UX for resume.
+  const handleCopilotResume = useCallback(async () => {
+    setMenuOpen(false);
+    openLauncher('resume', 'copilot');
+  }, [openLauncher]);
+
   const handleShellContextMenu = useCallback((e: React.MouseEvent, shellId: string) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, shellId });
@@ -114,7 +120,7 @@ export function Toolbar() {
   const handleAdopt = useCallback(async (ext: ExternalSession) => {
     setAdoptingId(ext.sessionId);
     try {
-      const info = await window.agentPlex.adoptExternal(ext.sessionId, ext.cwd);
+      const info = await window.agentPlex.adoptExternal(ext.sessionId, ext.cwd, ext.cli);
       addSession(info);
       const dirName = ext.cwd.split('/').pop() || ext.cwd;
       const label = ext.name || dirName;
@@ -179,7 +185,7 @@ export function Toolbar() {
           <button
             className="flex items-center gap-1 h-6 px-2 rounded text-fg-muted text-[11px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"
             onClick={handleDiscover}
-            title="Find running Claude sessions not managed by AgentPlex"
+            title="Find running external CLI sessions not managed by AgentPlex"
           >
             <Radar size={14} />
             <span>Discover</span>
@@ -191,16 +197,16 @@ export function Toolbar() {
               {discovering ? (
                 <div className="py-4 px-3 text-center text-fg-muted text-[13px]">Scanning...</div>
               ) : externalSessions.length === 0 ? (
-                <div className="py-4 px-3 text-center text-fg-muted text-[13px]">No external Claude sessions found</div>
+                  <div className="py-4 px-3 text-center text-fg-muted text-[13px]">No external sessions found</div>
               ) : (
                 externalSessions.map((ext) => (
                   <div key={ext.sessionId} className="flex items-center gap-2 py-2 px-2.5 rounded-md transition-colors hover:bg-border">
                     <div className="flex-1 min-w-0 flex flex-col gap-px">
                       <span className="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                        {ext.name || ext.cwd.split('/').pop() || 'Claude'}
+                        {ext.name || ext.cwd.split('/').pop() || (ext.cli === 'copilot' ? 'Copilot' : 'Claude')}
                       </span>
                       <span className="text-[11px] text-fg-muted">
-                        PID {ext.pid} &middot; {formatTimeAgo(ext.startedAt)}
+                        {ext.cli === 'copilot' ? 'Copilot' : 'Claude'} · {ext.pid ? `PID ${ext.pid} · ` : ''}{formatTimeAgo(ext.startedAt)}
                       </span>
                       <span className="text-[11px] text-fg-muted whitespace-nowrap overflow-hidden text-ellipsis" title={ext.cwd}>
                         {shortenPath(ext.cwd)}
@@ -252,7 +258,34 @@ export function Toolbar() {
               </div>
 
               <div className="h-px bg-border my-1" />
-              {CLI_TOOLS.filter((t) => t.id !== 'claude').map((tool) => (
+              <div className="py-1.5 px-2.5">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-fg uppercase tracking-wide mb-1.5">
+                  <img
+                    src={(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? copilotLight : copilotDark}
+                    alt=""
+                    className="w-3.5 h-3.5"
+                  />
+                  GitHub Copilot
+                </span>
+                <div className="flex gap-1.5">
+                  <button
+                    className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
+                    onClick={() => handlePick('copilot')}
+                  >
+                    New
+                  </button>
+                  <button
+                    className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
+                    onClick={handleCopilotResume}
+                    title="Resume an existing Copilot session via the CLI's native picker"
+                  >
+                    Resume
+                  </button>
+                </div>
+              </div>
+
+              <div className="h-px bg-border my-1" />
+              {CLI_TOOLS.filter((t) => t.id !== 'claude' && t.id !== 'copilot').map((tool) => (
                 <button
                   key={tool.id}
                   className="flex items-center gap-2 w-full py-2 px-3 bg-transparent border-none rounded-md text-fg text-[13px] font-medium text-left cursor-pointer transition-colors hover:bg-border"
