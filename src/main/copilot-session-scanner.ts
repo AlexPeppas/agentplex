@@ -1,4 +1,12 @@
 import * as fs from 'fs';
+import * as path from 'path';
+import { homedir } from 'os';
+import type { DiscoveredProject, DiscoveredSession } from '../shared/ipc-channels';
+import { getPinnedProjects } from './claude-session-scanner';
+
+const COPILOT_STATE_DIR = path.join(homedir(), '.copilot', 'session-state');
+const MAX_SESSIONS = 50;
+const MSG_PREVIEW_LEN = 120;
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
 const RESET = '\x1b[0m';
@@ -109,4 +117,182 @@ export function renderCopilotTranscript(eventsPath: string): string {
   const footer = `${DIM}${YELLOW}  Resuming session…${RESET}`;
 
   return [separator, header, separator, '', ...lines, separator, footer, separator, ''].join('\r\n');
+}
+
+function readWorkspaceCwd(workspaceYamlPath: string): string | null {
+  try {
+    const content = fs.readFileSync(workspaceYamlPath, 'utf-8');
+    const match = content.match(/^cwd:\s*(.+)$/m);
+    if (!match) return null;
+    let cwd = match[1].trim();
+    if ((cwd.startsWith('"') && cwd.endsWith('"')) || (cwd.startsWith("'") && cwd.endsWith("'"))) {
+      cwd = cwd.slice(1, -1);
+    }
+    return cwd || null;
+  } catch {
+    return null;
+  }
+}
+
+function parseEventsMetadata(eventsPath: string): {
+  customTitle: string | null;
+  firstUserMessage: string | null;
+  gitBranch: string | null;
+  firstTimestamp: string | null;
+  lastTimestamp: string | null;
+  cwd: string | null;
+} {
+  let customTitle: string | null = null;
+  let firstUserMessage: string | null = null;
+  let gitBranch: string | null = null;
+  let firstTimestamp: string | null = null;
+  let lastTimestamp: string | null = null;
+  let cwd: string | null = null;
+
+  try {
+    const raw = fs.readFileSync(eventsPath, 'utf-8');
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const record = JSON.parse(trimmed);
+        const type = record.type;
+        const data = record.data;
+        if (record.timestamp && typeof record.timestamp === 'string') {
+          if (!firstTimestamp) firstTimestamp = record.timestamp;
+          lastTimestamp = record.timestamp;
+        }
+        if (!data || typeof data !== 'object') continue;
+        if (!cwd) {
+          cwd = data.context?.cwd || data.cwd || null;
+        }
+        if (!gitBranch) {
+          gitBranch = data.context?.branch || data.gitBranch || data.branch || null;
+        }
+        if (!customTitle && typeof data.title === 'string' && data.title.trim()) {
+          customTitle = data.title.trim();
+        }
+        if (type === 'user.message' && !firstUserMessage && typeof data.content === 'string' && data.content.trim()) {
+          firstUserMessage = data.content.length > MSG_PREVIEW_LEN
+            ? data.content.slice(0, MSG_PREVIEW_LEN) + '...'
+            : data.content;
+        }
+      } catch { /* skip malformed lines */ }
+    }
+  } catch { /* ignore */ }
+
+  return { customTitle, firstUserMessage, gitBranch, firstTimestamp, lastTimestamp, cwd };
+}
+
+/** Scan ~/.copilot/session-state and group sessions by workspace cwd. */
+export async function scanProjects(): Promise<DiscoveredProject[]> {
+  const pins = getPinnedProjects();
+  const pinnedPaths = new Set(pins.map((p) => p.path));
+  const byProject = new Map<string, { sessionCount: number; latestMtimeMs: number }>();
+
+  let entries: string[];
+  try {
+    entries = await fs.promises.readdir(COPILOT_STATE_DIR);
+  } catch {
+    entries = [];
+  }
+
+  for (const entry of entries) {
+    const dir = path.join(COPILOT_STATE_DIR, entry);
+    try {
+      const stat = await fs.promises.stat(dir);
+      if (!stat.isDirectory()) continue;
+    } catch {
+      continue;
+    }
+
+    const workspaceYaml = path.join(dir, 'workspace.yaml');
+    const cwd = readWorkspaceCwd(workspaceYaml);
+    if (!cwd) continue;
+
+    const eventsPath = path.join(dir, 'events.jsonl');
+    let mtimeMs = 0;
+    try {
+      mtimeMs = (await fs.promises.stat(eventsPath)).mtimeMs;
+    } catch { /* keep zero */ }
+
+    const prev = byProject.get(cwd);
+    if (prev) {
+      prev.sessionCount += 1;
+      prev.latestMtimeMs = Math.max(prev.latestMtimeMs, mtimeMs);
+    } else {
+      byProject.set(cwd, { sessionCount: 1, latestMtimeMs: mtimeMs });
+    }
+  }
+
+  const results: DiscoveredProject[] = Array.from(byProject.entries()).map(([cwd, meta]) => ({
+    encodedPath: cwd,
+    realPath: cwd,
+    dirName: cwd.replace(/[\\/]/g, '/').split('/').pop() || cwd,
+    sessionCount: meta.sessionCount,
+    lastActivity: meta.latestMtimeMs > 0 ? new Date(meta.latestMtimeMs).toISOString() : '',
+    isPinned: pinnedPaths.has(cwd),
+  }));
+
+  for (const pin of pins) {
+    if (!results.some((r) => r.realPath === pin.path)) {
+      const dirName = pin.label || pin.path.replace(/[\\/]/g, '/').split('/').pop() || pin.path;
+      results.push({
+        encodedPath: pin.path,
+        realPath: pin.path,
+        dirName,
+        sessionCount: 0,
+        lastActivity: '',
+        isPinned: true,
+      });
+    }
+  }
+
+  results.sort((a, b) => {
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+    return (b.lastActivity || '').localeCompare(a.lastActivity || '');
+  });
+
+  return results;
+}
+
+/** Scan Copilot sessions for a specific workspace path (projectPath from scanProjects). */
+export async function scanSessionsForProject(projectPath: string): Promise<DiscoveredSession[]> {
+  let entries: string[];
+  try {
+    entries = await fs.promises.readdir(COPILOT_STATE_DIR);
+  } catch {
+    return [];
+  }
+
+  const sessions: DiscoveredSession[] = [];
+
+  for (const entry of entries) {
+    const dir = path.join(COPILOT_STATE_DIR, entry);
+    try {
+      const stat = await fs.promises.stat(dir);
+      if (!stat.isDirectory()) continue;
+    } catch {
+      continue;
+    }
+
+    const workspaceYaml = path.join(dir, 'workspace.yaml');
+    const cwd = readWorkspaceCwd(workspaceYaml);
+    if (!cwd || path.resolve(cwd) !== path.resolve(projectPath)) continue;
+
+    const eventsPath = path.join(dir, 'events.jsonl');
+    const meta = parseEventsMetadata(eventsPath);
+
+    sessions.push({
+      sessionId: entry,
+      projectPath: cwd,
+      customTitle: meta.customTitle,
+      firstUserMessage: meta.firstUserMessage,
+      gitBranch: meta.gitBranch,
+      lastTimestamp: meta.lastTimestamp || meta.firstTimestamp,
+    });
+  }
+
+  sessions.sort((a, b) => (b.lastTimestamp || '').localeCompare(a.lastTimestamp || ''));
+  return sessions.slice(0, MAX_SESSIONS);
 }

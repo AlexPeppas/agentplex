@@ -145,16 +145,16 @@ const api = {
     return ipcRenderer.invoke(IPC.DISCOVER_EXTERNAL);
   },
 
-  adoptExternal: (sessionUuid: string, cwd: string): Promise<SessionInfo> => {
-    return ipcRenderer.invoke(IPC.ADOPT_EXTERNAL, { sessionUuid, cwd });
+  adoptExternal: (sessionUuid: string, cwd: string, cli: 'claude' | 'copilot' = 'claude'): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.ADOPT_EXTERNAL, { sessionUuid, cwd, cli });
   },
 
-  scanProjects: (): Promise<DiscoveredProject[]> => {
-    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_PROJECTS);
+  scanProjects: (cli: 'claude' | 'copilot' = 'claude'): Promise<DiscoveredProject[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_PROJECTS, { cli });
   },
 
-  scanSessions: (encodedPath: string): Promise<DiscoveredSession[]> => {
-    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_SESSIONS, { encodedPath });
+  scanSessions: (encodedPath: string, cli: 'claude' | 'copilot' = 'claude'): Promise<DiscoveredSession[]> => {
+    return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_SESSIONS, { encodedPath, cli });
   },
 
   getPinnedProjects: (): Promise<PinnedProject[]> => {

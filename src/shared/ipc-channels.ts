@@ -70,7 +70,8 @@ export interface TaskListInfo {
 }
 
 export interface ExternalSession {
-  pid: number;
+  cli: 'claude' | 'copilot';
+  pid?: number;
   sessionId: string;
   cwd: string;
   startedAt: number;

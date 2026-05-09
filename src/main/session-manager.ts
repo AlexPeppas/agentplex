@@ -254,12 +254,17 @@ export class SessionManager {
     if (cli !== 'claude' && cli !== 'claude-resume' && cli !== 'copilot' && cli !== 'copilot-resume') {
       throw new Error(`createWithUuid: CLI '${cli}' does not support resume`);
     }
+    const normalizedCli: CliTool = cli === 'claude-resume'
+      ? 'claude'
+      : cli === 'copilot-resume'
+        ? 'copilot'
+        : cli;
     sessionCounter++;
     const id = `session-${sessionCounter}`;
     const workDir = cwd;
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
     const title = `Session ${sessionCounter} — ${dirName}`;
-    const isClaude = cli === 'claude' || cli === 'claude-resume';
+    const isClaude = normalizedCli === 'claude';
 
     const shell = resolveDefaultShell();
     const term = pty.spawn(shell, [], {
@@ -279,7 +284,7 @@ export class SessionManager {
       jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${resumeSessionId}.jsonl`);
       jsonlWatcher = this.createJsonlWatcher(jsonlPath, id, 'claude');
       jsonlWatcher.start();
-    } else if (cli === 'copilot') {
+    } else if (normalizedCli === 'copilot') {
       // ~/.copilot/session-state/<uuid>/events.jsonl is the append-only event log.
       // Used both for sub-agent detection (subagent.started + tool.execution_complete)
       // and for "Running" status detection via mtime in checkStatuses().
@@ -327,7 +332,7 @@ export class SessionManager {
       id,
       title,
       displayName: title,
-      cli,
+      cli: normalizedCli,
       cwd: workDir,
       resumeSessionId,
       pty: term,
@@ -411,7 +416,7 @@ export class SessionManager {
       } catch { /* session may have been killed */ }
     }, launchDelayMs);
 
-    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli, resumeSessionId: session.resumeSessionId };
+    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli: session.cli, resumeSessionId: session.resumeSessionId };
   }
 
   stop() {
@@ -439,7 +444,7 @@ export class SessionManager {
     // could cause a fallback to --session-id instead of --resume.
     if (resumeSessionId && UUID_RE.test(resumeSessionId)) {
       const workDir = cwd || homedir();
-      const resumeCli: CliTool = (cli === 'claude' || cli === 'claude-resume' || cli === 'copilot') ? cli : 'claude';
+      const resumeCli: CliTool = (cli === 'copilot' || cli === 'copilot-resume') ? 'copilot' : 'claude';
       const info = this.createWithUuid(workDir, resumeCli, resumeSessionId, true);
       this.saveState();
       return info;
@@ -736,6 +741,10 @@ export class SessionManager {
         this.send(IPC.PLAN_EXIT, { sessionId });
       });
 
+      watcher.on('task-list', (event: { tasks: { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }[] }) => {
+        this.send(IPC.TASK_LIST, { sessionId, tasks: event.tasks });
+      });
+
       // Permission events drive WaitingForInput status immediately — no need to wait
       // for the next 500ms checkStatuses tick. The flag is also consulted there to
       // keep the status sticky across ticks until the user resolves the request.
@@ -912,41 +921,37 @@ export class SessionManager {
   }
 
   /**
-   * Scan ~/.claude/sessions/*.json for externally-running Claude sessions
-   * that are not already managed by AgentPlex.
+   * Scan for external sessions (Claude + Copilot) that are not already managed.
    */
   discoverExternal(): ExternalSession[] {
     const home = process.env.HOME || process.env.USERPROFILE || '';
-    const sessionsDir = path.join(home, '.claude', 'sessions');
-
-    let files: string[];
-    try {
-      files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith('.json'));
-    } catch {
-      return [];
-    }
-
-    // Collect UUIDs already managed by AgentPlex (in-memory + persisted).
-    // We only need Claude UUIDs here — copilot resume IDs live in a different namespace
-    // and can never collide with the JSONLs in ~/.claude/projects.
-    const managedUuids = new Set<string>();
-    for (const s of this.sessions.values()) {
-      if (s.resumeSessionId && (s.cli === 'claude' || s.cli === 'claude-resume')) {
-        managedUuids.add(s.resumeSessionId);
-      }
-    }
     const persisted = this.loadState();
+
+    const managedClaudeUuids = new Set<string>();
+    const managedCopilotUuids = new Set<string>();
+    for (const s of this.sessions.values()) {
+      if (!s.resumeSessionId) continue;
+      if (s.cli === 'claude' || s.cli === 'claude-resume') managedClaudeUuids.add(s.resumeSessionId);
+      if (s.cli === 'copilot' || s.cli === 'copilot-resume') managedCopilotUuids.add(s.resumeSessionId);
+    }
     for (const ps of Object.values(persisted.sessions)) {
-      if (ps.resumeSessionId && (ps.cli === 'claude' || ps.cli === 'claude-resume')) {
-        managedUuids.add(ps.resumeSessionId);
-      }
+      if (!ps.resumeSessionId) continue;
+      if (ps.cli === 'claude' || ps.cli === 'claude-resume') managedClaudeUuids.add(ps.resumeSessionId);
+      if (ps.cli === 'copilot' || ps.cli === 'copilot-resume') managedCopilotUuids.add(ps.resumeSessionId);
     }
 
     const results: ExternalSession[] = [];
 
-    for (const file of files) {
+    // Claude external sessions (~/.claude/sessions/*.json)
+    const claudeSessionsDir = path.join(home, '.claude', 'sessions');
+    let claudeFiles: string[] = [];
+    try {
+      claudeFiles = fs.readdirSync(claudeSessionsDir).filter((f) => f.endsWith('.json'));
+    } catch { /* ignore */ }
+
+    for (const file of claudeFiles) {
       try {
-        const filePath = path.join(sessionsDir, file);
+        const filePath = path.join(claudeSessionsDir, file);
         const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         const pid = raw.pid as number;
         const sessionId = raw.sessionId as string;
@@ -955,19 +960,14 @@ export class SessionManager {
         const name = raw.name as string | undefined;
 
         if (!pid || !sessionId || !cwd) continue;
+        if (managedClaudeUuids.has(sessionId)) continue;
 
-        // Skip sessions already managed by AgentPlex
-        if (managedUuids.has(sessionId)) continue;
-
-        // Check if the process is still alive
         try {
-          process.kill(pid, 0); // signal 0 = existence check, doesn't kill
+          process.kill(pid, 0);
         } catch {
-          continue; // process is dead
+          continue;
         }
 
-        // Only show standalone sessions — skip processes launched with
-        // --session-id or --resume (those are AgentPlex-spawned or resumed)
         try {
           let cmdline = '';
           if (process.platform === 'linux') {
@@ -977,24 +977,85 @@ export class SessionManager {
           }
           if (/--session-id|--resume/.test(cmdline)) continue;
         } catch {
-          // Can't read cmdline — skip to be safe
           continue;
         }
 
-        // The session file's sessionId can go stale if the user resumed or
-        // /clear'd within the CLI — resolve the actual active UUID.
-        const activeSessionId = this.resolveActiveSessionId(cwd, sessionId, managedUuids);
+        const activeSessionId = this.resolveActiveSessionId(cwd, sessionId, managedClaudeUuids);
+        if (managedClaudeUuids.has(activeSessionId)) continue;
 
-        // Re-check managed UUIDs with the resolved active session ID
-        if (managedUuids.has(activeSessionId)) continue;
-
-        results.push({ pid, sessionId: activeSessionId, cwd, startedAt, name });
+        results.push({ cli: 'claude', pid, sessionId: activeSessionId, cwd, startedAt, name });
       } catch {
         continue;
       }
     }
 
-    // Sort by startedAt descending (most recent first)
+    // Copilot external sessions (~/.copilot/session-state/<uuid>/events.jsonl)
+    const copilotStateDir = path.join(home, '.copilot', 'session-state');
+    let copilotDirs: string[] = [];
+    try {
+      copilotDirs = fs.readdirSync(copilotStateDir).filter((d) => UUID_RE.test(d));
+    } catch { /* ignore */ }
+
+    for (const dir of copilotDirs) {
+      if (managedCopilotUuids.has(dir)) continue;
+      const eventsPath = path.join(copilotStateDir, dir, 'events.jsonl');
+      if (!fs.existsSync(eventsPath)) continue;
+
+      try {
+        const stat = fs.statSync(eventsPath);
+        const tailSize = Math.min(64 * 1024, stat.size);
+        const fd = fs.openSync(eventsPath, 'r');
+        const buf = Buffer.alloc(tailSize);
+        fs.readSync(fd, buf, 0, tailSize, Math.max(0, stat.size - tailSize));
+        fs.closeSync(fd);
+
+        const tail = buf.toString('utf-8');
+        let lastEventType = '';
+        for (const line of tail.split('\n').reverse()) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            if (obj.type) {
+              lastEventType = String(obj.type);
+              break;
+            }
+          } catch { /* skip */ }
+        }
+
+        // If session already shut down, skip from "external running" list.
+        if (lastEventType === 'session.shutdown') continue;
+
+        const all = fs.readFileSync(eventsPath, 'utf-8');
+        let cwd = '';
+        let startedAt = stat.mtimeMs;
+        let name: string | undefined;
+        for (const line of all.split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            if (obj.type === 'session.start' && obj.data && typeof obj.data === 'object') {
+              const context = obj.data.context || {};
+              if (!cwd && typeof context.cwd === 'string') cwd = context.cwd;
+              const branch = typeof context.branch === 'string' ? context.branch : '';
+              const repo = typeof context.repository === 'string' ? context.repository : '';
+              if (!name) {
+                const parts = [repo, branch].filter(Boolean);
+                name = parts.length > 0 ? parts.join(' @ ') : 'Copilot session';
+              }
+              const startTime = typeof obj.data.startTime === 'string' ? Date.parse(obj.data.startTime) : NaN;
+              if (!Number.isNaN(startTime)) startedAt = startTime;
+              break;
+            }
+          } catch { /* skip */ }
+        }
+
+        if (!cwd || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) continue;
+        results.push({ cli: 'copilot', sessionId: dir, cwd, startedAt, name });
+      } catch {
+        continue;
+      }
+    }
+
     results.sort((a, b) => b.startedAt - a.startedAt);
     return results;
   }
@@ -1053,19 +1114,21 @@ export class SessionManager {
     return activeId;
   }
 
-  /**
-   * Adopt an externally-running Claude session into AgentPlex.
-   * Spawns a new PTY that resumes the session via `claude --resume <uuid>`.
-   */
-  adoptExternal(sessionUuid: string, cwd: string): SessionInfo {
+  /** Adopt an externally-running session into AgentPlex. */
+  adoptExternal(sessionUuid: string, cwd: string, cli: 'claude' | 'copilot' = 'claude'): SessionInfo {
     if (!UUID_RE.test(sessionUuid)) {
       throw new Error(`Invalid session UUID: ${sessionUuid}`);
     }
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
       throw new Error(`Working directory does not exist: ${cwd}`);
     }
-    // Re-resolve at adoption time, excluding AgentPlex-managed Claude sessions
-    // (in-memory + persisted). Copilot resume IDs live in a different namespace.
+    if (cli === 'copilot') {
+      const info = this.createWithUuid(cwd, 'copilot', sessionUuid, true);
+      this.saveState();
+      return info;
+    }
+
+    // Re-resolve at adoption time, excluding AgentPlex-managed Claude sessions.
     const managedUuids = new Set<string>();
     for (const s of this.sessions.values()) {
       if (s.resumeSessionId && (s.cli === 'claude' || s.cli === 'claude-resume')) {

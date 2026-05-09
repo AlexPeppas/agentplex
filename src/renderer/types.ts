@@ -26,9 +26,9 @@ export interface AgentPlexAPI {
   summarizeContext: (sessionId: string, sourceLabel: string) => Promise<{ summary: string | null; error: string | null }>;
   getDisplayNames: () => Promise<Record<string, string>>;
   discoverExternal: () => Promise<ExternalSession[]>;
-  adoptExternal: (sessionUuid: string, cwd: string) => Promise<SessionInfo>;
-  scanProjects: () => Promise<DiscoveredProject[]>;
-  scanSessions: (encodedPath: string) => Promise<DiscoveredSession[]>;
+  adoptExternal: (sessionUuid: string, cwd: string, cli?: 'claude' | 'copilot') => Promise<SessionInfo>;
+  scanProjects: (cli?: 'claude' | 'copilot') => Promise<DiscoveredProject[]>;
+  scanSessions: (encodedPath: string, cli?: 'claude' | 'copilot') => Promise<DiscoveredSession[]>;
   getPinnedProjects: () => Promise<PinnedProject[]>;
   updatePinnedProjects: (pins: PinnedProject[]) => Promise<void>;
   resolveProjectPath: (encodedPath: string) => Promise<string | null>;

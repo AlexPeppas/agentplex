@@ -265,6 +265,28 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
         </div>
       )}
 
+      {nodeData.tasks.length > 0 && (
+        <div className="mt-1.5 flex flex-col gap-0.5">
+          {nodeData.tasks.slice(0, 4).map((task) => {
+            const done = task.status === 'completed';
+            const inProgress = task.status === 'in_progress';
+            return (
+              <div key={task.taskNumber} className="flex items-center gap-[5px] py-px">
+                <span className={`shrink-0 w-3.5 flex justify-center ${done ? 'text-success' : inProgress ? 'text-accent' : 'text-fg-muted'}`}>
+                  {done ? <Check size={11} /> : <Circle size={11} className={inProgress ? 'fill-current' : ''} />}
+                </span>
+                <span className={`text-[11px] whitespace-nowrap overflow-hidden text-ellipsis max-w-[180px] ${done ? 'text-fg-muted line-through' : 'text-fg'}`}>
+                  {task.taskNumber}. {task.description}
+                </span>
+              </div>
+            );
+          })}
+          {nodeData.tasks.length > 4 && (
+            <div className="text-[10px] text-fg-muted pl-[18px]">+{nodeData.tasks.length - 4} more</div>
+          )}
+        </div>
+      )}
+
       <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
     </div>
   );
