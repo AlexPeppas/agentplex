@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, session } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, powerMonitor, session } from 'electron';
 import path from 'node:path';
 import { sessionManager } from './session-manager';
 import { registerIpcHandlers } from './ipc-handlers';
@@ -67,6 +67,14 @@ function createWindow() {
 
   // Show window as soon as the renderer is ready — avoids white flash
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[main] Renderer process gone:', details.reason);
+    try {
+      mainWindow.webContents.reload();
+    } catch (err) {
+      console.error('[main] Failed to reload after render-process-gone:', err);
+    }
+  });
 
   // Build a platform-appropriate application menu.
   // macOS needs App/File/Edit/View/Window for standard Cmd shortcuts.
@@ -158,6 +166,31 @@ function createWindow() {
   }
 }
 
+function recoverWindows(reason: 'resume' | 'unlock-screen') {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    const wc = win.webContents;
+    if (wc.isCrashed()) {
+      console.warn(`[main] Recovering crashed renderer after ${reason}`);
+      try {
+        wc.reload();
+      } catch (err) {
+        console.error('[main] Failed to reload crashed renderer:', err);
+      }
+      continue;
+    }
+
+    // Force compositor refresh after sleep/lock transitions where Windows occasionally
+    // resumes to a black surface until the window is recreated.
+    try {
+      wc.invalidate();
+      wc.send('app:wake', reason);
+    } catch (err) {
+      console.error('[main] Failed to invalidate/send wake event:', err);
+    }
+  }
+}
+
 app.whenReady().then(() => {
   // Apply strict CSP in production only (Vite dev server needs unsafe-eval for HMR)
   if (!MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -178,6 +211,8 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   sessionManager.start();
   createWindow();
+  powerMonitor.on('resume', () => recoverWindows('resume'));
+  powerMonitor.on('unlock-screen', () => recoverWindows('unlock-screen'));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

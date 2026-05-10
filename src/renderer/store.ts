@@ -31,6 +31,7 @@ export interface TaskEntry {
   taskNumber: number;
   description: string;
   status: 'pending' | 'in_progress' | 'completed';
+  completedAt?: number;
 }
 
 export type SessionNodeData = {
@@ -160,6 +161,8 @@ export interface AppState {
 }
 
 let groupCounter = 0;
+const TASK_CLEAR_DELAY_MS = 5000;
+const taskClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const SUBAGENT_SPACING_X = 140;
 
@@ -251,6 +254,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   removeSession: (id: string) => {
+    const timer = taskClearTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      taskClearTimers.delete(id);
+    }
     set((state) => {
       const { [id]: _sess, ...restSessions } = state.sessions;
       const { [id]: _buf, ...restBuffers } = state.sessionBuffers;
@@ -525,6 +533,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   exitPlan: (sessionId: string) => {
+    const timer = taskClearTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      taskClearTimers.delete(sessionId);
+    }
     set((state) => ({
       nodes: state.nodes.map((n) => {
         if (n.id !== sessionId || n.type !== 'sessionNode') return n;
@@ -538,12 +551,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createTask: (sessionId: string, taskNumber: number, description: string) => {
+    const timer = taskClearTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      taskClearTimers.delete(sessionId);
+    }
     set((state) => ({
       nodes: state.nodes.map((n) => {
         if (n.id !== sessionId || n.type !== 'sessionNode') return n;
         const tasks = (n.data as SessionNodeData).tasks;
         if (tasks.some((t: TaskEntry) => t.taskNumber === taskNumber)) return n;
-        return { ...n, data: { ...n.data, tasks: [...tasks, { taskNumber, description, status: 'pending' as const }] } };
+        return { ...n, data: { ...n.data, tasks: [...tasks, { taskNumber, description, status: 'pending' as const, completedAt: undefined }] } };
       }),
     }));
   },
@@ -557,21 +575,88 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...n,
           data: {
             ...n.data,
-            tasks: tasks.map((t: TaskEntry) => t.taskNumber === taskNumber ? { ...t, status } : t),
+            tasks: tasks.map((t: TaskEntry) => {
+              if (t.taskNumber !== taskNumber) return t;
+              const completedAt = status === 'completed'
+                ? (t.status === 'completed' ? t.completedAt ?? Date.now() : Date.now())
+                : undefined;
+              return { ...t, status, completedAt };
+            }),
           },
         };
       }),
     }));
+
+    const currentNode = get().nodes.find((n) => n.id === sessionId && n.type === 'sessionNode');
+    const currentTasks = (currentNode?.data as SessionNodeData | undefined)?.tasks ?? [];
+    const allCompleted = currentTasks.length > 0 && currentTasks.every((t) => t.status === 'completed');
+    const existingTimer = taskClearTimers.get(sessionId);
+    if (existingTimer) clearTimeout(existingTimer);
+    if (allCompleted) {
+      const timer = setTimeout(() => {
+        const latestNode = get().nodes.find((n) => n.id === sessionId && n.type === 'sessionNode');
+        const latestTasks = (latestNode?.data as SessionNodeData | undefined)?.tasks ?? [];
+        if (latestTasks.length > 0 && latestTasks.every((t) => t.status === 'completed')) {
+          set((state) => ({
+            nodes: state.nodes.map((n) =>
+              n.id === sessionId && n.type === 'sessionNode'
+                ? { ...n, data: { ...n.data, tasks: [] } }
+                : n
+            ),
+          }));
+        }
+        taskClearTimers.delete(sessionId);
+      }, TASK_CLEAR_DELAY_MS);
+      taskClearTimers.set(sessionId, timer);
+    } else {
+      taskClearTimers.delete(sessionId);
+    }
   },
 
   reconcileTasks: (sessionId: string, tasks: TaskEntry[]) => {
     set((state) => ({
-      nodes: state.nodes.map((n) =>
-        n.id === sessionId && n.type === 'sessionNode'
-          ? { ...n, data: { ...n.data, tasks } }
-          : n
-      ),
+      nodes: state.nodes.map((n) => {
+        if (n.id !== sessionId || n.type !== 'sessionNode') return n;
+        const prevTasks = (n.data as SessionNodeData).tasks;
+        const prevByTask = new Map(prevTasks.map((t) => [t.taskNumber, t]));
+        const mergedTasks: TaskEntry[] = tasks.map((t) => {
+          const prev = prevByTask.get(t.taskNumber);
+          if (t.status === 'completed') {
+            return {
+              ...t,
+              completedAt: prev?.status === 'completed' ? (prev.completedAt ?? Date.now()) : Date.now(),
+            };
+          }
+          return { ...t, completedAt: undefined };
+        });
+        return { ...n, data: { ...n.data, tasks: mergedTasks } };
+      }),
     }));
+
+    const currentNode = get().nodes.find((n) => n.id === sessionId && n.type === 'sessionNode');
+    const currentTasks = (currentNode?.data as SessionNodeData | undefined)?.tasks ?? [];
+    const allCompleted = currentTasks.length > 0 && currentTasks.every((t) => t.status === 'completed');
+    const existingTimer = taskClearTimers.get(sessionId);
+    if (existingTimer) clearTimeout(existingTimer);
+    if (allCompleted) {
+      const timer = setTimeout(() => {
+        const latestNode = get().nodes.find((n) => n.id === sessionId && n.type === 'sessionNode');
+        const latestTasks = (latestNode?.data as SessionNodeData | undefined)?.tasks ?? [];
+        if (latestTasks.length > 0 && latestTasks.every((t) => t.status === 'completed')) {
+          set((state) => ({
+            nodes: state.nodes.map((n) =>
+              n.id === sessionId && n.type === 'sessionNode'
+                ? { ...n, data: { ...n.data, tasks: [] } }
+                : n
+            ),
+          }));
+        }
+        taskClearTimers.delete(sessionId);
+      }, TASK_CLEAR_DELAY_MS);
+      taskClearTimers.set(sessionId, timer);
+    } else {
+      taskClearTimers.delete(sessionId);
+    }
   },
 
   openSendDialog: (sourceSessionId: string) => {

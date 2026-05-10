@@ -10,5 +10,6 @@ build/
 .env.*
 *.pem
 .playwright-mcp/
-.claude/settings.local.json
-.claude/
+.claude/*
+!.claude/commands/
+!.claude/commands/*.md

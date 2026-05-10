@@ -54,6 +54,7 @@ export interface AgentPlexAPI {
   gitLog: (sessionId: string) => Promise<GitLogEntry[]>;
   gitBranchInfo: (sessionId: string) => Promise<GitBranchInfo>;
   onZoom: (callback: (direction: 'in' | 'out' | 'reset') => void) => () => void;
+  onAppWake: (callback: (reason: 'resume' | 'unlock-screen') => void) => () => void;
   canvasLoad: () => Promise<DrawingData>;
   canvasSave: (data: DrawingData) => Promise<void>;
   getPersistedState: () => Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }>;

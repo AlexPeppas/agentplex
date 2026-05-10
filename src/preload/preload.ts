@@ -261,6 +261,14 @@ const api = {
     return () => ipcRenderer.removeListener('app:zoom', handler);
   },
 
+  onAppWake: (callback: (reason: 'resume' | 'unlock-screen') => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, reason: 'resume' | 'unlock-screen') => {
+      callback(reason);
+    };
+    ipcRenderer.on('app:wake', handler);
+    return () => ipcRenderer.removeListener('app:wake', handler);
+  },
+
   canvasLoad: (): Promise<DrawingData> => {
     return ipcRenderer.invoke(IPC.CANVAS_LOAD);
   },

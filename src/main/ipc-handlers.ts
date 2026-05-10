@@ -1,6 +1,7 @@
 import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import Anthropic from '@anthropic-ai/sdk';
 import { IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData, type WorkspaceTemplate } from '../shared/ipc-channels';
 import { ensureGlobalConfig, ensureProjectConfig } from './config-loader';
 import { sessionManager } from './session-manager';
@@ -158,7 +159,6 @@ export function registerIpcHandlers() {
     }
 
     try {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk');
       console.log('[summarize] Calling Haiku...');
       const client = new Anthropic({ apiKey });
       const response = await client.messages.create({

@@ -251,6 +251,14 @@ export function App() {
     };
   }, [appendBuffer, updateStatus, updateSessionInfo, spawnSubagent, completeSubagent, enterPlan, exitPlan, createTask, updateTask, reconcileTasks]);
 
+  useEffect(() => {
+    const cleanupWake = window.agentPlex.onAppWake(() => {
+      // Force layout/paint-sensitive components (xterm, graph canvas) to reflow after wake.
+      window.dispatchEvent(new Event('resize'));
+    });
+    return () => cleanupWake();
+  }, []);
+
   return (
     <div className="flex flex-col h-full">
       <Toolbar />

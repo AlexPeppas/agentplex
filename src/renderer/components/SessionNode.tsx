@@ -26,7 +26,7 @@ function CliIcon({ cli, size = 14 }: { cli?: CliTool; size?: number }) {
   return <img src={src} alt="" style={{ width: size, height: size }} className="shrink-0" />;
 }
 
-export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
+export const SessionNode = memo(function SessionNode({ data, id: _id }: NodeProps) {
   const nodeData = data as SessionNodeData;
   const selectSession = useAppStore((s) => s.selectSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
@@ -37,6 +37,12 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
   const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
+  const completedTasks = nodeData.tasks
+    .filter((t) => t.status === 'completed')
+    .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
+  const keepCompleted = new Set(completedTasks.slice(-2).map((t) => t.taskNumber));
+  const visibleTasks = nodeData.tasks.filter((t) => t.status !== 'completed' || keepCompleted.has(t.taskNumber));
+  const allTasksCompleted = nodeData.tasks.length > 0 && nodeData.tasks.every((t) => t.status === 'completed');
 
   const viewportMoveCount = useAppStore((s) => s.viewportMoveCount);
   const [editing, setEditing] = useState(false);
@@ -267,7 +273,7 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
 
       {nodeData.tasks.length > 0 && (
         <div className="mt-1.5 flex flex-col gap-0.5">
-          {nodeData.tasks.slice(0, 4).map((task) => {
+          {visibleTasks.slice(0, 4).map((task) => {
             const done = task.status === 'completed';
             const inProgress = task.status === 'in_progress';
             return (
@@ -281,8 +287,11 @@ export const SessionNode = memo(function SessionNode({ data, id }: NodeProps) {
               </div>
             );
           })}
-          {nodeData.tasks.length > 4 && (
-            <div className="text-[10px] text-fg-muted pl-[18px]">+{nodeData.tasks.length - 4} more</div>
+          {visibleTasks.length > 4 && (
+            <div className="text-[10px] text-fg-muted pl-[18px]">+{visibleTasks.length - 4} more</div>
+          )}
+          {allTasksCompleted && (
+            <div className="text-[10px] text-fg-muted pl-[18px]">Clearing in 5s…</div>
           )}
         </div>
       )}
