@@ -3,30 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { useAppStore } from '../store';
-
-// Terminal always uses dark palette so text stays readable in both themes
-const TERMINAL_THEME = {
-  background: '#262420',
-  foreground: '#ece4d8',
-  cursor: '#ece4d8',
-  selectionBackground: '#3e3830',
-  black: '#1e1c18',
-  red: '#e07070',
-  green: '#a8c878',
-  yellow: '#e8c070',
-  blue: '#d18a7a',
-  magenta: '#dfa898',
-  cyan: '#d18a7a',
-  white: '#9a8a70',
-  brightBlack: '#4e4638',
-  brightRed: '#e07070',
-  brightGreen: '#a8c878',
-  brightYellow: '#e8c070',
-  brightBlue: '#dfa898',
-  brightMagenta: '#dfa898',
-  brightCyan: '#d18a7a',
-  brightWhite: '#ece4d8',
-};
+import { getTerminalThemeDef, subscribeTerminalTheme } from '../terminalThemes';
 
 const DEFAULT_FONT_SIZE = 14;
 const MIN_FONT_SIZE = 8;
@@ -60,6 +37,19 @@ function ensureGlobalZoomListener() {
   });
 }
 
+// Single global theme subscription — pushes palette changes to all live terminals.
+let themeListenerRegistered = false;
+
+function ensureGlobalThemeListener() {
+  if (themeListenerRegistered) return;
+  themeListenerRegistered = true;
+  subscribeTerminalTheme((def) => {
+    for (const entry of liveTerminals) {
+      entry.term.options.theme = def.theme;
+    }
+  });
+}
+
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string) {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -68,10 +58,11 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     if (!containerRef.current || !sessionId) return;
 
     ensureGlobalZoomListener();
+    ensureGlobalThemeListener();
 
     // Create terminal
     const term = new Terminal({
-      theme: TERMINAL_THEME,
+      theme: getTerminalThemeDef().theme,
       fontSize: terminalFontSize,
       fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
       cursorBlink: true,
