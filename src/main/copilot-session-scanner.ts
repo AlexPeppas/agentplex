@@ -119,7 +119,7 @@ export function renderCopilotTranscript(eventsPath: string): string {
   return [separator, header, separator, '', ...lines, separator, footer, separator, ''].join('\r\n');
 }
 
-function readWorkspaceCwd(workspaceYamlPath: string): string | null {
+export function readWorkspaceCwd(workspaceYamlPath: string): string | null {
   try {
     const content = fs.readFileSync(workspaceYamlPath, 'utf-8');
     const match = content.match(/^cwd:\s*(.+)$/m);

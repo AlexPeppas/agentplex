@@ -66,6 +66,11 @@ export function Toolbar() {
     openLauncher('resume', 'claude');
   }, [openLauncher]);
 
+  const handleNewCopilot = useCallback(() => {
+    setMenuOpen(false);
+    openLauncher('new', 'copilot');
+  }, [openLauncher]);
+
   // Non-Claude tools still use the folder picker
   const handlePick = useCallback(async (cli: CliTool) => {
     setMenuOpen(false);
@@ -75,8 +80,8 @@ export function Toolbar() {
     addSession(info);
   }, [addSession]);
 
-  // Copilot parity with Claude: open the same project/session launcher UX for resume.
-  const handleCopilotResume = useCallback(async () => {
+  // Copilot parity with Claude: open the same project/session launcher UX for new/resume.
+  const handleCopilotResume = useCallback(() => {
     setMenuOpen(false);
     openLauncher('resume', 'copilot');
   }, [openLauncher]);
@@ -270,7 +275,7 @@ export function Toolbar() {
                 <div className="flex gap-1.5">
                   <button
                     className="flex-1 py-[5px] bg-border border-none rounded-md text-fg text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"
-                    onClick={() => handlePick('copilot')}
+                    onClick={handleNewCopilot}
                   >
                     New
                   </button>

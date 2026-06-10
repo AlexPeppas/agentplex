@@ -28,16 +28,37 @@ process.on('unhandledRejection', (reason) => {
   console.error('UNHANDLED REJECTION:', reason);
 });
 
+let cachedAppIcon: Electron.NativeImage | undefined;
+
 function getAppIcon() {
+  if (cachedAppIcon) return cachedAppIcon;
   const base = app.isPackaged
     ? path.join(process.resourcesPath)
     : path.resolve(__dirname, '../../');
   const ext = process.platform === 'win32' ? 'logo.ico' : process.platform === 'darwin' ? 'logo.icns' : 'logo.png';
   const iconPath = path.join(base, 'assets', ext);
   try {
-    return nativeImage.createFromPath(iconPath);
+    const img = nativeImage.createFromPath(iconPath);
+    if (!img.isEmpty()) cachedAppIcon = img;
+    return cachedAppIcon;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Re-apply the window icon. Windows occasionally reclaims the taskbar HICON
+ * after long uptime or shell events (sleep/resume, explorer.exe restart),
+ * reverting to the default Electron icon. Re-setting the icon restores it.
+ */
+function reapplyWindowIcon(win: BrowserWindow) {
+  if (process.platform !== 'win32') return;
+  const icon = getAppIcon();
+  if (!icon) return;
+  try {
+    win.setIcon(icon);
+  } catch (err) {
+    console.error('[main] Failed to re-apply window icon:', err);
   }
 }
 
@@ -169,6 +190,10 @@ function createWindow() {
 function recoverWindows(reason: 'resume' | 'unlock-screen') {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue;
+
+    // Windows may drop the taskbar icon across sleep/lock transitions — restore it.
+    reapplyWindowIcon(win);
+
     const wc = win.webContents;
     if (wc.isCrashed()) {
       console.warn(`[main] Recovering crashed renderer after ${reason}`);
@@ -192,6 +217,12 @@ function recoverWindows(reason: 'resume' | 'unlock-screen') {
 }
 
 app.whenReady().then(() => {
+  // Stable Windows taskbar identity so the shell associates the window with our
+  // app (and our icon) rather than the generic Electron host process.
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.agentplex.app');
+  }
+
   // Apply strict CSP in production only (Vite dev server needs unsafe-eval for HMR)
   if (!MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -213,6 +244,10 @@ app.whenReady().then(() => {
   createWindow();
   powerMonitor.on('resume', () => recoverWindows('resume'));
   powerMonitor.on('unlock-screen', () => recoverWindows('unlock-screen'));
+
+  // Re-assert the taskbar icon on focus — a cheap failsafe for the Windows shell
+  // reclaiming the HICON after long uptime.
+  app.on('browser-window-focus', (_event, win) => reapplyWindowIcon(win));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

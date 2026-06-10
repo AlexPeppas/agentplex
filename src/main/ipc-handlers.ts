@@ -2,7 +2,7 @@ import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
-import { IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData, type WorkspaceTemplate } from '../shared/ipc-channels';
+import { IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData, type WorkspaceTemplate, type PersistedGroups } from '../shared/ipc-channels';
 import { ensureGlobalConfig, ensureProjectConfig } from './config-loader';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
@@ -18,6 +18,7 @@ import {
   scanProjects as scanCopilotProjects,
   scanSessionsForProject as scanCopilotSessionsForProject,
 } from './copilot-session-scanner';
+import { searchSessions } from './session-search';
 import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, stageAll, unstageAll, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
 
 const VALID_CLI_IDS = new Set<string>([
@@ -257,6 +258,16 @@ ${safeContext}
     return resolveProjectPath(encodedPath);
   });
 
+  ipcMain.handle(IPC.SESSION_SEARCH, async (_event, { query }: { query: string }) => {
+    if (typeof query !== 'string') return [];
+    try {
+      return await searchSessions(query);
+    } catch (err) {
+      console.error('[search] searchSessions error:', err);
+      return [];
+    }
+  });
+
   ipcMain.on(IPC.THEME_CHANGE, (_event, { theme }: { theme: string }) => {
     const colors = THEME_COLORS[theme];
     if (!colors) return;
@@ -468,6 +479,25 @@ ${safeContext}
   ipcMain.handle(IPC.CANVAS_SAVE, async (_event, data: DrawingData): Promise<void> => {
     fs.mkdirSync(canvasDir, { recursive: true });
     fs.writeFileSync(canvasPath, JSON.stringify(data), 'utf-8');
+  });
+
+  // ── Node grouping persistence ──────────────────────────────────────────────
+  const groupsPath = path.join(canvasDir, 'groups.json');
+
+  ipcMain.handle(IPC.GROUPS_LOAD, async (): Promise<PersistedGroups> => {
+    try {
+      const raw = fs.readFileSync(groupsPath, 'utf-8');
+      const parsed = JSON.parse(raw) as PersistedGroups;
+      if (parsed && Array.isArray(parsed.groups)) return parsed;
+      return { groups: [] };
+    } catch {
+      return { groups: [] };
+    }
+  });
+
+  ipcMain.handle(IPC.GROUPS_SAVE, async (_event, data: PersistedGroups): Promise<void> => {
+    fs.mkdirSync(canvasDir, { recursive: true });
+    fs.writeFileSync(groupsPath, JSON.stringify(data), 'utf-8');
   });
 
   // Return persisted state (state.json) so renderer can read UUIDs

@@ -13,3 +13,5 @@ build/
 .claude/*
 !.claude/commands/
 !.claude/commands/*.md
+
+relay/relay.db

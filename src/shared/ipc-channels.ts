@@ -101,6 +101,20 @@ export interface PinnedProject {
   label?: string;
 }
 
+/** A single match from the on-disk session-history search (Phase 1). */
+export interface SessionSearchResult {
+  cli: 'claude' | 'copilot';
+  /** The on-disk session UUID (Copilot dir name / Claude jsonl basename). */
+  sessionId: string;
+  projectPath: string;
+  projectName: string;
+  role: 'user' | 'assistant';
+  /** A single-line excerpt of text around the match, with ellipses. */
+  snippet: string;
+  /** ISO timestamp of the matching message, or the file mtime as a fallback. */
+  timestamp: string | null;
+}
+
 export interface ClaudeConfig {
   command: string;
   flags: string[];
@@ -173,6 +187,27 @@ export interface DrawingData {
   version: number;
 }
 
+// ── Node grouping persistence types ──────────────────────────────────────────
+
+export interface PersistedGroupMember {
+  /** Node id at save time (matches on a renderer-only reload where ids are stable). */
+  sessionId: string;
+  /** Stable per-CLI resume UUID (matches after a full restart where ids change). */
+  resumeSessionId: string | null;
+}
+
+export interface PersistedGroup {
+  label: string;
+  color: string;
+  /** User-chosen circle diameter, when the bubble was manually resized. */
+  manualSize?: number;
+  members: PersistedGroupMember[];
+}
+
+export interface PersistedGroups {
+  groups: PersistedGroup[];
+}
+
 // ── Workspace template types ─────────────────────────────────────────────────
 
 export interface WorkspaceTemplateSession {
@@ -221,6 +256,7 @@ export const IPC = {
   ADOPT_EXTERNAL: 'session:adoptExternal',
   LAUNCHER_SCAN_PROJECTS: 'launcher:scanProjects',
   LAUNCHER_SCAN_SESSIONS: 'launcher:scanSessions',
+  SESSION_SEARCH: 'session:search',
   LAUNCHER_GET_PINS: 'launcher:getPins',
   LAUNCHER_UPDATE_PINS: 'launcher:updatePins',
   LAUNCHER_RESOLVE_PATH: 'launcher:resolvePath',
@@ -244,6 +280,8 @@ export const IPC = {
   GIT_BRANCH_INFO: 'git:branchInfo',
   CANVAS_LOAD: 'canvas:load',
   CANVAS_SAVE: 'canvas:save',
+  GROUPS_LOAD: 'groups:load',
+  GROUPS_SAVE: 'groups:save',
   TEMPLATES_LOAD: 'templates:load',
   TEMPLATES_SAVE: 'templates:save',
   SESSION_GET_PERSISTED: 'session:getPersisted',

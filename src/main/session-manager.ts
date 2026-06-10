@@ -12,7 +12,7 @@ import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath, type WatcherFormat } from './jsonl-session-watcher';
 import { renderJsonlTranscript } from './claude-session-scanner';
-import { renderCopilotTranscript } from './copilot-session-scanner';
+import { renderCopilotTranscript, readWorkspaceCwd } from './copilot-session-scanner';
 import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
 
@@ -142,11 +142,104 @@ export class SessionManager {
             ps.resumeSessionId = ps.claudeSessionUuid ?? null;
           }
         }
+        // One-shot reconcile of Copilot session IDs broken by the old `--resume=<minted-uuid>`
+        // launch (which made Copilot create a *different* session on disk). Rewrites the
+        // file in place so the corrected UUIDs survive future loads.
+        if (this.reconcileCopilotSessionIds(raw as PersistedState)) {
+          try {
+            fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
+            fs.writeFileSync(STATE_PATH, JSON.stringify(raw, null, 2));
+          } catch (err: any) {
+            console.error('[state] Failed to persist Copilot UUID migration:', err.message);
+          }
+        }
       }
       return raw as PersistedState;
     } catch {
       return { sessions: {} };
     }
+  }
+
+  /** Normalize a filesystem path for cross-form comparison (case-insensitive, forward slashes, no trailing slash). */
+  private normalizeCwd(p: string): string {
+    return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  }
+
+  /**
+   * Repair Copilot `resumeSessionId`s that point at a UUID Copilot never actually
+   * used. Older builds launched new Copilot sessions with `--resume=<minted-uuid>`;
+   * because that UUID didn't exist yet, Copilot started a *different* session under
+   * its own UUID, so the persisted ID has no matching `~/.copilot/session-state/<uuid>`
+   * directory and can never resume.
+   *
+   * Best-effort fix: for each broken Copilot session, find an on-disk Copilot session
+   * whose workspace cwd matches the persisted cwd and isn't already claimed by another
+   * persisted session, preferring the most recently modified. Mutates `state` in place
+   * and returns true if anything changed.
+   */
+  private reconcileCopilotSessionIds(state: PersistedState): boolean {
+    const stateDir = path.join(homedir(), '.copilot', 'session-state');
+    let dirs: string[];
+    try {
+      dirs = fs.readdirSync(stateDir);
+    } catch {
+      return false; // no Copilot sessions on disk — nothing to reconcile
+    }
+
+    const isCopilot = (cli: CliTool) => cli === 'copilot' || cli === 'copilot-resume';
+    const dirExists = (uuid: string | null) => {
+      if (!uuid || !UUID_RE.test(uuid)) return false;
+      try {
+        return fs.statSync(path.join(stateDir, uuid)).isDirectory();
+      } catch {
+        return false;
+      }
+    };
+
+    // UUIDs already correctly referenced by a persisted session must not be reassigned.
+    const claimed = new Set<string>();
+    for (const ps of Object.values(state.sessions)) {
+      if (isCopilot(ps.cli) && dirExists(ps.resumeSessionId)) claimed.add(ps.resumeSessionId!);
+    }
+
+    // Catalog on-disk Copilot sessions by normalized cwd, newest first.
+    const byCwd = new Map<string, Array<{ uuid: string; mtimeMs: number }>>();
+    for (const uuid of dirs) {
+      if (!UUID_RE.test(uuid)) continue;
+      const sessionDir = path.join(stateDir, uuid);
+      const cwd = readWorkspaceCwd(path.join(sessionDir, 'workspace.yaml'));
+      if (!cwd) continue;
+      let mtimeMs = 0;
+      try {
+        mtimeMs = fs.statSync(path.join(sessionDir, 'events.jsonl')).mtimeMs;
+      } catch {
+        try { mtimeMs = fs.statSync(sessionDir).mtimeMs; } catch { /* keep 0 */ }
+      }
+      const key = this.normalizeCwd(cwd);
+      const list = byCwd.get(key) ?? [];
+      list.push({ uuid, mtimeMs });
+      byCwd.set(key, list);
+    }
+    for (const list of byCwd.values()) list.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    let changed = false;
+    for (const [id, ps] of Object.entries(state.sessions)) {
+      if (!isCopilot(ps.cli)) continue;
+      if (!ps.resumeSessionId) continue;
+      if (dirExists(ps.resumeSessionId)) continue; // already valid
+
+      const candidates = byCwd.get(this.normalizeCwd(ps.cwd));
+      if (!candidates) continue;
+      const match = candidates.find((c) => !claimed.has(c.uuid));
+      if (!match) continue;
+
+      console.log(`[state] Reconciled Copilot session ${id}: ${ps.resumeSessionId} → ${match.uuid} (cwd "${ps.cwd}")`);
+      ps.resumeSessionId = match.uuid;
+      claimed.add(match.uuid);
+      changed = true;
+    }
+
+    return changed;
   }
 
   /** Persist all sessions in the Map to disk */
@@ -240,8 +333,9 @@ export class SessionManager {
    *    so app restart and templates can resume it later
    *
    * `forceResume = true` means "we already know the conversation exists" — skip the
-   * file existence probe and use --resume immediately. (Claude only — for Copilot
-   * the resume command shape is the same whether the session is new or existing.)
+   * file existence probe and use --resume immediately. For both Claude and Copilot,
+   * a new session (no events on disk yet) instead launches with --session-id to
+   * create the session at our pre-minted UUID; only existing sessions use --resume.
    *
    * `launchDelayMs` controls how long to wait after PTY spawn before writing the
    * auto-launch command. restoreAll passes increasing values per session to
@@ -404,10 +498,17 @@ export class SessionManager {
         ? `${config.command}${flagStr} --resume ${resumeSessionId}`
         : `${config.command}${flagStr} --session-id ${resumeSessionId}`;
     } else {
-      // Copilot: --resume=<uuid> works for both new (with pre-set UUID) and existing
-      // sessions per `copilot --help`. The `--` separator stops gh from interpreting
-      // any future flags as its own.
-      command = `gh copilot -- --resume=${resumeSessionId}`;
+      // Copilot via `gh copilot`. The flag differs for new vs existing sessions:
+      //   --session-id=<uuid>  CREATES a new session at that exact UUID (used when we
+      //                        mint the UUID upfront for a brand-new session).
+      //   --resume=<uuid>      RESUMES a session that already exists on disk.
+      // Using --resume on a freshly minted UUID makes Copilot start a *different*
+      // session, so the UUID we persisted never matches disk and restore can't find
+      // it. Mirror the Claude path: probe events.jsonl to decide which flag to use.
+      const hasConversation = forceResume || (jsonlPath !== null && fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).size > 0);
+      command = hasConversation
+        ? `gh copilot --resume=${resumeSessionId}`
+        : `gh copilot --session-id=${resumeSessionId}`;
     }
 
     setTimeout(() => {

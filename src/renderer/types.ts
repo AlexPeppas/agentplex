@@ -1,4 +1,4 @@
-import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   platform: string;
@@ -29,6 +29,7 @@ export interface AgentPlexAPI {
   adoptExternal: (sessionUuid: string, cwd: string, cli?: 'claude' | 'copilot') => Promise<SessionInfo>;
   scanProjects: (cli?: 'claude' | 'copilot') => Promise<DiscoveredProject[]>;
   scanSessions: (encodedPath: string, cli?: 'claude' | 'copilot') => Promise<DiscoveredSession[]>;
+  searchSessions: (query: string) => Promise<SessionSearchResult[]>;
   getPinnedProjects: () => Promise<PinnedProject[]>;
   updatePinnedProjects: (pins: PinnedProject[]) => Promise<void>;
   resolveProjectPath: (encodedPath: string) => Promise<string | null>;
@@ -57,6 +58,8 @@ export interface AgentPlexAPI {
   onAppWake: (callback: (reason: 'resume' | 'unlock-screen') => void) => () => void;
   canvasLoad: () => Promise<DrawingData>;
   canvasSave: (data: DrawingData) => Promise<void>;
+  groupsLoad: () => Promise<PersistedGroups>;
+  groupsSave: (data: PersistedGroups) => Promise<void>;
   getPersistedState: () => Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }>;
   templatesLoad: () => Promise<WorkspaceTemplate[]>;
   templatesSave: (templates: WorkspaceTemplate[]) => Promise<void>;

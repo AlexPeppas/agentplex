@@ -7,7 +7,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
 } from '@xyflow/react';
-import { SessionStatus, type SessionInfo, type CliTool } from '../shared/ipc-channels';
+import { SessionStatus, type SessionInfo, type CliTool, type PersistedGroups } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 import { getSplitPaneEnabled } from './components/panels/SettingsPanel';
 
@@ -46,6 +46,9 @@ export type SessionNodeData = {
 
 export type GroupNodeData = {
   label: string;
+  color: string;
+  /** Set once the user manually resizes the bubble; disables auto-fit. */
+  manualSize?: number;
   [key: string]: unknown;
 };
 
@@ -114,9 +117,13 @@ export interface AppState {
 
   // Grouping
   createGroup: (nodeIdA: string, nodeIdB: string) => void;
-  addToGroup: (groupId: string, nodeId: string) => void;
+  createGroupWithMembers: (memberIds: string[], opts?: { label?: string; color?: string }) => void;
+  addToGroup: (groupId: string, nodeId: string, opts?: { reposition?: boolean }) => void;
   removeFromGroup: (nodeId: string) => void;
+  recomputeGroup: (groupId: string) => void;
+  resizeGroup: (groupId: string, size: number, opts?: { recenter?: boolean }) => void;
   renameGroup: (groupId: string, name: string) => void;
+  restoreGroups: (persisted: PersistedGroups) => void;
   renameSession: (sessionId: string, name: string) => void;
 
   // Message flash
@@ -161,8 +168,161 @@ export interface AppState {
 }
 
 let groupCounter = 0;
+let groupColorCounter = 0;
 const TASK_CLEAR_DELAY_MS = 5000;
 const taskClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// ── Grouping geometry ──────────────────────────────────────────────────────────
+/** Fallback node dimensions when React Flow hasn't measured a node yet. */
+const DEFAULT_NODE_WIDTH = 180;
+const DEFAULT_NODE_HEIGHT = 56;
+/** Slack between the outermost member and the group circle edge. */
+const GROUP_PADDING = 44;
+/** Smallest a group circle can shrink to (radius), so single nodes look intentional. */
+const GROUP_MIN_RADIUS = 110;
+/** Smallest diameter a user can manually shrink a bubble to. */
+const GROUP_MIN_MANUAL_SIZE = 120;
+/** Gap used when the context menu adds a far-away node adjacent to a group. */
+const GROUP_ADJACENT_GAP = 40;
+
+/** Chrome-like palette; new groups cycle through it. */
+const GROUP_COLORS = ['#7aa2f7', '#e06c75', '#e5c07b', '#98c379', '#56b6c2', '#c678dd', '#d18a7a', '#e08aa8'];
+
+function nextGroupColor(): string {
+  const color = GROUP_COLORS[groupColorCounter % GROUP_COLORS.length];
+  groupColorCounter++;
+  return color;
+}
+
+/** Prefer React Flow's measured size; fall back to explicit width/height or defaults. */
+function getNodeSize(node: Node): { width: number; height: number } {
+  const anyNode = node as Node & { measured?: { width?: number; height?: number }; width?: number; height?: number };
+  const styleW = typeof node.style?.width === 'number' ? node.style.width : undefined;
+  const styleH = typeof node.style?.height === 'number' ? node.style.height : undefined;
+  return {
+    width: anyNode.measured?.width ?? anyNode.width ?? styleW ?? DEFAULT_NODE_WIDTH,
+    height: anyNode.measured?.height ?? anyNode.height ?? styleH ?? DEFAULT_NODE_HEIGHT,
+  };
+}
+
+/** Numeric width of a group node (its width === height, kept circular). */
+function groupSize(group: Node): number {
+  return getNodeSize(group).width;
+}
+
+/** True when the user has manually resized this group; auto-fit is then disabled. */
+function isManualGroup(group: Node): boolean {
+  return typeof (group.data as GroupNodeData).manualSize === 'number';
+}
+
+/**
+ * Resize/reposition a group's bounding circle to enclose all its members, keeping
+ * the members visually fixed (their absolute positions are preserved while their
+ * parent-relative positions are recomputed against the new group origin).
+ *
+ * No-op for manually-resized groups: the user's chosen size/position is preserved.
+ */
+function computeGroupGeometry(nodes: Node[], groupId: string): Node[] {
+  const group = nodes.find((n) => n.id === groupId);
+  if (!group) return nodes;
+  if (isManualGroup(group)) return nodes;
+  const members = nodes.filter((n) => n.parentId === groupId);
+  if (members.length === 0) return nodes;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const memberAbs = members.map((m) => {
+    const { width, height } = getNodeSize(m);
+    const x = group.position.x + m.position.x;
+    const y = group.position.y + m.position.y;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + width);
+    maxY = Math.max(maxY, y + height);
+    return { id: m.id, x, y, width, height };
+  });
+
+  const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+  let radius = GROUP_MIN_RADIUS;
+  for (const m of memberAbs) {
+    const corners = [
+      [m.x, m.y],
+      [m.x + m.width, m.y],
+      [m.x, m.y + m.height],
+      [m.x + m.width, m.y + m.height],
+    ];
+    for (const [cx, cy] of corners) {
+      radius = Math.max(radius, Math.hypot(cx - center.x, cy - center.y));
+    }
+  }
+  radius += GROUP_PADDING;
+
+  const newPos = { x: center.x - radius, y: center.y - radius };
+  const size = radius * 2;
+
+  return nodes.map((n) => {
+    if (n.id === groupId) {
+      return { ...n, position: newPos, width: size, height: size };
+    }
+    if (n.parentId === groupId) {
+      const abs = memberAbs.find((a) => a.id === n.id);
+      if (abs) return { ...n, position: { x: abs.x - newPos.x, y: abs.y - newPos.y } };
+    }
+    return n;
+  });
+}
+
+/** React Flow requires every parent to precede its children; groups never nest, so
+ *  putting all group nodes first (stably) is sufficient. */
+function sortGroupsFirst(nodes: Node[]): Node[] {
+  const groups = nodes.filter((n) => n.type === 'groupNode');
+  const rest = nodes.filter((n) => n.type !== 'groupNode');
+  return [...groups, ...rest];
+}
+
+/** Serialize current groups into the persisted shape (membership keyed by both the
+ *  live node id and the stable resume UUID). Deterministically ordered so callers can
+ *  diff the JSON to skip redundant disk writes. */
+export function serializeGroups(nodes: Node[], sessions: Record<string, SessionInfo>): PersistedGroups {
+  const groups = nodes.filter((n) => n.type === 'groupNode');
+  const out = groups.map((g) => {
+    const members = nodes
+      .filter((n) => n.parentId === g.id && n.type === 'sessionNode')
+      .map((n) => ({ sessionId: n.id, resumeSessionId: sessions[n.id]?.resumeSessionId ?? null }))
+      .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    const data = g.data as GroupNodeData;
+    return { label: data.label, color: data.color, manualSize: data.manualSize, members };
+  });
+  out.sort((a, b) => (a.label + a.color).localeCompare(b.label + b.color));
+  return { groups: out.filter((g) => g.members.length > 0) };
+}
+
+/** Detach a node from its group: convert to absolute position, clear parentId, then
+ *  dissolve the old group if empty or refit it otherwise. */
+function detachFromGroup(nodes: Node[], nodeId: string): Node[] {
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node || !node.parentId) return nodes;
+  const parentId = node.parentId;
+  const parent = nodes.find((n) => n.id === parentId);
+  const abs = {
+    x: (parent?.position.x ?? 0) + node.position.x,
+    y: (parent?.position.y ?? 0) + node.position.y,
+  };
+
+  let updated = nodes.map((n) => {
+    if (n.id !== nodeId) return n;
+    const { parentId: _p, extent: _e, ...rest } = n as Node & { extent?: unknown };
+    void _p; void _e;
+    return { ...rest, position: abs } as Node;
+  });
+
+  const remaining = updated.filter((n) => n.parentId === parentId);
+  if (remaining.length === 0) {
+    updated = updated.filter((n) => n.id !== parentId);
+  } else {
+    updated = computeGroupGeometry(updated, parentId);
+  }
+  return updated;
+}
 
 const SUBAGENT_SPACING_X = 140;
 
@@ -287,28 +447,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         (n) => n.id !== id && !subagentIds.has(n.id)
       );
 
-      // If it was in a group, check if group should dissolve
+      // If it was in a group: dissolve the group if now empty, otherwise refit it.
       if (node?.parentId) {
-        const remainingChildren = nodes.filter((n) => n.parentId === node.parentId);
-        if (remainingChildren.length <= 1) {
-          const parentNode = nodes.find((n) => n.id === node.parentId);
-          nodes = nodes
-            .filter((n) => n.id !== node.parentId)
-            .map((n) => {
-              if (n.parentId === node.parentId) {
-                const { parentId, extent, ...rest } = n;
-                return {
-                  ...rest,
-                  position: {
-                    x: (parentNode?.position.x || 0) + n.position.x,
-                    y: (parentNode?.position.y || 0) + n.position.y,
-                  },
-                };
-              }
-              return n;
-            });
+        const parentId = node.parentId;
+        const remainingChildren = nodes.filter((n) => n.parentId === parentId);
+        if (remainingChildren.length === 0) {
+          nodes = nodes.filter((n) => n.id !== parentId);
+        } else {
+          nodes = computeGroupGeometry(nodes, parentId);
         }
       }
+      nodes = sortGroupsFirst(nodes);
 
       const newOpenPanes = state.openPanes.filter((pid) => pid !== id);
       let newActivePaneId = state.activePaneId;
@@ -417,9 +566,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   appendBuffer: (id: string, data: string) => {
     set((state) => {
       let buf = (state.sessionBuffers[id] || '') + data;
-      // Cap at ~512KB to prevent unbounded memory growth
-      if (buf.length > 512 * 1024) {
-        buf = buf.slice(-512 * 1024);
+      // Cap at ~2MB to bound memory growth while retaining enough recent output
+      // for the in-memory "open sessions" search and transcript restore.
+      if (buf.length > 2 * 1024 * 1024) {
+        buf = buf.slice(-2 * 1024 * 1024);
       }
       return {
         sessionBuffers: {
@@ -676,111 +826,97 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createGroup: (nodeIdA: string, nodeIdB: string) => {
+    get().createGroupWithMembers([nodeIdA, nodeIdB]);
+  },
+
+  createGroupWithMembers: (memberIds: string[], opts?: { label?: string; color?: string }) => {
+    // Detach any members that are currently in another group (one group per node).
+    let base = get().nodes;
+    for (const id of memberIds) base = detachFromGroup(base, id);
+
+    const present = memberIds.filter((id) => base.some((n) => n.id === id && n.type === 'sessionNode'));
+    if (present.length === 0) return;
+
     groupCounter++;
     const groupId = `group-${groupCounter}`;
-    const { nodes } = get();
-
-    const nodeA = nodes.find((n) => n.id === nodeIdA);
-    const nodeB = nodes.find((n) => n.id === nodeIdB);
-    if (!nodeA || !nodeB) return;
-
-    const minX = Math.min(nodeA.position.x, nodeB.position.x) - 20;
-    const minY = Math.min(nodeA.position.y, nodeB.position.y) - 40;
-
     const groupNode: Node = {
       id: groupId,
       type: 'groupNode',
-      position: { x: minX, y: minY },
-      data: { label: 'New Group' } satisfies GroupNodeData,
-      style: { width: GRID_SPACING_X + 200, height: GRID_SPACING_Y + 100 },
+      position: { x: 0, y: 0 },
+      data: { label: opts?.label ?? 'New Group', color: opts?.color ?? nextGroupColor() } satisfies GroupNodeData,
+      // Members are top-level after detach, so their absolute position equals their
+      // position relative to a group at (0,0); computeGroupGeometry fixes the origin.
+      width: GROUP_MIN_RADIUS * 2,
+      height: GROUP_MIN_RADIUS * 2,
     };
 
-    const updatedNodes = nodes.map((n) => {
-      if (n.id === nodeIdA || n.id === nodeIdB) {
-        return {
-          ...n,
-          parentId: groupId,
-          extent: 'parent' as const,
-          position: {
-            x: n.position.x - minX,
-            y: n.position.y - minY,
-          },
-        };
-      }
-      return n;
-    });
-
-    // Group node must come before its children
-    set({ nodes: [groupNode, ...updatedNodes] });
+    base = base.map((n) => (present.includes(n.id) ? { ...n, parentId: groupId } : n));
+    base = [groupNode, ...base];
+    base = computeGroupGeometry(base, groupId);
+    set({ nodes: sortGroupsFirst(base) });
   },
 
-  addToGroup: (groupId: string, nodeId: string) => {
-    const { nodes } = get();
-    const groupNode = nodes.find((n) => n.id === groupId);
-    if (!groupNode) return;
+  addToGroup: (groupId: string, nodeId: string, opts?: { reposition?: boolean }) => {
+    let base = detachFromGroup(get().nodes, nodeId);
+    const group = base.find((n) => n.id === groupId);
+    const node = base.find((n) => n.id === nodeId);
+    if (!group || !node) return;
 
-    set({
-      nodes: nodes.map((n) => {
-        if (n.id === nodeId) {
-          return {
-            ...n,
-            parentId: groupId,
-            extent: 'parent' as const,
-            position: {
-              x: n.position.x - groupNode.position.x,
-              y: n.position.y - groupNode.position.y,
-            },
-          };
-        }
-        return n;
-      }),
-    });
+    const size = groupSize(group);
+    const nodeSz = getNodeSize(node);
+    let abs: { x: number; y: number };
+    if (opts?.reposition && isManualGroup(group)) {
+      // Manual circle won't auto-grow, so drop the node inside, near the centre.
+      abs = {
+        x: group.position.x + size / 2 - nodeSz.width / 2,
+        y: group.position.y + size / 2 - nodeSz.height / 2,
+      };
+    } else if (opts?.reposition) {
+      // Menu adds snap the node next to the circle so a far-away node doesn't blow
+      // the circle up across the canvas; the geometry refit then encloses it.
+      abs = {
+        x: group.position.x + size + GROUP_ADJACENT_GAP,
+        y: group.position.y + size / 2 - nodeSz.height / 2,
+      };
+    } else {
+      // Drag adds keep the drop point.
+      abs = { x: node.position.x, y: node.position.y };
+    }
+
+    base = base.map((n) =>
+      n.id === nodeId
+        ? { ...n, parentId: groupId, position: { x: abs.x - group.position.x, y: abs.y - group.position.y } }
+        : n
+    );
+    base = computeGroupGeometry(base, groupId);
+    set({ nodes: sortGroupsFirst(base) });
   },
 
   removeFromGroup: (nodeId: string) => {
-    const { nodes } = get();
-    const node = nodes.find((n) => n.id === nodeId);
-    if (!node || !node.parentId) return;
+    set({ nodes: sortGroupsFirst(detachFromGroup(get().nodes, nodeId)) });
+  },
 
-    const parentNode = nodes.find((n) => n.id === node.parentId);
-    const absoluteX = (parentNode?.position.x || 0) + node.position.x;
-    const absoluteY = (parentNode?.position.y || 0) + node.position.y;
+  recomputeGroup: (groupId: string) => {
+    set({ nodes: sortGroupsFirst(computeGroupGeometry(get().nodes, groupId)) });
+  },
 
-    // Check if group would be empty or have only 1 child
-    const remainingChildren = nodes.filter(
-      (n) => n.parentId === node.parentId && n.id !== nodeId
-    );
-
-    let updatedNodes = nodes.map((n) => {
-      if (n.id === nodeId) {
-        const { parentId, extent, ...rest } = n;
-        void parentId;
-        void extent;
-        return { ...rest, position: { x: absoluteX, y: absoluteY } };
-      }
-      return n;
-    });
-
-    // Remove group if only 1 child remains — unparent that child too
-    if (remainingChildren.length === 1) {
-      const lastChild = remainingChildren[0];
-      const lastChildAbsX = (parentNode?.position.x || 0) + lastChild.position.x;
-      const lastChildAbsY = (parentNode?.position.y || 0) + lastChild.position.y;
-
-      updatedNodes = updatedNodes
-        .filter((n) => n.id !== node.parentId)
-        .map((n) => {
-          if (n.id === lastChild.id) {
-            const { parentId, extent, ...rest } = n;
-            void parentId;
-            void extent;
-            return { ...rest, position: { x: lastChildAbsX, y: lastChildAbsY } };
-          }
-          return n;
-        });
-    }
-
-    set({ nodes: updatedNodes });
+  resizeGroup: (groupId: string, size: number, opts?: { recenter?: boolean }) => {
+    const clamped = Math.max(GROUP_MIN_MANUAL_SIZE, size);
+    set((state) => ({
+      nodes: state.nodes.map((n) => {
+        if (n.id !== groupId) return n;
+        const cur = getNodeSize(n);
+        // recenter keeps the circle centred on its current centre (programmatic
+        // resize); the NodeResizer path leaves position to React Flow.
+        const position = opts?.recenter
+          ? {
+              x: n.position.x + cur.width / 2 - clamped / 2,
+              y: n.position.y + cur.height / 2 - clamped / 2,
+            }
+          : n.position;
+        return { ...n, position, width: clamped, height: clamped, data: { ...n.data, manualSize: clamped } };
+      }),
+    }));
   },
 
   renameGroup: (groupId: string, name: string) => {
@@ -789,6 +925,53 @@ export const useAppStore = create<AppState>((set, get) => ({
         n.id === groupId ? { ...n, data: { ...n.data, label: name } } : n
       ),
     }));
+  },
+
+  restoreGroups: (persisted: PersistedGroups) => {
+    if (!persisted || !Array.isArray(persisted.groups)) return;
+    const state = get();
+
+    // Map a stable resume UUID → current node id, but only when it's unambiguous
+    // (a UUID shared by two live sessions can't be matched reliably).
+    const resumeCounts = new Map<string, number>();
+    const resumeToId = new Map<string, string>();
+    for (const [id, info] of Object.entries(state.sessions)) {
+      const rid = info.resumeSessionId;
+      if (!rid) continue;
+      resumeCounts.set(rid, (resumeCounts.get(rid) ?? 0) + 1);
+      resumeToId.set(rid, id);
+    }
+    const presentSessionIds = new Set(
+      state.nodes.filter((n) => n.type === 'sessionNode' && !n.parentId).map((n) => n.id)
+    );
+    const claimed = new Set<string>();
+
+    for (const group of persisted.groups) {
+      const memberIds: string[] = [];
+      for (const m of group.members) {
+        // Prefer the original id (renderer reload keeps ids stable).
+        let resolved: string | undefined;
+        if (presentSessionIds.has(m.sessionId)) {
+          resolved = m.sessionId;
+        } else if (m.resumeSessionId && resumeCounts.get(m.resumeSessionId) === 1) {
+          const candidate = resumeToId.get(m.resumeSessionId);
+          if (candidate && presentSessionIds.has(candidate)) resolved = candidate;
+        }
+        if (resolved && !claimed.has(resolved)) {
+          claimed.add(resolved);
+          memberIds.push(resolved);
+        }
+      }
+      if (memberIds.length === 0) continue;
+      get().createGroupWithMembers(memberIds, { label: group.label, color: group.color });
+      if (typeof group.manualSize === 'number') {
+        // createGroupWithMembers prepends the new group, so it's nodes[0].
+        const created = get().nodes[0];
+        if (created && created.type === 'groupNode') {
+          get().resizeGroup(created.id, group.manualSize, { recenter: true });
+        }
+      }
+    }
   },
 
   renameSession: (sessionId: string, name: string) => {

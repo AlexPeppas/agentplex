@@ -33,15 +33,80 @@ const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 let terminalFontSize = DEFAULT_FONT_SIZE;
 
-/** Registry of all live terminal instances — zoom applies to all of them. */
-const liveTerminals = new Set<{ term: Terminal; fitAddon: FitAddon; sessionId: string }>();
+interface LiveTerminal {
+  term: Terminal;
+  fitAddon: FitAddon;
+  sessionId: string;
+  lastCols: number;
+  lastRows: number;
+}
 
-// Single global zoom listener (registered lazily, never removed — harmless)
-let zoomListenerRegistered = false;
+/** Registry of all live terminal instances — zoom/refresh apply to all of them. */
+const liveTerminals = new Set<LiveTerminal>();
 
-function ensureGlobalZoomListener() {
-  if (zoomListenerRegistered) return;
-  zoomListenerRegistered = true;
+/** A terminal is "measurable" once it's attached and laid out with non-zero size.
+ *  Fitting/refreshing a hidden (display:none / 0-size) terminal is wasteful and can
+ *  produce bogus dimensions, so callers skip those until it becomes visible again. */
+function isMeasurable(term: Terminal): boolean {
+  const el = term.element;
+  return !!el && el.offsetParent !== null && el.clientWidth > 0 && el.clientHeight > 0;
+}
+
+/** Refit a terminal and push the size to its PTY. Skips hidden terminals and
+ *  redundant resizes (unless `force`, used by wake/visibility recovery to
+ *  reassert the PTY size even if our cached dimensions look unchanged). */
+function syncTerminalSize(entry: LiveTerminal, force = false) {
+  if (!isMeasurable(entry.term)) return;
+  try {
+    entry.fitAddon.fit();
+  } catch {
+    return;
+  }
+  const { cols, rows } = entry.term;
+  if (cols <= 0 || rows <= 0) return;
+  if (force || cols !== entry.lastCols || rows !== entry.lastRows) {
+    entry.lastCols = cols;
+    entry.lastRows = rows;
+    try {
+      window.agentPlex.resizeSession(entry.sessionId, cols, rows);
+    } catch { /* ignore */ }
+  }
+}
+
+/** Force every visible terminal to refit and fully repaint. This clears the
+ *  stale xterm DOM-renderer viewport state that can appear after the OS sleeps,
+ *  the window is minimized, or the tab is hidden for a long time — the bug where
+ *  output scrolls into an "invisible ceiling" and is overwritten. */
+function refreshAllTerminals() {
+  for (const entry of liveTerminals) {
+    if (!isMeasurable(entry.term)) continue;
+    syncTerminalSize(entry, true);
+    if (entry.term.rows > 0) {
+      try {
+        entry.term.refresh(0, entry.term.rows - 1);
+      } catch { /* ignore */ }
+    }
+  }
+}
+
+let refreshScheduled = false;
+/** Coalesce bursts of wake/visibility/resize triggers into a single refresh on a
+ *  later frame, giving layout/compositor state time to stabilize after wake. */
+export function scheduleRefreshAllTerminals() {
+  if (refreshScheduled) return;
+  refreshScheduled = true;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    refreshScheduled = false;
+    refreshAllTerminals();
+  }));
+}
+
+// Single set of global listeners (registered lazily, never removed — harmless)
+let globalListenersRegistered = false;
+
+function ensureGlobalListeners() {
+  if (globalListenersRegistered) return;
+  globalListenersRegistered = true;
   window.agentPlex.onZoom((direction) => {
     let newSize: number;
     if (direction === 'in') newSize = Math.min(terminalFontSize + 2, MAX_FONT_SIZE);
@@ -51,12 +116,15 @@ function ensureGlobalZoomListener() {
       terminalFontSize = newSize;
       for (const entry of liveTerminals) {
         entry.term.options.fontSize = newSize;
-        try {
-          entry.fitAddon.fit();
-          window.agentPlex.resizeSession(entry.sessionId, entry.term.cols, entry.term.rows);
-        } catch { /* ignore */ }
+        syncTerminalSize(entry);
       }
     }
+  });
+
+  // When the window/tab becomes visible again (restore from minimize, tab switch),
+  // xterm's renderer may be in a stale state — refit and repaint.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleRefreshAllTerminals();
   });
 }
 
@@ -67,7 +135,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
   useEffect(() => {
     if (!containerRef.current || !sessionId) return;
 
-    ensureGlobalZoomListener();
+    ensureGlobalListeners();
 
     // Create terminal
     const term = new Terminal({
@@ -83,21 +151,14 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
 
-    // Fit after a frame to get correct dimensions
-    requestAnimationFrame(() => {
-      try {
-        fitAddon.fit();
-        window.agentPlex.resizeSession(sessionId, term.cols, term.rows);
-      } catch {
-        // container might not be ready
-      }
-    });
-
     termRef.current = term;
 
-    // Register in global set for zoom
-    const entry = { term, fitAddon, sessionId };
+    // Register in global set for zoom/refresh
+    const entry: LiveTerminal = { term, fitAddon, sessionId, lastCols: 0, lastRows: 0 };
     liveTerminals.add(entry);
+
+    // Fit after a frame to get correct dimensions
+    requestAnimationFrame(() => syncTerminalSize(entry, true));
 
     // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
     const isMac = window.agentPlex.platform === 'darwin';
@@ -105,10 +166,15 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       const modKey = isMac ? e.metaKey : e.ctrlKey;
       if (!modKey || e.type !== 'keydown') return true;
 
-      // Cmd/Ctrl+C: copy selected text or fall through as SIGINT
+      // Cmd/Ctrl+C: copy only when there's actual selected text; otherwise fall
+      // through so xterm sends SIGINT (\x03). Guard on a non-empty selection —
+      // xterm can report hasSelection()===true for a zero-width selection left by
+      // a plain click, which would otherwise silently swallow every Ctrl+C
+      // (notably inside Copilot/Claude TUIs) and never interrupt the process.
       if (e.key === 'c') {
-        if (term.hasSelection()) {
-          window.agentPlex.clipboardWriteText(term.getSelection());
+        const selection = term.getSelection();
+        if (selection) {
+          window.agentPlex.clipboardWriteText(selection);
           term.clearSelection();
           e.preventDefault();
           return false;
@@ -139,12 +205,9 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       if (newSize !== terminalFontSize) {
         terminalFontSize = newSize;
         // Apply to ALL live terminals
-        for (const e of liveTerminals) {
-          e.term.options.fontSize = newSize;
-          try {
-            e.fitAddon.fit();
-            window.agentPlex.resizeSession(e.sessionId, e.term.cols, e.term.rows);
-          } catch { /* ignore */ }
+        for (const liveEntry of liveTerminals) {
+          liveEntry.term.options.fontSize = newSize;
+          syncTerminalSize(liveEntry);
         }
       }
       e.preventDefault();
@@ -174,12 +237,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     let disposed = false;
     const resizeObserver = new ResizeObserver(() => {
       if (disposed) return;
-      try {
-        fitAddon.fit();
-        window.agentPlex.resizeSession(sessionId, term.cols, term.rows);
-      } catch {
-        // ignore
-      }
+      syncTerminalSize(entry);
     });
     resizeObserver.observe(containerRef.current);
 

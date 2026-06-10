@@ -7,7 +7,8 @@ import { SendDialog } from './components/SendDialog';
 import { ProjectLauncher } from './components/ProjectLauncher';
 import { ActivityBar } from './components/ActivityBar';
 import { SidePanel } from './components/SidePanel';
-import { useAppStore } from './store';
+import { useAppStore, serializeGroups } from './store';
+import { scheduleRefreshAllTerminals } from './hooks/useTerminal';
 import { SessionStatus } from '../shared/ipc-channels';
 import './types';
 
@@ -69,6 +70,7 @@ export function App() {
   const updateTask = useAppStore((s) => s.updateTask);
   const reconcileTasks = useAppStore((s) => s.reconcileTasks);
   const prevStatuses = useRef<Map<string, SessionStatus>>(new Map());
+  const groupsReadyRef = useRef(false);
 
   const renameSession = useAppStore((s) => s.renameSession);
 
@@ -181,9 +183,54 @@ export function App() {
           console.error('[restore] Failed:', err);
         }
       }
+
+      // Re-create persisted node groups now that all sessions exist, then allow
+      // saving. Gating on groupsReadyRef prevents the save subscription from
+      // overwriting groups.json with empty data during startup.
+      try {
+        const persistedGroups = await window.agentPlex.groupsLoad();
+        useAppStore.getState().restoreGroups(persistedGroups);
+      } catch (err) {
+        console.error('[groups] Failed to restore:', err);
+      } finally {
+        groupsReadyRef.current = true;
+      }
     };
     reconnect();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist node groups to disk whenever group membership/label/color changes.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastSignature = '';
+    let lastNodes = useAppStore.getState().nodes;
+    let lastSessions = useAppStore.getState().sessions;
+
+    const unsubscribe = useAppStore.subscribe((state) => {
+      if (!groupsReadyRef.current) return;
+      // Skip the work for the frequent buffer/status updates that don't touch
+      // node or session structure.
+      if (state.nodes === lastNodes && state.sessions === lastSessions) return;
+      lastNodes = state.nodes;
+      lastSessions = state.sessions;
+
+      const data = serializeGroups(state.nodes, state.sessions);
+      const signature = JSON.stringify(data);
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!groupsReadyRef.current) return;
+        window.agentPlex.groupsSave(data).catch((err) => console.error('[groups] Save failed:', err));
+      }, 500);
+    });
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
+  }, []);
 
   // Subscribe to IPC events
   useEffect(() => {
@@ -255,6 +302,10 @@ export function App() {
     const cleanupWake = window.agentPlex.onAppWake(() => {
       // Force layout/paint-sensitive components (xterm, graph canvas) to reflow after wake.
       window.dispatchEvent(new Event('resize'));
+      // Refit + repaint terminals: the ResizeObserver won't fire if the container
+      // size is unchanged, so xterm's renderer can otherwise stay in a stale state
+      // (output scrolling into an "invisible ceiling") until the app is relaunched.
+      scheduleRefreshAllTerminals();
     });
     return () => cleanupWake();
   }, []);

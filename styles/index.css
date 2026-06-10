@@ -186,6 +186,15 @@ html, body, #root {
   z-index: auto !important;
 }
 
+/* Group bubbles are circular, so suppress React Flow's square selection outline;
+   the NodeResizer handles indicate selection instead. */
+.react-flow__node-groupNode.selected,
+.react-flow__node-groupNode:focus,
+.react-flow__node-groupNode:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 /* Edge animations */
 .react-flow__edge.edge-fading path {
   opacity: 0;
@@ -253,4 +262,49 @@ html, body, #root {
 
 .session-node__context-menu-item:hover {
   background: var(--accent-subtle);
+}
+
+.session-node__submenu-anchor {
+  position: relative;
+}
+
+.session-node__context-menu-item--submenu {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.session-node__submenu-caret {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.session-node__submenu {
+  position: absolute;
+  top: -4px;
+  left: 100%;
+  margin-left: 2px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.session-node__submenu-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.session-node__context-menu-item--group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-node__group-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  flex-shrink: 0;
 }

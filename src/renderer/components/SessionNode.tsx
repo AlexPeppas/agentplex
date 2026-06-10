@@ -26,12 +26,15 @@ function CliIcon({ cli, size = 14 }: { cli?: CliTool; size?: number }) {
   return <img src={src} alt="" style={{ width: size, height: size }} className="shrink-0" />;
 }
 
-export const SessionNode = memo(function SessionNode({ data, id: _id }: NodeProps) {
+export const SessionNode = memo(function SessionNode({ data, id, parentId }: NodeProps) {
   const nodeData = data as SessionNodeData;
   const selectSession = useAppStore((s) => s.selectSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
   const renameSession = useAppStore((s) => s.renameSession);
   const deleteSession = useAppStore((s) => s.deleteSession);
+  const createGroupWithMembers = useAppStore((s) => s.createGroupWithMembers);
+  const addToGroup = useAppStore((s) => s.addToGroup);
+  const removeFromGroup = useAppStore((s) => s.removeFromGroup);
   const isSelected = useAppStore((s) => s.openPanes.includes(nodeData.sessionId));
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
@@ -50,6 +53,8 @@ export const SessionNode = memo(function SessionNode({ data, id: _id }: NodeProp
   const [branchName, setBranchName] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [projectMenu, setProjectMenu] = useState<{ x: number; y: number } | null>(null);
+  const [groupSubmenuOpen, setGroupSubmenuOpen] = useState(false);
+  const [menuGroups, setMenuGroups] = useState<{ id: string; label: string; color: string }[]>([]);
   const projectMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -128,8 +133,33 @@ export const SessionNode = memo(function SessionNode({ data, id: _id }: NodeProp
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const groups = useAppStore
+      .getState()
+      .nodes.filter((n) => n.type === 'groupNode')
+      .map((n) => ({
+        id: n.id,
+        label: (n.data as { label?: string }).label ?? 'Group',
+        color: (n.data as { color?: string }).color ?? '#7aa2f7',
+      }));
+    setMenuGroups(groups);
+    setGroupSubmenuOpen(false);
     setProjectMenu({ x: e.clientX, y: e.clientY });
   }, []);
+
+  const handleNewGroup = useCallback(() => {
+    setProjectMenu(null);
+    createGroupWithMembers([id]);
+  }, [createGroupWithMembers, id]);
+
+  const handleAddToExistingGroup = useCallback((groupId: string) => {
+    setProjectMenu(null);
+    addToGroup(groupId, id, { reposition: true });
+  }, [addToGroup, id]);
+
+  const handleRemoveFromGroup = useCallback(() => {
+    setProjectMenu(null);
+    removeFromGroup(id);
+  }, [removeFromGroup, id]);
 
   const handleOpenProjectConfig = useCallback(async () => {
     setProjectMenu(null);
@@ -247,6 +277,47 @@ export const SessionNode = memo(function SessionNode({ data, id: _id }: NodeProp
           >
             Open Project Settings
           </button>
+
+          {parentId ? (
+            <button
+              className="session-node__context-menu-item"
+              onClick={handleRemoveFromGroup}
+            >
+              Remove from group
+            </button>
+          ) : (
+            <div
+              className="session-node__submenu-anchor"
+              onMouseEnter={() => setGroupSubmenuOpen(true)}
+              onMouseLeave={() => setGroupSubmenuOpen(false)}
+            >
+              <button className="session-node__context-menu-item session-node__context-menu-item--submenu">
+                <span>Add to group</span>
+                <span className="session-node__submenu-caret">›</span>
+              </button>
+              {groupSubmenuOpen && (
+                <div className="session-node__context-menu session-node__submenu">
+                  <button
+                    className="session-node__context-menu-item"
+                    onClick={handleNewGroup}
+                  >
+                    + New group
+                  </button>
+                  {menuGroups.length > 0 && <div className="session-node__submenu-divider" />}
+                  {menuGroups.map((g) => (
+                    <button
+                      key={g.id}
+                      className="session-node__context-menu-item session-node__context-menu-item--group"
+                      onClick={() => handleAddToExistingGroup(g.id)}
+                    >
+                      <span className="session-node__group-swatch" style={{ backgroundColor: g.color }} />
+                      <span className="truncate">{g.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>,
         document.body,
       )}

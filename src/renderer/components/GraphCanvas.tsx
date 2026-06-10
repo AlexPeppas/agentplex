@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -25,14 +25,14 @@ export function GraphCanvas() {
   const onNodesChange = useAppStore((s) => s.onNodesChange);
   const onEdgesChange = useAppStore((s) => s.onEdgesChange);
   const selectSession = useAppStore((s) => s.selectSession);
-  const createGroup = useAppStore((s) => s.createGroup);
+  const createGroupWithMembers = useAppStore((s) => s.createGroupWithMembers);
   const addToGroup = useAppStore((s) => s.addToGroup);
   const removeFromGroup = useAppStore((s) => s.removeFromGroup);
+  const recomputeGroup = useAppStore((s) => s.recomputeGroup);
   const activePaneId = useAppStore((s) => s.activePaneId);
   const shouldFocusNode = useAppStore((s) => s.shouldFocusNode);
   const drawingMode = useAppStore((s) => s.drawingMode);
   const { fitView } = useReactFlow();
-  const dragStartParent = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!shouldFocusNode) return;
@@ -53,55 +53,56 @@ export function GraphCanvas() {
     return () => clearTimeout(timer);
   }, [activePaneId, shouldFocusNode, fitView]);
 
-  const onNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
-    dragStartParent.current = node.parentId;
-  }, []);
-
   const onNodeDragStop: OnNodeDrag = useCallback(
     (_event, draggedNode) => {
-      // Only handle session nodes
+      // Dragging a whole group node moves its members automatically (React Flow
+      // parent/child) — nothing to reconcile.
       if (draggedNode.type !== 'sessionNode') return;
 
-      const allNodes = useAppStore.getState().nodes;
+      // Use the final dragged node from the callback, not the (possibly stale) store copy.
+      const storeNodes = useAppStore.getState().nodes;
+      const allNodes = storeNodes.map((n) => (n.id === draggedNode.id ? draggedNode : n));
 
-      // Check if dragged out of a group
-      if (dragStartParent.current && !isInsideParent(draggedNode, allNodes)) {
-        removeFromGroup(draggedNode.id);
+      // Already in a group → either it was dragged out of the circle (remove) or
+      // moved within it (refit the circle).
+      if (draggedNode.parentId) {
+        const group = allNodes.find((n) => n.id === draggedNode.parentId);
+        if (!group) return;
+        const circle = getGroupCircle(group);
+        const center = childAbsoluteCenter(draggedNode, group);
+        if (distance(center, circle) > circle.r) {
+          removeFromGroup(draggedNode.id);
+        } else {
+          recomputeGroup(draggedNode.parentId);
+        }
         return;
       }
 
-      // Don't create groups if node is already in a group
-      if (draggedNode.parentId) return;
-
-      // Find nodes that the dragged node overlaps
+      // Ungrouped node: dropped onto a group circle → join; onto another ungrouped
+      // session node → form a new group.
+      const draggedCenter = topLevelCenter(draggedNode);
       const draggedRect = getNodeRect(draggedNode);
 
       for (const targetNode of allNodes) {
         if (targetNode.id === draggedNode.id) continue;
 
-        // Check overlap with a group node → add to group
         if (targetNode.type === 'groupNode') {
-          const targetRect = getNodeRect(targetNode);
-          if (rectsIntersect(draggedRect, targetRect)) {
-            addToGroup(targetNode.id, draggedNode.id);
+          const circle = getGroupCircle(targetNode);
+          if (distance(draggedCenter, circle) <= circle.r) {
+            addToGroup(targetNode.id, draggedNode.id, { reposition: false });
             return;
           }
         }
 
-        // Check overlap with another ungrouped session node → create new group
-        if (
-          targetNode.type === 'sessionNode' &&
-          !targetNode.parentId
-        ) {
-          const targetRect = getNodeRect(targetNode);
-          if (rectsIntersect(draggedRect, targetRect)) {
-            createGroup(draggedNode.id, targetNode.id);
+        if (targetNode.type === 'sessionNode' && !targetNode.parentId) {
+          if (rectsIntersect(draggedRect, getNodeRect(targetNode))) {
+            createGroupWithMembers([targetNode.id, draggedNode.id]);
             return;
           }
         }
       }
     },
-    [createGroup, addToGroup, removeFromGroup]
+    [createGroupWithMembers, addToGroup, removeFromGroup, recomputeGroup]
   );
 
   const bumpViewportMove = useAppStore((s) => s.bumpViewportMove);
@@ -121,7 +122,6 @@ export function GraphCanvas() {
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}
         onMove={onMove}
@@ -152,24 +152,54 @@ interface Rect {
   height: number;
 }
 
+interface Circle {
+  x: number;
+  y: number;
+  r: number;
+}
+
 const NODE_WIDTH = 180;
-const NODE_HEIGHT = 50;
+const NODE_HEIGHT = 56;
+
+function getNodeSize(node: Node): { width: number; height: number } {
+  const anyNode = node as Node & { measured?: { width?: number; height?: number }; width?: number; height?: number };
+  const styleW = typeof node.style?.width === 'number' ? node.style.width : undefined;
+  const styleH = typeof node.style?.height === 'number' ? node.style.height : undefined;
+  return {
+    width: anyNode.measured?.width ?? anyNode.width ?? styleW ?? NODE_WIDTH,
+    height: anyNode.measured?.height ?? anyNode.height ?? styleH ?? NODE_HEIGHT,
+  };
+}
 
 function getNodeRect(node: Node): Rect {
-  const width =
-    typeof node.style?.width === 'number'
-      ? node.style.width
-      : NODE_WIDTH;
-  const height =
-    typeof node.style?.height === 'number'
-      ? node.style.height
-      : NODE_HEIGHT;
+  const { width, height } = getNodeSize(node);
+  return { x: node.position.x, y: node.position.y, width, height };
+}
+
+/** Bounding circle of a group node (its box is a square rendered rounded-full). */
+function getGroupCircle(group: Node): Circle {
+  const { width } = getNodeSize(group);
+  const r = width / 2;
+  return { x: group.position.x + r, y: group.position.y + r, r };
+}
+
+/** Absolute centre of a child node given its parent group. */
+function childAbsoluteCenter(child: Node, parent: Node): { x: number; y: number } {
+  const { width, height } = getNodeSize(child);
   return {
-    x: node.position.x,
-    y: node.position.y,
-    width,
-    height,
+    x: parent.position.x + child.position.x + width / 2,
+    y: parent.position.y + child.position.y + height / 2,
   };
+}
+
+/** Absolute centre of a top-level node. */
+function topLevelCenter(node: Node): { x: number; y: number } {
+  const { width, height } = getNodeSize(node);
+  return { x: node.position.x + width / 2, y: node.position.y + height / 2 };
+}
+
+function distance(p: { x: number; y: number }, c: Circle): number {
+  return Math.hypot(p.x - c.x, p.y - c.y);
 }
 
 function rectsIntersect(a: Rect, b: Rect): boolean {
@@ -178,18 +208,5 @@ function rectsIntersect(a: Rect, b: Rect): boolean {
     a.x + a.width > b.x &&
     a.y < b.y + b.height &&
     a.y + a.height > b.y
-  );
-}
-
-function isInsideParent(node: Node, allNodes: Node[]): boolean {
-  if (!node.parentId) return false;
-  const parent = allNodes.find((n) => n.id === node.parentId);
-  if (!parent) return false;
-  const parentRect = getNodeRect(parent);
-  return (
-    node.position.x >= 0 &&
-    node.position.y >= 0 &&
-    node.position.x + NODE_WIDTH <= parentRect.width &&
-    node.position.y + NODE_HEIGHT <= parentRect.height
   );
 }

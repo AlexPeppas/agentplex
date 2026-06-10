@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -157,6 +157,10 @@ const api = {
     return ipcRenderer.invoke(IPC.LAUNCHER_SCAN_SESSIONS, { encodedPath, cli });
   },
 
+  searchSessions: (query: string): Promise<SessionSearchResult[]> => {
+    return ipcRenderer.invoke(IPC.SESSION_SEARCH, { query });
+  },
+
   getPinnedProjects: (): Promise<PinnedProject[]> => {
     return ipcRenderer.invoke(IPC.LAUNCHER_GET_PINS);
   },
@@ -275,6 +279,14 @@ const api = {
 
   canvasSave: (data: DrawingData): Promise<void> => {
     return ipcRenderer.invoke(IPC.CANVAS_SAVE, data);
+  },
+
+  groupsLoad: (): Promise<PersistedGroups> => {
+    return ipcRenderer.invoke(IPC.GROUPS_LOAD);
+  },
+
+  groupsSave: (data: PersistedGroups): Promise<void> => {
+    return ipcRenderer.invoke(IPC.GROUPS_SAVE, data);
   },
 
   getPersistedState: (): Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }> => {
