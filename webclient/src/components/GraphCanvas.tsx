@@ -5,28 +5,51 @@ import {
   BackgroundVariant,
   useNodesState,
   type Node,
+  type Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useStore } from '../store';
+import { useStore, termKey } from '../store';
 import { SessionNodeComp, type SessionNodeData } from './SessionNode';
+import { SubAgentNodeComp, type SubAgentNodeData } from './SubAgentNode';
 import { MachineGroupNode, type MachineGroupData } from './MachineGroupNode';
-import type { MachineStatus } from '../relay/types';
+import { EMPTY_TRACE, type MachineStatus, type SessionTrace } from '../relay/types';
 
 const NODE_W = 210;
-const NODE_H = 72;
-const COL_GAP = 22;
-const ROW_GAP = 18;
-const COLS = 2;
 const PAD = 14;
 const HEADER = 36;
+const ROW_GAP = 20;
 const GROUP_GAP = 40;
 const START_X = 60;
 const START_Y = 40;
-const GROUP_W = PAD * 2 + COLS * NODE_W + (COLS - 1) * COL_GAP;
+
+// Subagent lane sits to the right of the session column.
+const SUB_W = 170;
+const SUB_H = 34;
+const SUB_GAP = 10;
+const LANE_GAP = 36;
+const GROUP_W = PAD * 2 + NODE_W + LANE_GAP + SUB_W;
 
 const DISCONNECTED: MachineStatus = { relayState: 'disconnected', online: false, error: null };
 
-const nodeTypes = { session: SessionNodeComp, machineGroup: MachineGroupNode };
+const nodeTypes = {
+  session: SessionNodeComp,
+  subagent: SubAgentNodeComp,
+  machineGroup: MachineGroupNode,
+};
+
+/** Estimate a session node's rendered height from its trace so siblings stack
+ *  without overlapping (session nodes grow with plan/task rows). */
+function estSessionHeight(trace: SessionTrace): number {
+  let h = 56; // title + status row
+  if (trace.mode === 'plan') h += 24;
+  h += trace.plans.length * 17;
+  const completed = trace.tasks.filter(t => t.status === 'completed');
+  const keep = new Set(completed.slice(-2).map(t => t.taskNumber));
+  const visible = trace.tasks.filter(t => t.status !== 'completed' || keep.has(t.taskNumber));
+  h += Math.min(visible.length, 4) * 17;
+  if (visible.length > 4) h += 14;
+  return h;
+}
 
 interface Props {
   onSelectSession: (machineId: string, sessionId: string) => void;
@@ -37,21 +60,75 @@ export default function GraphCanvas({ onSelectSession }: Props) {
   const sessions = useStore(s => s.sessions);
   const displayNames = useStore(s => s.displayNames);
   const status = useStore(s => s.status);
+  const traces = useStore(s => s.traces);
   const sendCommand = useStore(s => s.sendCommand);
 
   const alive = useMemo(() => sessions.filter(s => s.status !== 'killed'), [sessions]);
 
-  const buildNodes = useCallback((): Node[] => {
+  const build = useCallback((): { nodes: Node[]; edges: Edge[] } => {
     const nodes: Node[] = [];
-    let y = START_Y;
+    const edges: Edge[] = [];
+    let groupY = START_Y;
 
     for (const machine of machines) {
       const mid = machine.machineId;
       const mSessions = alive.filter(s => s.machineId === mid);
-      const rows = Math.max(1, Math.ceil(mSessions.length / COLS));
-      const groupH = HEADER + PAD * 2 + rows * NODE_H + (rows - 1) * ROW_GAP;
 
-      // Machine container (parent) node.
+      let cursor = HEADER + PAD;
+      const childNodes: Node[] = [];
+
+      for (const session of mSessions) {
+        const trace = traces[termKey(mid, session.id)] ?? EMPTY_TRACE;
+        const activeSubs = trace.subagents; // active + recently-completed
+        const sessionH = estSessionHeight(trace);
+
+        const sessionNodeId = `${mid}:${session.id}`;
+        const data: SessionNodeData = {
+          session,
+          displayName: displayNames[mid]?.[session.id] ?? session.title,
+          trace,
+          onClick: () => onSelectSession(mid, session.id),
+        };
+        childNodes.push({
+          id: sessionNodeId,
+          type: 'session',
+          parentId: `group:${mid}`,
+          extent: 'parent',
+          position: { x: PAD, y: cursor },
+          data,
+          draggable: true,
+          selectable: false,
+        });
+
+        // Subagent nodes in the lane to the right, connected to the session.
+        activeSubs.forEach((sa, j) => {
+          const subId = `${mid}:${session.id}:sub:${sa.subagentId}`;
+          const subData: SubAgentNodeData = { label: sa.description || 'sub-agent', status: sa.status };
+          childNodes.push({
+            id: subId,
+            type: 'subagent',
+            parentId: `group:${mid}`,
+            extent: 'parent',
+            position: { x: PAD + NODE_W + LANE_GAP, y: cursor + j * (SUB_H + SUB_GAP) },
+            data: subData,
+            draggable: true,
+            selectable: false,
+          });
+          edges.push({
+            id: `edge-${subId}`,
+            source: sessionNodeId,
+            target: subId,
+            style: { stroke: sa.status === 'active' ? '#c4874a' : '#3a4a3a', strokeWidth: 1.5 },
+            animated: sa.status === 'active',
+          });
+        });
+
+        const subsH = activeSubs.length * (SUB_H + SUB_GAP);
+        cursor += Math.max(sessionH, subsH) + ROW_GAP;
+      }
+
+      const groupH = Math.max(cursor + PAD, HEADER + PAD * 2 + 56);
+
       const groupData: MachineGroupData = {
         label: machine.name,
         machineId: mid,
@@ -62,63 +139,40 @@ export default function GraphCanvas({ onSelectSession }: Props) {
       nodes.push({
         id: `group:${mid}`,
         type: 'machineGroup',
-        position: { x: START_X, y },
+        position: { x: START_X, y: groupY },
         data: groupData,
         style: { width: GROUP_W, height: groupH },
         draggable: true,
         selectable: false,
       });
+      nodes.push(...childNodes);
 
-      // Session child nodes, positioned relative to the group.
-      mSessions.forEach((session, i) => {
-        const col = i % COLS;
-        const row = Math.floor(i / COLS);
-        const data: SessionNodeData = {
-          session,
-          displayName: displayNames[mid]?.[session.id] ?? session.title,
-          onClick: () => onSelectSession(mid, session.id),
-        };
-        nodes.push({
-          id: `${mid}:${session.id}`,
-          type: 'session',
-          parentId: `group:${mid}`,
-          extent: 'parent',
-          position: {
-            x: PAD + col * (NODE_W + COL_GAP),
-            y: HEADER + PAD + row * (NODE_H + ROW_GAP),
-          },
-          data,
-          draggable: true,
-          selectable: false,
-        });
-      });
-
-      y += groupH + GROUP_GAP;
+      groupY += groupH + GROUP_GAP;
     }
 
-    return nodes;
-  }, [machines, alive, displayNames, status, sendCommand, onSelectSession]);
+    return { nodes, edges };
+  }, [machines, alive, displayNames, status, traces, sendCommand, onSelectSession]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(buildNodes());
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(build().nodes);
+  const edges = useMemo(() => build().edges, [build]);
 
-  // Rebuild when data changes, preserving user-dragged positions by node id.
+  // Rebuild when data changes, preserving user-dragged session positions by id.
   useEffect(() => {
     setNodes(prev => {
       const prevMap = new Map(prev.map(n => [n.id, n]));
-      return buildNodes().map(n => {
+      return build().nodes.map(n => {
         const old = prevMap.get(n.id);
-        // Preserve dragged session positions; group layout is always recomputed.
         if (old && n.type === 'session') return { ...n, position: old.position };
         return n;
       });
     });
-  }, [buildNodes, setNodes]);
+  }, [build, setNodes]);
 
   return (
     <div className="w-full h-full">
       <ReactFlow
         nodes={nodes}
-        edges={[]}
+        edges={edges}
         onNodesChange={onNodesChange}
         nodeTypes={nodeTypes}
         minZoom={0.3}

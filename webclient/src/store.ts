@@ -6,7 +6,10 @@ import type {
   MachineStatus,
   MachineCommand,
   MachineEvent,
+  SessionTrace,
+  TaskStatus,
 } from './relay/types';
+import { EMPTY_TRACE } from './relay/types';
 import { RelayClient } from './relay/client';
 
 const PAIRED_DB = 'agentplex-state';
@@ -63,6 +66,9 @@ interface AppState {
   // Terminal buffers keyed by termKey(machineId, sessionId).
   terminalData: Record<string, string>;
 
+  // Live trace state (plan/tasks/subagents) keyed by termKey(machineId, sessionId).
+  traces: Record<string, SessionTrace>;
+
   // Currently focused session (machine-scoped).
   active: { machineId: string; sessionId: string } | null;
 
@@ -90,6 +96,15 @@ export const useStore = create<AppState>((set, get) => {
   }
 
   function handleEvent(machineId: string, event: MachineEvent) {
+    // Mutate the trace for one session via a copy-on-write updater.
+    const updateTrace = (sessionId: string, fn: (t: SessionTrace) => SessionTrace) => {
+      set(s => {
+        const k = termKey(machineId, sessionId);
+        const current = s.traces[k] ?? EMPTY_TRACE;
+        return { traces: { ...s.traces, [k]: fn(current) } };
+      });
+    };
+
     switch (event.type) {
       case 'session:list':
         set(s => ({
@@ -155,6 +170,82 @@ export const useStore = create<AppState>((set, get) => {
         set(s => ({ displayNames: { ...s.displayNames, [machineId]: event.names } }));
         break;
 
+      // ── Live trace events (mirror of the desktop graph) ──
+      case 'subagent:spawn':
+        updateTrace(event.sessionId, t => (
+          t.subagents.some(sa => sa.subagentId === event.subagentId)
+            ? t
+            : { ...t, subagents: [...t.subagents, { subagentId: event.subagentId, description: event.description, status: 'active' }] }
+        ));
+        break;
+
+      case 'subagent:complete':
+        updateTrace(event.sessionId, t => ({
+          ...t,
+          subagents: t.subagents.map(sa =>
+            sa.subagentId === event.subagentId ? { ...sa, status: 'completed' as const } : sa,
+          ),
+        }));
+        // Fade the completed subagent out shortly after, matching the desktop.
+        setTimeout(() => {
+          set(s => {
+            const k = termKey(machineId, event.sessionId);
+            const trace = s.traces[k];
+            if (!trace) return {};
+            return { traces: { ...s.traces, [k]: { ...trace, subagents: trace.subagents.filter(sa => sa.subagentId !== event.subagentId) } } };
+          });
+        }, 4000);
+        break;
+
+      case 'plan:enter':
+        updateTrace(event.sessionId, t => ({
+          ...t,
+          mode: 'plan',
+          plans: [
+            ...t.plans.map(p => (p.status === 'active' ? { ...p, status: 'completed' as const } : p)),
+            { title: event.planTitle, status: 'active' as const },
+          ],
+        }));
+        break;
+
+      case 'plan:exit':
+        updateTrace(event.sessionId, t => ({
+          ...t,
+          mode: 'normal',
+          plans: t.plans.map(p => (p.status === 'active' ? { ...p, status: 'completed' as const } : p)),
+        }));
+        break;
+
+      case 'task:create':
+        updateTrace(event.sessionId, t => (
+          t.tasks.some(task => task.taskNumber === event.taskNumber)
+            ? t
+            : { ...t, tasks: [...t.tasks, { taskNumber: event.taskNumber, description: event.description, status: 'pending' as const }] }
+        ));
+        break;
+
+      case 'task:update':
+        updateTrace(event.sessionId, t => ({
+          ...t,
+          tasks: t.tasks.map(task =>
+            task.taskNumber === event.taskNumber
+              ? { ...task, status: (event.status as TaskStatus) }
+              : task,
+          ),
+        }));
+        break;
+
+      case 'task:list':
+        updateTrace(event.sessionId, t => ({
+          ...t,
+          tasks: event.tasks.map(task => ({
+            taskNumber: task.taskNumber,
+            description: task.description,
+            status: (task.status as TaskStatus),
+          })),
+        }));
+        break;
+
       default:
         break;
     }
@@ -177,6 +268,7 @@ export const useStore = create<AppState>((set, get) => {
     sessions: [],
     displayNames: {},
     terminalData: {},
+    traces: {},
     active: null,
     clients: new Map(),
 
@@ -221,12 +313,16 @@ export const useStore = create<AppState>((set, get) => {
         const terminalData = Object.fromEntries(
           Object.entries(s.terminalData).filter(([k]) => !k.startsWith(`${machineId}:`)),
         );
+        const traces = Object.fromEntries(
+          Object.entries(s.traces).filter(([k]) => !k.startsWith(`${machineId}:`)),
+        );
         return {
           machines,
           clients,
           status,
           displayNames,
           terminalData,
+          traces,
           sessions: s.sessions.filter(sess => sess.machineId !== machineId),
           active: s.active?.machineId === machineId ? null : s.active,
         };

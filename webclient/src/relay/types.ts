@@ -40,6 +40,38 @@ export interface MachineStatus {
   error: string | null;
 }
 
+// ── Live "trace" state mirrored from the desktop event stream ─────────────────
+// The desktop emits structured subagent/plan/task events over the same E2EE
+// channel; the web client renders them in real time for a faithful mirror.
+
+export interface SubagentEntry {
+  subagentId: string;
+  description: string;
+  status: 'active' | 'completed';
+}
+
+export interface PlanEntry {
+  title: string;
+  status: 'active' | 'completed';
+}
+
+export type TaskStatus = 'pending' | 'in_progress' | 'completed';
+
+export interface TaskEntry {
+  taskNumber: number;
+  description: string;
+  status: TaskStatus;
+}
+
+export interface SessionTrace {
+  mode: 'normal' | 'plan';
+  plans: PlanEntry[];
+  tasks: TaskEntry[];
+  subagents: SubagentEntry[];
+}
+
+export const EMPTY_TRACE: SessionTrace = { mode: 'normal', plans: [], tasks: [], subagents: [] };
+
 // Decrypted messages we receive from the machine
 export type MachineEvent =
   | { type: 'session:data';    id: string; data: string }
