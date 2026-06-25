@@ -20,6 +20,21 @@ export interface SessionInfo {
   cwd: string;
   cli: string;
   claudeSessionUuid: string | null;
+  /**
+   * The machine this session belongs to. Injected by the store when a session
+   * arrives from a given machine's RelayClient — never present on the wire,
+   * since session ids are only unique within a single machine.
+   */
+  machineId: string;
+}
+
+export type RelayConnState = 'disconnected' | 'connecting' | 'connected';
+
+/** Per-machine connection status tracked in the store. */
+export interface MachineStatus {
+  relayState: RelayConnState;
+  online: boolean;
+  error: string | null;
 }
 
 // Decrypted messages we receive from the machine

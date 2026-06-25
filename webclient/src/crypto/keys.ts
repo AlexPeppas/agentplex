@@ -76,31 +76,27 @@ export async function getEncPubKeyB64(): Promise<string> {
   return btoa(String.fromCharCode(...pub));
 }
 
-// ── Device ID ─────────────────────────────────────────────────────────────────
+// ── Refresh token (per paired device / machine) ──────────────────────────────
+// Each machine pairing has its own deviceId and therefore its own relay refresh
+// token. They are keyed by deviceId so one browser can stay authenticated with
+// several machines at once while sharing a single signing identity above.
 
-export async function getDeviceId(): Promise<string | null> {
+export async function getRefreshToken(deviceId: string): Promise<string | null> {
   const db = await getDB();
-  return (await db.get(STORE, 'device-id')) as string | null;
+  return (await db.get(STORE, `refresh-token:${deviceId}`)) as string | null;
 }
 
-export async function saveDeviceId(id: string): Promise<void> {
+export async function saveRefreshToken(deviceId: string, token: string): Promise<void> {
   const db = await getDB();
-  await db.put(STORE, id, 'device-id');
+  await db.put(STORE, token, `refresh-token:${deviceId}`);
 }
 
-// ── Refresh token ─────────────────────────────────────────────────────────────
-
-export async function getRefreshToken(): Promise<string | null> {
+export async function clearRefreshToken(deviceId: string): Promise<void> {
   const db = await getDB();
-  return (await db.get(STORE, 'refresh-token')) as string | null;
+  await db.delete(STORE, `refresh-token:${deviceId}`);
 }
 
-export async function saveRefreshToken(token: string): Promise<void> {
-  const db = await getDB();
-  await db.put(STORE, token, 'refresh-token');
-}
-
-// ── Clear all keys (unpair) ───────────────────────────────────────────────────
+// ── Clear all keys (full reset) ───────────────────────────────────────────────
 
 export async function clearAllKeys(): Promise<void> {
   const db = await getDB();

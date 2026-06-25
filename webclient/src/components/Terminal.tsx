@@ -2,23 +2,24 @@ import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { useStore } from '../store';
+import { useStore, termKey } from '../store';
 
 interface Props {
+  machineId: string;
   sessionId: string;
 }
 
-export default function Terminal({ sessionId }: Props) {
+export default function Terminal({ machineId, sessionId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const writtenRef = useRef(0);    // how many chars from buffer we've already written
   const sendCommand = useStore(s => s.sendCommand);
 
-  // Write new terminal data as it arrives
-  const terminalData = useStore(s => s.terminalData[sessionId] ?? '');
+  // Write new terminal data as it arrives (composite key per machine + session).
+  const terminalData = useStore(s => s.terminalData[termKey(machineId, sessionId)] ?? '');
 
-  // Mount terminal once
+  // Mount terminal once per (machine, session).
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -54,14 +55,14 @@ export default function Terminal({ sessionId }: Props) {
     fitRef.current = fit;
     writtenRef.current = 0;
 
-    // Forward keystrokes to machine
+    // Forward keystrokes to the owning machine.
     xterm.onData((data) => {
-      sendCommand({ type: 'session:write', id: sessionId, data });
+      sendCommand(machineId, { type: 'session:write', id: sessionId, data });
     });
 
     // Resize
     xterm.onResize(({ cols, rows }) => {
-      sendCommand({ type: 'session:resize', id: sessionId, cols, rows });
+      sendCommand(machineId, { type: 'session:resize', id: sessionId, cols, rows });
     });
 
     const observer = new ResizeObserver(() => {
@@ -76,9 +77,9 @@ export default function Terminal({ sessionId }: Props) {
       fitRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [machineId, sessionId]);
 
-  // Stream new data into xterm as it arrives
+  // Stream new data into xterm as it arrives.
   useEffect(() => {
     const xterm = xtermRef.current;
     if (!xterm) return;

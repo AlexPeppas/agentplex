@@ -1,8 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useStore, bootstrap } from './store';
 import PairingScreen from './components/PairingScreen';
 import GraphCanvas from './components/GraphCanvas';
 import Terminal from './components/Terminal';
+import SessionList from './components/SessionList';
+import type { MachineStatus } from './relay/types';
 
 // ── Icons ──────────────────────────────────────────────────────────────────
 
@@ -15,95 +17,61 @@ function GridIcon() {
   );
 }
 
-function SearchIcon() {
+function PlusIcon() {
   return (
     <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <circle cx="6.5" cy="6.5" r="4.5" /><path d="m11 11 3 3" strokeLinecap="round" />
+      <path d="M8 3v10M3 8h10" strokeLinecap="round" />
     </svg>
   );
 }
 
-function FolderIcon() {
-  return (
-    <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M1 4a1 1 0 0 1 1-1h4l2 2h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4z" />
-    </svg>
-  );
-}
+// ── Aggregate connection state across all machines ──────────────────────────
 
-function SettingsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <circle cx="8" cy="8" r="2.5" />
-      <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" strokeLinecap="round" />
-    </svg>
-  );
-}
+type Agg = { dot: string; title: string };
 
-// ── Connection badge ────────────────────────────────────────────────────────
+function aggregate(status: Record<string, MachineStatus>): Agg {
+  const all = Object.values(status);
+  if (all.length === 0) return { dot: 'bg-[#4a4038]', title: 'No machines' };
+  const live = all.filter(s => s.relayState === 'connected' && s.online).length;
+  const connecting = all.some(s => s.relayState === 'connecting');
+  const anyError = all.some(s => s.error);
+  if (live > 0) return { dot: 'bg-emerald-400', title: `${live} machine${live === 1 ? '' : 's'} live` };
+  if (connecting) return { dot: 'bg-amber-400 animate-pulse', title: 'Connecting…' };
+  if (anyError) return { dot: 'bg-red-500', title: 'Connection error' };
+  return { dot: 'bg-[#4a4038]', title: 'All machines offline' };
+}
 
 function ConnectionDot() {
-  const relayState = useStore(s => s.relayState);
-  const machineOnline = useStore(s => s.machineOnline);
-  const relayError = useStore(s => s.relayError);
-
-  if (relayError) return <span className="w-2 h-2 rounded-full bg-red-500" title={relayError} />;
-  if (relayState === 'connected' && machineOnline) return <span className="w-2 h-2 rounded-full bg-emerald-400" title="Live" />;
-  if (relayState === 'connecting') return <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title="Connecting" />;
-  return <span className="w-2 h-2 rounded-full bg-[#4a4038]" title="Disconnected" />;
-}
-
-// ── Canvas empty state overlay ──────────────────────────────────────────────
-
-function CanvasEmptyState() {
-  const relayState = useStore(s => s.relayState);
-  const machineOnline = useStore(s => s.machineOnline);
-  const relayError = useStore(s => s.relayError);
-
-  let msg = '';
-  if (relayError) msg = relayError;
-  else if (relayState === 'connecting') msg = 'Connecting to relay…';
-  else if (relayState !== 'connected') msg = 'Disconnected';
-  else if (!machineOnline) msg = 'Machine offline';
-
-  if (!msg) return null;
-
-  return (
-    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-      <div className="flex items-center gap-2 bg-[#1e1c18]/80 px-4 py-2 rounded-lg border border-[#2a2420]">
-        <ConnectionDot />
-        <span className="text-sm text-[#6a6050]">{msg}</span>
-      </div>
-    </div>
-  );
+  const status = useStore(s => s.status);
+  const agg = useMemo(() => aggregate(status), [status]);
+  return <span className={`w-2 h-2 rounded-full ${agg.dot}`} title={agg.title} />;
 }
 
 // ── Main app ────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const machine = useStore(s => s.machine);
-  const machineOnline = useStore(s => s.machineOnline);
-  const sendCommand = useStore(s => s.sendCommand);
-  const unpair = useStore(s => s.unpair);
-  const sessions = useStore(s => s.sessions).filter(s => s.status !== 'killed');
+  const machines = useStore(s => s.machines);
+  const active = useStore(s => s.active);
+  const setActiveSession = useStore(s => s.setActiveSession);
+  const clearActiveSession = useStore(s => s.clearActiveSession);
 
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'canvas' | 'terminal'>('canvas');
+  const [showAddMachine, setShowAddMachine] = useState(false);
 
-  // request buffer when switching to terminal
-  const handleSelectSession = useCallback((id: string) => {
-    useStore.getState().setActiveSession(id);
-    setActiveSessionId(id);
+  const handleSelectSession = useCallback((machineId: string, sessionId: string) => {
+    setActiveSession(machineId, sessionId);
     setActiveTab('terminal');
-  }, []);
+  }, [setActiveSession]);
 
   const handleBackToCanvas = useCallback(() => {
+    clearActiveSession();
     setActiveTab('canvas');
-  }, []);
+  }, [clearActiveSession]);
 
   useEffect(() => { bootstrap(); }, []);
 
-  if (!machine) return <PairingScreen />;
+  // No machines paired yet → first-run pairing.
+  if (machines.length === 0) return <PairingScreen />;
 
   return (
     <div className="flex h-full bg-[#1a1814] overflow-hidden">
@@ -118,27 +86,36 @@ export default function App() {
         >
           <GridIcon />
         </button>
-        <button className="w-8 h-8 flex items-center justify-center rounded text-[#4a4038] hover:text-[#8a7060] transition-colors" title="Search">
-          <SearchIcon />
-        </button>
-        <button className="w-8 h-8 flex items-center justify-center rounded text-[#4a4038] hover:text-[#8a7060] transition-colors" title="Projects">
-          <FolderIcon />
+        <button
+          onClick={() => setShowAddMachine(true)}
+          className="w-8 h-8 flex items-center justify-center rounded text-[#4a4038] hover:text-[#8a7060] transition-colors"
+          title="Add machine"
+        >
+          <PlusIcon />
         </button>
         <div className="flex-1" />
-        <button onClick={unpair} className="w-8 h-8 flex items-center justify-center rounded text-[#4a4038] hover:text-[#8a7060] transition-colors" title="Settings / Unpair">
-          <SettingsIcon />
-        </button>
       </div>
+
+      {/* Machines + sessions sidebar */}
+      <SessionList
+        active={active}
+        onSelectSession={handleSelectSession}
+        onAddMachine={() => setShowAddMachine(true)}
+      />
 
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* Toolbar */}
         <div className="h-10 flex items-center px-4 gap-4 border-b border-[#232120] bg-[#1a1814] flex-shrink-0">
-          <span className="text-sm font-semibold text-[#ece4d8] tracking-wide">AgentPlex</span>
+          <span className="text-sm font-semibold text-[#ece4d8] tracking-wide">
+            {activeTab === 'terminal' && active
+              ? machines.find(m => m.machineId === active.machineId)?.name ?? 'Session'
+              : 'All machines'}
+          </span>
           <div className="flex-1" />
 
-          {activeTab === 'terminal' && activeSessionId && (
+          {activeTab === 'terminal' && active && (
             <button
               onClick={handleBackToCanvas}
               className="text-xs text-[#6a6050] hover:text-[#ece4d8] px-2 py-1 rounded hover:bg-[#2a2420] transition-colors"
@@ -147,38 +124,31 @@ export default function App() {
             </button>
           )}
 
-          <div className="flex items-center gap-2">
-            <ConnectionDot />
-            <span className="text-xs text-[#4a4038]">
-              {sessions.length > 0 ? `${sessions.length} session${sessions.length > 1 ? 's' : ''}` : ''}
-            </span>
-          </div>
-
-          <button
-            onClick={() => sendCommand({ type: 'session:create', cli: 'claude' })}
-            disabled={!machineOnline}
-            className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium
-              bg-[#c4874a]/20 text-[#c4874a] border border-[#c4874a]/30
-              hover:bg-[#c4874a]/30 transition-colors
-              disabled:opacity-30 disabled:pointer-events-none"
-          >
-            <span className="text-base leading-none">+</span>
-            New Session
-          </button>
+          <ConnectionDot />
         </div>
 
         {/* Canvas or Terminal */}
         <div className="flex-1 relative min-h-0">
           {activeTab === 'canvas' ? (
-            <>
-              <GraphCanvas onSelectSession={handleSelectSession} />
-              <CanvasEmptyState />
-            </>
-          ) : activeSessionId ? (
-            <Terminal key={activeSessionId} sessionId={activeSessionId} />
+            <GraphCanvas onSelectSession={handleSelectSession} />
+          ) : active ? (
+            <Terminal
+              key={`${active.machineId}:${active.sessionId}`}
+              machineId={active.machineId}
+              sessionId={active.sessionId}
+            />
           ) : null}
         </div>
       </div>
+
+      {/* Add-machine overlay */}
+      {showAddMachine && (
+        <PairingScreen
+          overlay
+          onDone={() => setShowAddMachine(false)}
+          onCancel={() => setShowAddMachine(false)}
+        />
+      )}
     </div>
   );
 }

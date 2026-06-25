@@ -7,7 +7,6 @@ export type SessionNodeData = {
   onClick: () => void;
   [key: string]: unknown;
 };
-
 const STATUS_DOT: Record<string, string> = {
   running:             'bg-emerald-400',
   idle:                'bg-[#4a4038]',

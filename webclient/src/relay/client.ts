@@ -6,8 +6,6 @@ import {
   getSigningPubKeyB64,
   signChallenge,
   getEncPubKeyB64,
-  getDeviceId,
-  saveDeviceId,
   saveRefreshToken,
   getRefreshToken,
 } from '../crypto/keys';
@@ -70,13 +68,13 @@ export class RelayClient {
   // ── Authentication ─────────────────────────────────────────────────────────
 
   private async authenticate() {
-    const deviceId = await getDeviceId();
-    if (!deviceId) throw new Error('Not paired — no device ID in storage');
+    const deviceId = this.machine.deviceId;
+    if (!deviceId) throw new Error('Not paired — no device ID for this machine');
 
     console.log('[relay-client] Authenticating device:', deviceId);
 
     // Try refresh first
-    const refreshToken = await getRefreshToken();
+    const refreshToken = await getRefreshToken(deviceId);
     if (refreshToken) {
       try {
         const resp = await this.post('/auth/refresh', { refreshToken });
@@ -96,7 +94,7 @@ export class RelayClient {
     const tokenResp = await this.post('/auth/token', { id: deviceId, signature });
 
     this.accessToken = tokenResp.accessToken;
-    await saveRefreshToken(tokenResp.refreshToken);
+    await saveRefreshToken(deviceId, tokenResp.refreshToken);
     console.log('[relay-client] Authenticated, JWT issued');
   }
 
@@ -194,7 +192,7 @@ export class RelayClient {
   }
 
   private async handleEnvelope(msg: { nonce: string; ct: string; from: string }) {
-    const deviceId = await getDeviceId();
+    const deviceId = this.machine.deviceId;
     if (!deviceId) { console.error('[relay-client] No deviceId for decryption'); return; }
 
     console.log('[relay-client] Decrypting envelope from', msg.from);
@@ -236,7 +234,7 @@ export class RelayClient {
       return;
     }
 
-    const deviceId = await getDeviceId();
+    const deviceId = this.machine.deviceId;
     if (!deviceId) { console.error('[relay-client] No deviceId, cannot send'); return; }
 
     const sessionKey = await getSessionKey(
@@ -270,6 +268,7 @@ export class RelayClient {
     machineId: string,
     code: string,
     deviceName: string,
+    machineLabel?: string,
   ): Promise<PairedMachine> {
     const pubKeyB64 = await getSigningPubKeyB64();
     const encPubKeyB64 = await getEncPubKeyB64();
@@ -301,7 +300,6 @@ export class RelayClient {
     };
 
     console.log('[pairing] Success — deviceId:', data.deviceId);
-    await saveDeviceId(data.deviceId);
 
     return {
       machineId: data.machineId,
@@ -309,9 +307,14 @@ export class RelayClient {
       deviceId: data.deviceId,
       deviceEncryptionKey: encPubKeyB64,
       relayUrl,
-      name: 'AgentPlex Machine',
+      name: machineLabel?.trim() || `Machine ${data.machineId.slice(0, 8)}`,
       pairedAt: new Date().toISOString(),
     };
+  }
+
+  /** The machine id this client is paired to. */
+  getMachineId(): string {
+    return this.machine.machineId;
   }
 
   async revokeDevice(deviceId: string) {
