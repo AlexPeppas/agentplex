@@ -12,15 +12,13 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { homedir } from 'os';
+import { safeStorage } from 'electron';
 
-// safeStorage is imported lazily to avoid crashes when this module is loaded
-// outside of a fully initialized Electron app (e.g., during tests).
-let _safeStorage: typeof import('electron').safeStorage | null = null;
-function getSafeStorage(): typeof import('electron').safeStorage {
-  if (!_safeStorage) {
-    _safeStorage = require('electron').safeStorage;
-  }
-  return _safeStorage!;
+// safeStorage encrypts keys at rest using the OS credential store (DPAPI on
+// Windows, Keychain on macOS, libsecret on Linux). It is accessed via a getter
+// so call sites read through a single point.
+function getSafeStorage(): typeof safeStorage {
+  return safeStorage;
 }
 
 const KEYS_DIR = path.join(homedir(), '.agentplex', 'keys');

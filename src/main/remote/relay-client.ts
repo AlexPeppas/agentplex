@@ -10,6 +10,7 @@
 
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
+import { hostname } from 'os';
 import { sessionManager } from '../session-manager';
 import { IPC } from '../../shared/ipc-channels';
 import {
@@ -121,7 +122,7 @@ export class RelayClient extends EventEmitter {
       machineId: this.machineId,
       publicKey: getSigningPublicKeyBase64(),
       encryptionKey: getEncryptionPublicKeyBase64(),
-      displayName: require('os').hostname(),
+      displayName: hostname(),
     });
 
     if (!resp.ok) {

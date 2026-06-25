@@ -11,8 +11,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 // Lazy import to avoid circular dependency (index.ts imports http-server.ts)
-function getRelayModule() {
-  return require('./index') as typeof import('./index');
+async function getRelayModule() {
+  return import('./index') as Promise<typeof import('./index')>;
 }
 
 const VERSION = '1.5.0';
@@ -540,7 +540,7 @@ const routes: Route[] = [
       const body = await parseJsonBody<{ relayUrl: string }>(req);
       if (!body.relayUrl) { errorResponse(res, 400, 'relayUrl is required'); return; }
       try {
-        const client = await getRelayModule().startRelayClient(body.relayUrl);
+        const client = await (await getRelayModule()).startRelayClient(body.relayUrl);
         jsonResponse(res, 200, { ok: true, machineId: client.getMachineId(), state: client.getState() });
       } catch (err: any) {
         errorResponse(res, 500, err.message);
@@ -551,7 +551,7 @@ const routes: Route[] = [
     method: 'POST',
     pattern: '/api/v1/relay/disconnect',
     handler: async (_req, res) => {
-      getRelayModule().stopRelayClient();
+      (await getRelayModule()).stopRelayClient();
       jsonResponse(res, 200, { ok: true });
     },
   },
@@ -559,7 +559,7 @@ const routes: Route[] = [
     method: 'GET',
     pattern: '/api/v1/relay/status',
     handler: async (_req, res) => {
-      const client = getRelayModule().getRelayClient();
+      const client = (await getRelayModule()).getRelayClient();
       jsonResponse(res, 200, {
         connected: client?.getState() === 'connected',
         state: client?.getState() || 'disconnected',
@@ -571,7 +571,7 @@ const routes: Route[] = [
     method: 'POST',
     pattern: '/api/v1/relay/pair',
     handler: async (_req, res) => {
-      const client = getRelayModule().getRelayClient();
+      const client = (await getRelayModule()).getRelayClient();
       if (!client || client.getState() !== 'connected') {
         errorResponse(res, 400, 'Relay client not connected');
         return;
