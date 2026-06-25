@@ -20,6 +20,10 @@ import {
 } from './copilot-session-scanner';
 import { searchSessions } from './session-search';
 import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, stageAll, unstageAll, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
+import { startRelayClient, stopRelayClient, getRelayClient } from './remote';
+import { loadOrCreateConfig, setRelayUrl } from './remote/auth';
+import { getMachineId, loadPairedDevices, removePairedDevice } from './remote/key-manager';
+import type { RemoteStatus, RemotePairedDevice } from '../shared/ipc-channels';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
@@ -519,5 +523,65 @@ ${safeContext}
   ipcMain.handle(IPC.TEMPLATES_SAVE, async (_event, templates: WorkspaceTemplate[]): Promise<void> => {
     fs.mkdirSync(canvasDir, { recursive: true });
     fs.writeFileSync(templatesPath, JSON.stringify(templates, null, 2), 'utf-8');
+  });
+
+  // ── Remote access (relay pairing) ──────────────────────────────────────────
+
+  function remoteStatus(): RemoteStatus {
+    const config = loadOrCreateConfig();
+    return {
+      machineId: getMachineId(),
+      relayUrl: config.relayUrl ?? '',
+      relayState: (getRelayClient()?.getState() as RemoteStatus['relayState']) ?? 'disconnected',
+    };
+  }
+
+  function listDevices(): RemotePairedDevice[] {
+    return loadPairedDevices().map((d) => ({
+      deviceId: d.deviceId,
+      name: d.name,
+      platform: d.platform,
+      pairedAt: d.pairedAt,
+    }));
+  }
+
+  ipcMain.handle(IPC.REMOTE_GET_STATUS, (): RemoteStatus => remoteStatus());
+
+  ipcMain.handle(IPC.REMOTE_CONNECT, async (_event, { relayUrl }: { relayUrl: string }): Promise<RemoteStatus> => {
+    if (typeof relayUrl !== 'string' || !/^https?:\/\//i.test(relayUrl)) {
+      throw new Error('A valid relay URL (http/https) is required');
+    }
+    const trimmed = relayUrl.replace(/\/$/, '');
+    setRelayUrl(trimmed);
+    await startRelayClient(trimmed);
+    return remoteStatus();
+  });
+
+  ipcMain.handle(IPC.REMOTE_DISCONNECT, (): RemoteStatus => {
+    stopRelayClient();
+    return remoteStatus();
+  });
+
+  ipcMain.handle(IPC.REMOTE_PAIR, async () => {
+    const client = getRelayClient();
+    if (!client || client.getState() !== 'connected') {
+      throw new Error('Connect to the relay before pairing a device');
+    }
+    const code = await client.initiatePairing();
+    return { code, expiresIn: 300 };
+  });
+
+  ipcMain.handle(IPC.REMOTE_LIST_DEVICES, (): RemotePairedDevice[] => listDevices());
+
+  ipcMain.handle(IPC.REMOTE_REVOKE_DEVICE, async (_event, { deviceId }: { deviceId: string }): Promise<RemotePairedDevice[]> => {
+    if (typeof deviceId !== 'string' || !deviceId) throw new Error('deviceId is required');
+    const client = getRelayClient();
+    if (client && client.getState() === 'connected') {
+      await client.revokeDevice(deviceId);
+    } else {
+      // Offline revoke — drop the local pairing so the device can't be used.
+      removePairedDevice(deviceId);
+    }
+    return listDevices();
   });
 }

@@ -1,10 +1,19 @@
 import * as http from 'http';
 import * as net from 'net';
+import { BrowserWindow } from 'electron';
 import { sessionManager } from '../session-manager';
 import { loadOrCreateConfig } from './auth';
 import { createRequestHandler, stopRateLimiter } from './http-server';
 import { WsServer } from './ws-server';
 import { RelayClient } from './relay-client';
+import { IPC } from '../../shared/ipc-channels';
+
+/** Send a message to every renderer window. */
+function broadcast(channel: string, payload: unknown) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(channel, payload);
+  }
+}
 
 let httpServer: http.Server | null = null;
 let wsServer: WsServer | null = null;
@@ -110,8 +119,18 @@ export async function startRelayClient(relayUrl: string): Promise<RelayClient> {
     console.log('[remote] Relay client connected');
   });
 
+  relayClient.on('state', (state: string) => {
+    broadcast(IPC.REMOTE_STATE_CHANGED, { relayState: state });
+  });
+
   relayClient.on('device-paired', (info: { deviceId: string; name: string }) => {
     console.log(`[remote] Device paired: ${info.name} (${info.deviceId})`);
+    broadcast(IPC.REMOTE_DEVICES_CHANGED, {});
+  });
+
+  relayClient.on('device-revoked', (info: { deviceId: string }) => {
+    console.log(`[remote] Device revoked: ${info.deviceId}`);
+    broadcast(IPC.REMOTE_DEVICES_CHANGED, {});
   });
 
   await relayClient.start();

@@ -133,4 +133,6 @@ export interface RemoteConfig {
   token: string;
   port: number;
   enabled: boolean;
+  /** Last-used cloud relay URL, set from the desktop Settings panel. */
+  relayUrl?: string;
 }

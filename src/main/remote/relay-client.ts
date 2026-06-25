@@ -69,7 +69,7 @@ export class RelayClient extends EventEmitter {
   /** Start the relay client: register, authenticate, connect WebSocket. */
   async start() {
     if (this.state !== 'disconnected') return;
-    this.state = 'connecting';
+    this.setState('connecting');
 
     console.log(`[relay-client] Starting — machine: ${this.machineId}`);
     console.log(`[relay-client] Relay URL: ${this.config.relayUrl}`);
@@ -80,7 +80,7 @@ export class RelayClient extends EventEmitter {
       this.connectWebSocket();
     } catch (err: any) {
       console.error(`[relay-client] Start failed: ${err.message}`);
-      this.state = 'disconnected';
+      this.setState('disconnected');
       this.scheduleReconnect();
     }
   }
@@ -88,7 +88,7 @@ export class RelayClient extends EventEmitter {
   /** Stop the relay client and clean up. */
   stop() {
     console.log('[relay-client] Stopping');
-    this.state = 'disconnected';
+    this.setState('disconnected');
     this.unsubscribeFromEvents();
     clearAllSessionKeys();
 
@@ -112,6 +112,12 @@ export class RelayClient extends EventEmitter {
 
   getMachineId(): string {
     return this.machineId;
+  }
+
+  /** Assign connection state and notify listeners (drives the Settings UI dot). */
+  private setState(state: RelayClientState) {
+    this.state = state;
+    this.emit('state', state);
   }
 
   // ── Registration ──────────────────────────────────────────────────────
@@ -145,7 +151,7 @@ export class RelayClient extends EventEmitter {
       }
     }
 
-    this.state = 'authenticating';
+    this.setState('authenticating');
 
     // Step 1: Request challenge
     const challengeResp = await this.httpPost('/auth/challenge', { id: this.machineId });
@@ -196,7 +202,7 @@ export class RelayClient extends EventEmitter {
 
     this.ws.on('open', () => {
       console.log('[relay-client] WebSocket connected to relay');
-      this.state = 'connected';
+      this.setState('connected');
       this.reconnectDelay = 1000; // reset backoff
       this.emit('connected');
 
@@ -511,7 +517,7 @@ export class RelayClient extends EventEmitter {
 
     console.log(`[relay-client] Reconnecting in ${delay}ms...`);
     this.reconnectTimer = setTimeout(async () => {
-      this.state = 'disconnected';
+      this.setState('disconnected');
       await this.start();
     }, delay);
   }
@@ -524,7 +530,7 @@ export class RelayClient extends EventEmitter {
     }
     this.ws = null;
     if (this.state === 'connected') {
-      this.state = 'disconnected';
+      this.setState('disconnected');
     }
   }
 

@@ -22,6 +22,7 @@ export function loadOrCreateConfig(): RemoteConfig {
         token: parsed.token,
         port: typeof parsed.port === 'number' ? parsed.port : DEFAULT_PORT,
         enabled: parsed.enabled !== false,
+        relayUrl: typeof parsed.relayUrl === 'string' ? parsed.relayUrl : undefined,
       };
       return cachedConfig;
     }
@@ -81,4 +82,18 @@ export function regenerateToken(): RemoteConfig {
     fs.unlinkSync(CONFIG_PATH);
   } catch { /* ignore */ }
   return loadOrCreateConfig();
+}
+
+/** Persist the last-used relay URL so the Settings panel remembers it. */
+export function setRelayUrl(relayUrl: string): RemoteConfig {
+  const config = loadOrCreateConfig();
+  config.relayUrl = relayUrl;
+  cachedConfig = config;
+  try {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), { mode: 0o600 });
+  } catch (err: any) {
+    console.error('[remote/auth] Failed to persist relayUrl:', err.message);
+  }
+  return config;
 }

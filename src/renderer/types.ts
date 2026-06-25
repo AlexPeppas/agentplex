@@ -1,4 +1,4 @@
-import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups, RemoteStatus, RemotePairedDevice, RemotePairingCode, RelayConnState } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   platform: string;
@@ -63,6 +63,14 @@ export interface AgentPlexAPI {
   getPersistedState: () => Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }>;
   templatesLoad: () => Promise<WorkspaceTemplate[]>;
   templatesSave: (templates: WorkspaceTemplate[]) => Promise<void>;
+  remoteGetStatus: () => Promise<RemoteStatus>;
+  remoteConnect: (relayUrl: string) => Promise<RemoteStatus>;
+  remoteDisconnect: () => Promise<RemoteStatus>;
+  remotePair: () => Promise<RemotePairingCode>;
+  remoteListDevices: () => Promise<RemotePairedDevice[]>;
+  remoteRevokeDevice: (deviceId: string) => Promise<RemotePairedDevice[]>;
+  onRemoteStateChanged: (callback: (data: { relayState: RelayConnState }) => void) => () => void;
+  onRemoteDevicesChanged: (callback: () => void) => () => void;
 }
 
 declare global {

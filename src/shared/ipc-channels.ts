@@ -225,6 +225,31 @@ export interface WorkspaceTemplate {
   createdAt: string;
 }
 
+// ── Remote access (relay pairing) types ──────────────────────────────────────
+
+export type RelayConnState = 'disconnected' | 'connecting' | 'authenticating' | 'connected';
+
+export interface RemoteStatus {
+  /** Stable machine id for this desktop (shown to users for pairing). */
+  machineId: string;
+  /** Last-used relay URL, persisted in ~/.agentplex/remote.json. */
+  relayUrl: string;
+  /** Current outbound relay connection state. */
+  relayState: RelayConnState;
+}
+
+export interface RemotePairedDevice {
+  deviceId: string;
+  name: string;
+  platform: string;
+  pairedAt: string;
+}
+
+export interface RemotePairingCode {
+  code: string;
+  expiresIn: number;
+}
+
 export const IPC = {
   SESSION_CREATE: 'session:create',
   SESSION_WRITE: 'session:write',
@@ -285,4 +310,15 @@ export const IPC = {
   TEMPLATES_LOAD: 'templates:load',
   TEMPLATES_SAVE: 'templates:save',
   SESSION_GET_PERSISTED: 'session:getPersisted',
+  // Remote access / relay pairing
+  REMOTE_GET_STATUS: 'remote:getStatus',
+  REMOTE_CONNECT: 'remote:connect',
+  REMOTE_DISCONNECT: 'remote:disconnect',
+  REMOTE_PAIR: 'remote:pair',
+  REMOTE_LIST_DEVICES: 'remote:listDevices',
+  REMOTE_REVOKE_DEVICE: 'remote:revokeDevice',
+  /** main → renderer: relay connection state changed. */
+  REMOTE_STATE_CHANGED: 'remote:stateChanged',
+  /** main → renderer: paired-device list changed (pair/revoke). */
+  REMOTE_DEVICES_CHANGED: 'remote:devicesChanged',
 } as const;

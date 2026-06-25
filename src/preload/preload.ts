@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups, RemoteStatus, RemotePairedDevice, RemotePairingCode, RelayConnState } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -299,6 +299,43 @@ const api = {
 
   templatesSave: (templates: WorkspaceTemplate[]): Promise<void> => {
     return ipcRenderer.invoke(IPC.TEMPLATES_SAVE, templates);
+  },
+
+  // ── Remote access (relay pairing) ──
+  remoteGetStatus: (): Promise<RemoteStatus> => {
+    return ipcRenderer.invoke(IPC.REMOTE_GET_STATUS);
+  },
+
+  remoteConnect: (relayUrl: string): Promise<RemoteStatus> => {
+    return ipcRenderer.invoke(IPC.REMOTE_CONNECT, { relayUrl });
+  },
+
+  remoteDisconnect: (): Promise<RemoteStatus> => {
+    return ipcRenderer.invoke(IPC.REMOTE_DISCONNECT);
+  },
+
+  remotePair: (): Promise<RemotePairingCode> => {
+    return ipcRenderer.invoke(IPC.REMOTE_PAIR);
+  },
+
+  remoteListDevices: (): Promise<RemotePairedDevice[]> => {
+    return ipcRenderer.invoke(IPC.REMOTE_LIST_DEVICES);
+  },
+
+  remoteRevokeDevice: (deviceId: string): Promise<RemotePairedDevice[]> => {
+    return ipcRenderer.invoke(IPC.REMOTE_REVOKE_DEVICE, { deviceId });
+  },
+
+  onRemoteStateChanged: (callback: (data: { relayState: RelayConnState }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { relayState: RelayConnState }) => callback(data);
+    ipcRenderer.on(IPC.REMOTE_STATE_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC.REMOTE_STATE_CHANGED, handler);
+  },
+
+  onRemoteDevicesChanged: (callback: () => void): (() => void) => {
+    const handler = () => callback();
+    ipcRenderer.on(IPC.REMOTE_DEVICES_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC.REMOTE_DEVICES_CHANGED, handler);
   },
 };
 

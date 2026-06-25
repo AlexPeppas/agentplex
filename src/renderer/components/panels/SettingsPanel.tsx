@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Sun, Moon, Columns2 } from 'lucide-react';
-
-function getInitialTheme(): 'dark' | 'light' {
-  const saved = localStorage.getItem('agentplex-theme');
-  if (saved === 'dark' || saved === 'light') return saved;
-  return 'dark';
-}
+import { RemoteAccessPanel } from './RemoteAccessPanel';
 
 export function getSplitPaneEnabled(): boolean {
   const val = localStorage.getItem('agentplex-split-pane');
@@ -91,6 +86,9 @@ export function SettingsPanel() {
         </div>
         <span className="text-[10px] text-fg-muted">settings.json</span>
       </button>
+
+      <div className="border-t border-border my-1.5" />
+      <RemoteAccessPanel />
     </div>
   );
 }
