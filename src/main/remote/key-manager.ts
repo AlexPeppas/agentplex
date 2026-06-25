@@ -27,6 +27,17 @@ const MACHINE_ENC_KEY_PATH = path.join(KEYS_DIR, 'machine-enc.enc');
 const MACHINE_ID_PATH = path.join(KEYS_DIR, 'machine-id');
 const PAIRED_DEVICES_PATH = path.join(homedir(), '.agentplex', 'paired-devices.json');
 
+/**
+ * By default we refuse to persist relay private keys unless the OS credential
+ * store (safeStorage) can encrypt them at rest. Setting this env var to '1'
+ * permits an INSECURE plaintext fallback — only for development on platforms
+ * without a working keyring.
+ */
+const ALLOW_PLAINTEXT_KEYS = process.env.AGENTPLEX_ALLOW_PLAINTEXT_KEYS === '1';
+
+/** Marker prefix identifying an explicitly-permitted plaintext key file. */
+const PLAINTEXT_PREFIX = 'AGENTPLEX_PLAINTEXT_V1:';
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface KeyPair {
@@ -86,25 +97,43 @@ function storeKey(filePath: string, keyData: Buffer) {
   const safe = getSafeStorage();
   if (safe.isEncryptionAvailable()) {
     const encrypted = safe.encryptString(keyData.toString('base64'));
-    fs.writeFileSync(filePath, encrypted);
-  } else {
-    // Fallback: write base64 directly (less secure, but functional)
-    console.warn('[key-manager] safeStorage not available, storing key unencrypted');
-    fs.writeFileSync(filePath, keyData.toString('base64'), 'utf-8');
+    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
+    return;
   }
+  if (ALLOW_PLAINTEXT_KEYS) {
+    console.warn('[key-manager] safeStorage unavailable — storing key UNENCRYPTED (AGENTPLEX_ALLOW_PLAINTEXT_KEYS=1). This is insecure.');
+    fs.writeFileSync(filePath, PLAINTEXT_PREFIX + keyData.toString('base64'), { encoding: 'utf-8', mode: 0o600 });
+    return;
+  }
+  throw new Error(
+    'OS key encryption (safeStorage) is unavailable; refusing to store relay private keys in plaintext. ' +
+    'Set AGENTPLEX_ALLOW_PLAINTEXT_KEYS=1 to override (insecure, development only).',
+  );
 }
 
 /** Read and decrypt a key from disk. */
 function loadKey(filePath: string): Buffer | null {
+  let raw: Buffer;
   try {
-    const raw = fs.readFileSync(filePath);
-    const safe = getSafeStorage();
-    if (safe.isEncryptionAvailable()) {
-      const decrypted = safe.decryptString(raw);
-      return Buffer.from(decrypted, 'base64');
-    } else {
-      return Buffer.from(raw.toString('utf-8'), 'base64');
-    }
+    raw = fs.readFileSync(filePath);
+  } catch {
+    return null;
+  }
+
+  // Explicitly-marked plaintext key (only written under the override flag).
+  const prefix = Buffer.from(PLAINTEXT_PREFIX, 'utf-8');
+  if (raw.length >= prefix.length && raw.subarray(0, prefix.length).equals(prefix)) {
+    return Buffer.from(raw.subarray(prefix.length).toString('utf-8'), 'base64');
+  }
+
+  // Otherwise the file must be a safeStorage-encrypted blob.
+  const safe = getSafeStorage();
+  if (!safe.isEncryptionAvailable()) {
+    console.warn('[key-manager] Cannot decrypt stored relay key — safeStorage is unavailable.');
+    return null;
+  }
+  try {
+    return Buffer.from(safe.decryptString(raw), 'base64');
   } catch {
     return null;
   }

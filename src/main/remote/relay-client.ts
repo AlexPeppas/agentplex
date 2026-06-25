@@ -12,7 +12,8 @@ import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
 import { hostname } from 'os';
 import { sessionManager } from '../session-manager';
-import { IPC } from '../../shared/ipc-channels';
+import { IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL, REMOTE_PROTOCOL_VERSION, REMOTE_COMMAND_ALLOWLIST } from '../../shared/ipc-channels';
+import { getCachedShells } from '../shell-detector';
 import {
   getMachineId,
   getSigningPublicKeyBase64,
@@ -31,6 +32,24 @@ import {
   clearSessionKey,
   clearAllSessionKeys,
 } from './e2ee';
+
+// ── Remote command validation ────────────────────────────────────────────────
+
+const COMMAND_ALLOWLIST = new Set<string>(REMOTE_COMMAND_ALLOWLIST);
+const KNOWN_CLI_IDS = new Set<string>([
+  ...CLI_TOOLS.map(t => t.id),
+  RESUME_TOOL.id,
+  COPILOT_RESUME_TOOL.id,
+]);
+
+/** Mirror of the local isValidCli guard so remote session:create can't request
+ *  an unknown CLI; falls back to a detected shell id or 'claude'. */
+function sanitizeRemoteCli(cli: unknown): string {
+  if (typeof cli !== 'string') return 'claude';
+  if (KNOWN_CLI_IDS.has(cli)) return cli;
+  if (getCachedShells().some(s => s.id === cli)) return cli;
+  return 'claude';
+}
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -293,15 +312,33 @@ export class RelayClient extends EventEmitter {
 
   /** Execute a decrypted command from a remote device. */
   private executeRemoteCommand(cmd: any, fromDeviceId: string) {
+    // Reject anything that isn't a well-formed command object.
+    if (!cmd || typeof cmd !== 'object' || typeof cmd.type !== 'string') {
+      console.warn('[relay-client] Dropping malformed remote command');
+      return;
+    }
+
+    // Protocol version gate — reject incompatible major versions.
+    if (cmd.v !== undefined && Math.floor(Number(cmd.v)) !== REMOTE_PROTOCOL_VERSION) {
+      console.warn(`[relay-client] Dropping command with incompatible protocol version: ${cmd.v}`);
+      return;
+    }
+
+    // Command allowlist — only known, permitted commands reach SessionManager.
+    if (!COMMAND_ALLOWLIST.has(cmd.type)) {
+      console.warn(`[relay-client] Dropping disallowed remote command: ${cmd.type}`);
+      return;
+    }
+
     switch (cmd.type) {
       case 'session:write':
-        if (cmd.id && typeof cmd.data === 'string') {
+        if (typeof cmd.id === 'string' && typeof cmd.data === 'string') {
           sessionManager.write(cmd.id, cmd.data);
         }
         break;
 
       case 'session:resize':
-        if (cmd.id) {
+        if (typeof cmd.id === 'string') {
           const cols = Math.max(1, Math.min(500, Math.floor(Number(cmd.cols) || 80)));
           const rows = Math.max(1, Math.min(200, Math.floor(Number(cmd.rows) || 24)));
           sessionManager.resize(cmd.id, cols, rows);
@@ -309,13 +346,16 @@ export class RelayClient extends EventEmitter {
         break;
 
       case 'session:create': {
-        const info = sessionManager.create(cmd.cwd, cmd.cli || 'claude', cmd.resumeSessionId);
+        const cwd = typeof cmd.cwd === 'string' ? cmd.cwd : undefined;
+        const cli = sanitizeRemoteCli(cmd.cli);
+        const resumeSessionId = typeof cmd.resumeSessionId === 'string' ? cmd.resumeSessionId : undefined;
+        const info = sessionManager.create(cwd, cli, resumeSessionId);
         this.sendEncryptedToDevice(fromDeviceId, { type: 'session:created', ...info });
         break;
       }
 
       case 'session:kill':
-        if (cmd.id) sessionManager.kill(cmd.id);
+        if (typeof cmd.id === 'string') sessionManager.kill(cmd.id);
         break;
 
       case 'session:list':
@@ -323,7 +363,7 @@ export class RelayClient extends EventEmitter {
         break;
 
       case 'session:getBuffer':
-        if (cmd.id) {
+        if (typeof cmd.id === 'string') {
           this.sendEncryptedToDevice(fromDeviceId, {
             type: 'session:buffer',
             id: cmd.id,
@@ -343,9 +383,6 @@ export class RelayClient extends EventEmitter {
           names: sessionManager.getDisplayNames(),
         });
         break;
-
-      default:
-        console.log(`[relay-client] Unknown remote command: ${cmd.type}`);
     }
   }
 
@@ -439,7 +476,8 @@ export class RelayClient extends EventEmitter {
     if (!device) return;
 
     const sessionKey = getSessionKey(this.machineId, deviceId, device.encryptionKey);
-    const envelope = encrypt(sessionKey, this.machineId, deviceId, JSON.stringify(payload));
+    const json = JSON.stringify({ v: REMOTE_PROTOCOL_VERSION, ...payload });
+    const envelope = encrypt(sessionKey, this.machineId, deviceId, json);
     this.ws.send(JSON.stringify(envelope));
   }
 
@@ -448,7 +486,7 @@ export class RelayClient extends EventEmitter {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     const devices = loadPairedDevices();
-    const json = JSON.stringify(payload);
+    const json = JSON.stringify({ v: REMOTE_PROTOCOL_VERSION, ...payload });
 
     for (const device of devices) {
       const sessionKey = getSessionKey(this.machineId, device.deviceId, device.encryptionKey);

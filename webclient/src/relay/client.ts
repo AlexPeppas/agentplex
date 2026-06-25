@@ -10,6 +10,7 @@ import {
   getRefreshToken,
 } from '../crypto/keys';
 import { getSessionKey, encryptEnvelope, decryptEnvelope } from '../crypto/e2ee';
+import { REMOTE_PROTOCOL_VERSION } from './types';
 import type { MachineCommand, MachineEvent, PairedMachine } from './types';
 
 type RelayState = 'disconnected' | 'connecting' | 'connected';
@@ -248,7 +249,7 @@ export class RelayClient {
       this.machine.machineId,
       deviceId,
       this.machine.machineId,
-      command,
+      { v: REMOTE_PROTOCOL_VERSION, ...command },
     );
 
     // Re-check after awaits — WS could have closed

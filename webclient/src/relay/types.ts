@@ -1,5 +1,8 @@
 // Shared types mirroring the relay server's api/messages.go
 
+/** Wire protocol version stamped on outgoing commands (matches the desktop). */
+export const REMOTE_PROTOCOL_VERSION = 1;
+
 export interface PairedMachine {
   machineId: string;
   machineEncryptionKey: string; // X25519 public key, base64

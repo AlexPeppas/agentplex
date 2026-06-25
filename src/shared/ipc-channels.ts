@@ -227,6 +227,26 @@ export interface WorkspaceTemplate {
 
 // ── Remote access (relay pairing) types ──────────────────────────────────────
 
+/**
+ * Wire protocol version for the E2EE command/event payloads exchanged between
+ * an AgentPlex desktop (machine) and a paired remote client. Stamped on every
+ * outgoing payload as `v` and validated on receipt. Bump the major when making
+ * a breaking change to the command/event shapes.
+ */
+export const REMOTE_PROTOCOL_VERSION = 1;
+
+/** Remote commands a paired device is permitted to send to a machine. */
+export const REMOTE_COMMAND_ALLOWLIST = [
+  'session:write',
+  'session:resize',
+  'session:create',
+  'session:kill',
+  'session:list',
+  'session:getBuffer',
+  'session:subscribe',
+  'displayNames:get',
+] as const;
+
 export type RelayConnState = 'disconnected' | 'connecting' | 'authenticating' | 'connected';
 
 export interface RemoteStatus {
