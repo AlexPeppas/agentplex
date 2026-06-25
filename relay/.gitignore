@@ -1,5 +1,7 @@
 relay
 relay.exe
+*.exe
+node_modules
 *.db
 *.db-shm
 *.db-wal
