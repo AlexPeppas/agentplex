@@ -101,6 +101,43 @@ export function scheduleRefreshAllTerminals() {
   }));
 }
 
+const TERMINAL_FONT_FAMILY = 'MesloLGS Nerd Font Mono';
+
+/** xterm measures the character cell from the *currently loaded* font. The
+ *  terminal font is a bundled @font-face (TTF) that may still be loading on the
+ *  first paint, so an early fit() measures the fallback font's cell width and
+ *  locks xterm's column count to it. Once the Nerd Font loads its glyph advance
+ *  width differs, so xterm's cols no longer match the rendered glyphs and the
+ *  PTY was told the wrong width — cursor-addressed TUI redraws (Copilot/Claude)
+ *  then drift and overwrite themselves until a manual zoom/refit. Force the font
+ *  to load, then refit + repaint so xterm and the PTY agree from the start. */
+function fitWhenFontReady(entry: LiveTerminal) {
+  // Best-effort immediate fit (correct when the font is already cached).
+  requestAnimationFrame(() => syncTerminalSize(entry, true));
+
+  const fonts = document.fonts;
+  if (!fonts) return;
+
+  const refit = () => {
+    if (!liveTerminals.has(entry)) return; // unmounted
+    syncTerminalSize(entry, true);
+    if (entry.term.rows > 0) {
+      try { entry.term.refresh(0, entry.term.rows - 1); } catch { /* ignore */ }
+    }
+  };
+
+  // Explicitly load the weights xterm renders, then refit — covers the case
+  // where nothing else has triggered the @font-face load yet.
+  const size = entry.term.options.fontSize ?? DEFAULT_FONT_SIZE;
+  Promise.all([
+    fonts.load(`${size}px "${TERMINAL_FONT_FAMILY}"`).catch(() => undefined),
+    fonts.load(`bold ${size}px "${TERMINAL_FONT_FAMILY}"`).catch(() => undefined),
+  ]).then(refit);
+
+  // Belt-and-suspenders: refit again once all document fonts settle.
+  fonts.ready.then(refit).catch(() => undefined);
+}
+
 // Single set of global listeners (registered lazily, never removed — harmless)
 let globalListenersRegistered = false;
 
@@ -157,8 +194,9 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     const entry: LiveTerminal = { term, fitAddon, sessionId, lastCols: 0, lastRows: 0 };
     liveTerminals.add(entry);
 
-    // Fit after a frame to get correct dimensions
-    requestAnimationFrame(() => syncTerminalSize(entry, true));
+    // Fit once the terminal font is loaded so xterm's column count matches the
+    // real glyph width (avoids progressive output misalignment mid-session).
+    fitWhenFontReady(entry);
 
     // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
     const isMac = window.agentPlex.platform === 'darwin';
