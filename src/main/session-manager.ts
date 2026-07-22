@@ -376,14 +376,14 @@ export class SessionManager {
     if (isClaude) {
       const encodedPath = encodeProjectPath(workDir);
       jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${resumeSessionId}.jsonl`);
-      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id, 'claude');
+      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id, 'claude', true);
       jsonlWatcher.start();
     } else if (normalizedCli === 'copilot') {
       // ~/.copilot/session-state/<uuid>/events.jsonl is the append-only event log.
       // Used both for sub-agent detection (subagent.started + tool.execution_complete)
       // and for "Running" status detection via mtime in checkStatuses().
       jsonlPath = path.join(home, '.copilot', 'session-state', resumeSessionId, 'events.jsonl');
-      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id, 'copilot');
+      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id, 'copilot', true);
       jsonlWatcher.start();
     }
 
@@ -799,8 +799,8 @@ export class SessionManager {
     return names;
   }
 
-  private createJsonlWatcher(jsonlPath: string, sessionId: string, format: WatcherFormat = 'claude'): JsonlSessionWatcher {
-    const watcher = new JsonlSessionWatcher(jsonlPath, format);
+  private createJsonlWatcher(jsonlPath: string, sessionId: string, format: WatcherFormat = 'claude', skipExisting = false): JsonlSessionWatcher {
+    const watcher = new JsonlSessionWatcher(jsonlPath, format, skipExisting);
 
     watcher.on('agent-spawn', (event: { toolUseId: string; description: string; subagentType: string }) => {
       this.send(IPC.SUBAGENT_SPAWN, {
@@ -916,7 +916,7 @@ export class SessionManager {
             // File was modified after we launched — this is the resumed session
             if (stat.mtimeMs > launchTime && stat.mtimeMs > baseline) {
               const jsonlPath = path.join(projectDir, file);
-              const watcher = this.createJsonlWatcher(jsonlPath, sessionId);
+              const watcher = this.createJsonlWatcher(jsonlPath, sessionId, 'claude', true);
               session.jsonlWatcher = watcher;
               watcher.start();
               // Extract UUID from filename and persist so session can be restored
@@ -988,7 +988,7 @@ export class SessionManager {
             session.resumeSessionId = dir;
             session.cli = 'copilot'; // normalize — picker is done, it's a regular Copilot session
             // Wire the events.jsonl watcher (sub-agent + plan + permission detection).
-            const watcher = this.createJsonlWatcher(eventsPath, sessionId, 'copilot');
+            const watcher = this.createJsonlWatcher(eventsPath, sessionId, 'copilot', true);
             session.jsonlWatcher = watcher;
             watcher.start();
             // Update session.cwd from workspace.yaml so the UI / git panel reflect the

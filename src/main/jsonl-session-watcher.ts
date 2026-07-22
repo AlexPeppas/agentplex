@@ -132,15 +132,29 @@ export class JsonlSessionWatcher extends EventEmitter {
   private copilotTasksById = new Map<string, { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }>();
   private nextCopilotTaskNumber = 1;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** When true, prime the read offset to the current end-of-file on start so
+   *  pre-existing content (a resumed/restored session's history) is NOT replayed
+   *  as fresh sub-agent/plan/task events. Only genuinely new appends are emitted. */
+  private skipExisting: boolean;
 
-  constructor(jsonlPath: string, format: WatcherFormat = 'claude') {
+  constructor(jsonlPath: string, format: WatcherFormat = 'claude', skipExisting = false) {
     super();
     this.jsonlPath = jsonlPath;
     this.format = format;
+    this.skipExisting = skipExisting;
   }
 
   start(): void {
     if (this.timer) return;
+    if (this.skipExisting) {
+      // Skip any content that already exists on disk (resume/restore): only
+      // events appended after this point should render sub-agents/plans/tasks.
+      try {
+        this.offset = fs.statSync(this.jsonlPath).size;
+      } catch {
+        // File doesn't exist yet (genuinely new session) — read from the start.
+      }
+    }
     this.timer = setInterval(() => this.poll(), 500);
   }
 
