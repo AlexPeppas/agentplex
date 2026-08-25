@@ -83,6 +83,7 @@ function refreshAllTerminals() {
     syncTerminalSize(entry, true);
     if (entry.term.rows > 0) {
       try {
+        entry.term.clearTextureAtlas();
         entry.term.refresh(0, entry.term.rows - 1);
       } catch { /* ignore */ }
     }
@@ -99,6 +100,33 @@ export function scheduleRefreshAllTerminals() {
     refreshScheduled = false;
     refreshAllTerminals();
   }));
+}
+
+const TERMINAL_FONT_FAMILY = 'MesloLGS Nerd Font Mono';
+
+/** xterm measures the character cell from the *currently loaded* font. The
+ * terminal font may still be loading on first paint, so refit once its actual
+ * metrics are available to keep xterm columns synchronized with the PTY. */
+function fitWhenFontReady(entry: LiveTerminal) {
+  requestAnimationFrame(() => syncTerminalSize(entry, true));
+
+  const fonts = document.fonts;
+  if (!fonts) return;
+
+  const refit = () => {
+    if (!liveTerminals.has(entry)) return;
+    syncTerminalSize(entry, true);
+    if (entry.term.rows > 0) {
+      try { entry.term.refresh(0, entry.term.rows - 1); } catch { /* ignore */ }
+    }
+  };
+
+  const size = entry.term.options.fontSize ?? DEFAULT_FONT_SIZE;
+  Promise.all([
+    fonts.load(`${size}px "${TERMINAL_FONT_FAMILY}"`).catch(() => undefined),
+    fonts.load(`bold ${size}px "${TERMINAL_FONT_FAMILY}"`).catch(() => undefined),
+  ]).then(refit);
+  fonts.ready.then(refit).catch(() => undefined);
 }
 
 // Single set of global listeners (registered lazily, never removed — harmless)
@@ -126,6 +154,7 @@ function ensureGlobalListeners() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleRefreshAllTerminals();
   });
+  window.addEventListener('resize', scheduleRefreshAllTerminals);
 }
 
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string) {
@@ -157,8 +186,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     const entry: LiveTerminal = { term, fitAddon, sessionId, lastCols: 0, lastRows: 0 };
     liveTerminals.add(entry);
 
-    // Fit after a frame to get correct dimensions
-    requestAnimationFrame(() => syncTerminalSize(entry, true));
+    fitWhenFontReady(entry);
 
     // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
     const isMac = window.agentPlex.platform === 'darwin';
@@ -215,23 +243,22 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
 
 
-    // Write buffered output
-    const buffer = useAppStore.getState().sessionBuffers[sessionId];
-    if (buffer) {
-      term.write(buffer);
-    }
-
     // Forward keystrokes to pty
     term.onData((data) => {
       window.agentPlex.writeSession(sessionId, data);
     });
 
-    // Subscribe to pty output — filter by this pane's sessionId
+    // Capture and subscribe in one event-loop turn so live output cannot fall
+    // between buffer replay and listener registration.
+    const buffer = useAppStore.getState().sessionBuffers[sessionId];
     const cleanup = window.agentPlex.onSessionData(({ id, data }) => {
       if (id === sessionId && termRef.current) {
         termRef.current.write(data);
       }
     });
+    if (buffer) {
+      term.write(buffer);
+    }
 
     // Handle resize
     let disposed = false;

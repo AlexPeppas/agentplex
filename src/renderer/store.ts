@@ -417,7 +417,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       nodes: [...nodes, newNode],
       sessions: { ...get().sessions, [info.id]: info },
-      sessionBuffers: { ...get().sessionBuffers, [info.id]: '' },
+      sessionBuffers: {
+        ...get().sessionBuffers,
+        [info.id]: get().sessionBuffers[info.id] ?? '',
+      },
       nodeCounter: nodeCounter + 1,
     });
   },
