@@ -1,26 +1,172 @@
 @import "tailwindcss";
 
+/* ═══════════════════════════════════════════════════════════
+   Tailwind theme tokens (reference CSS custom properties)
+   Mirrors the desktop AgentPlex design system (styles/index.css)
+   ═══════════════════════════════════════════════════════════ */
+@theme {
+  --color-surface: var(--bg-primary);
+  --color-elevated: var(--bg-elevated);
+  --color-inset: var(--bg-inset);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--text-primary);
+  --color-fg-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-subtle-strong: var(--accent-subtle-strong);
+  --color-accent-border: var(--accent-border);
+  --color-success: var(--success);
+  --color-success-pulse: var(--success-pulse);
+  --color-success-pulse-dim: var(--success-pulse-dim);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-pulse: var(--warning-pulse);
+  --color-warning-pulse-dim: var(--warning-pulse-dim);
+  --color-error: var(--error);
+  --color-error-subtle: var(--error-subtle);
+  --color-shadow: var(--shadow);
+  --color-shadow-heavy: var(--shadow-heavy);
+  --color-backdrop: var(--backdrop);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Bundled Nerd Font (MesloLGS — Apache 2.0 / OFL licensed)
+   ═══════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'MesloLGS Nerd Font Mono';
+  src: url('./assets/fonts/MesloLGSNerdFontMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'MesloLGS Nerd Font Mono';
+  src: url('./assets/fonts/MesloLGSNerdFontMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'MesloLGS Nerd Font Mono';
+  src: url('./assets/fonts/MesloLGSNerdFontMono-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+}
+@font-face {
+  font-family: 'MesloLGS Nerd Font Mono';
+  src: url('./assets/fonts/MesloLGSNerdFontMono-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Theme tokens (dark / light) — identical to desktop
+   ═══════════════════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --bg-primary: #262420;
+  --bg-elevated: #302c28;
+  --bg-inset: #1e1c18;
+  --border: #3e3830;
+  --border-strong: #4e4638;
+  --text-primary: #ece4d8;
+  --text-muted: #9a8a70;
+  --accent: #d18a7a;
+  --accent-hover: #dfa898;
+  --accent-active: #b87060;
+  --accent-subtle: rgba(209, 138, 122, 0.12);
+  --accent-subtle-strong: rgba(209, 138, 122, 0.25);
+  --accent-border: rgba(209, 138, 122, 0.3);
+  --success: #a8c878;
+  --success-pulse: rgba(168, 200, 120, 0.5);
+  --success-pulse-dim: rgba(168, 200, 120, 0.3);
+  --warning: #e8c070;
+  --warning-bg: #e8c070;
+  --warning-pulse: rgba(232, 192, 112, 0.6);
+  --warning-pulse-dim: rgba(232, 192, 112, 0.3);
+  --error: #e07070;
+  --error-subtle: rgba(224, 112, 112, 0.15);
+  --shadow: rgba(0, 0, 0, 0.4);
+  --shadow-heavy: rgba(0, 0, 0, 0.4);
+  --backdrop: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] {
+  --bg-primary: #f5f0e8;
+  --bg-elevated: #ffffff;
+  --bg-inset: #ebe5da;
+  --border: #d8d0c4;
+  --border-strong: #c8c0b4;
+  --text-primary: #3a3428;
+  --text-muted: #8a7e6e;
+  --accent: #c06a50;
+  --accent-hover: #d07a60;
+  --accent-active: #a85a42;
+  --accent-subtle: rgba(192, 106, 80, 0.10);
+  --accent-subtle-strong: rgba(192, 106, 80, 0.20);
+  --accent-border: rgba(192, 106, 80, 0.3);
+  --success: #4a8a40;
+  --success-pulse: rgba(74, 138, 64, 0.5);
+  --success-pulse-dim: rgba(74, 138, 64, 0.3);
+  --warning: #b8922a;
+  --warning-bg: #e8c870;
+  --warning-pulse: rgba(184, 146, 42, 0.5);
+  --warning-pulse-dim: rgba(184, 146, 42, 0.3);
+  --error: #c44040;
+  --error-subtle: rgba(196, 64, 64, 0.12);
+  --shadow: rgba(0, 0, 0, 0.08);
+  --shadow-heavy: rgba(0, 0, 0, 0.15);
+  --backdrop: rgba(0, 0, 0, 0.3);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Base reset
+   ═══════════════════════════════════════════════════════════ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-body {
-  background: #1a1814;
-  color: #ece4d8;
-  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+html, body, #root {
   height: 100dvh;
+  width: 100%;
   overflow: hidden;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
-#root {
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
+#root { display: flex; flex-direction: column; }
+
+/* ═══════════════════════════════════════════════════════════
+   Keyframe animations (mirror desktop)
+   ═══════════════════════════════════════════════════════════ */
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 var(--success-pulse); }
+  50% { box-shadow: 0 0 8px 3px var(--success-pulse-dim); }
 }
 
-/* xterm */
+@keyframes attention-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--warning-pulse); }
+  50% { box-shadow: 0 0 10px 4px var(--warning-pulse-dim); }
+}
+
+@keyframes message-dash {
+  to { stroke-dashoffset: -12; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   xterm
+   ═══════════════════════════════════════════════════════════ */
 .xterm { height: 100%; }
 .xterm-viewport { overflow-y: hidden !important; }
 
-/* React Flow — hide default node border/shadow, we style our own */
-.react-flow__node { box-shadow: none !important; }
+/* ═══════════════════════════════════════════════════════════
+   React Flow overrides (mirror desktop)
+   ═══════════════════════════════════════════════════════════ */
+.react-flow__background { background: var(--bg-primary) !important; }
+.react-flow__node { box-shadow: none !important; z-index: auto !important; }
 .react-flow__node.selected > * { box-shadow: none !important; }
 .react-flow__handle { display: none; }
+
+.react-flow__edge.edge-message path {
+  stroke-dasharray: 8 4;
+  animation: message-dash 0.4s linear infinite;
+}

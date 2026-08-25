@@ -34,12 +34,12 @@ func NewHub(s store.Store, a *audit.Logger) *Hub {
 // RegisterMachine adds a machine connection to the hub.
 func (h *Hub) RegisterMachine(machineID string, conn *MachineConn) {
 	h.mu.Lock()
-	// Close existing connection if any (machine reconnected)
-	if old, ok := h.machines[machineID]; ok {
-		old.Close()
-	}
+	old := h.machines[machineID]
 	h.machines[machineID] = conn
 	h.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
 
 	h.store.TouchMachine(machineID)
 
@@ -50,8 +50,12 @@ func (h *Hub) RegisterMachine(machineID string, conn *MachineConn) {
 }
 
 // UnregisterMachine removes a machine connection from the hub.
-func (h *Hub) UnregisterMachine(machineID string) {
+func (h *Hub) UnregisterMachine(machineID string, conn *MachineConn) {
 	h.mu.Lock()
+	if h.machines[machineID] != conn {
+		h.mu.Unlock()
+		return
+	}
 	delete(h.machines, machineID)
 	h.mu.Unlock()
 
@@ -64,11 +68,12 @@ func (h *Hub) UnregisterMachine(machineID string) {
 // RegisterClient adds a device client connection to the hub.
 func (h *Hub) RegisterClient(deviceID string, conn *ClientConn) {
 	h.mu.Lock()
-	if old, ok := h.clients[deviceID]; ok {
-		old.Close()
-	}
+	old := h.clients[deviceID]
 	h.clients[deviceID] = conn
 	h.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
 
 	h.store.TouchDevice(deviceID)
 
@@ -76,8 +81,12 @@ func (h *Hub) RegisterClient(deviceID string, conn *ClientConn) {
 }
 
 // UnregisterClient removes a device client connection from the hub.
-func (h *Hub) UnregisterClient(deviceID string) {
+func (h *Hub) UnregisterClient(deviceID string, conn *ClientConn) {
 	h.mu.Lock()
+	if h.clients[deviceID] != conn {
+		h.mu.Unlock()
+		return
+	}
 	delete(h.clients, deviceID)
 	h.mu.Unlock()
 
@@ -116,6 +125,24 @@ func (h *Hub) IsMachineOnline(machineID string) bool {
 	return ok
 }
 
+// IsClientOnline checks if a remote device currently has an active connection.
+func (h *Hub) IsClientOnline(deviceID string) bool {
+	h.mu.RLock()
+	_, ok := h.clients[deviceID]
+	h.mu.RUnlock()
+	return ok
+}
+
+// DisconnectClient immediately terminates a device connection, if present.
+func (h *Hub) DisconnectClient(deviceID string) {
+	h.mu.RLock()
+	client := h.clients[deviceID]
+	h.mu.RUnlock()
+	if client != nil {
+		client.Close()
+	}
+}
+
 // SendToMachine sends a structured message to a machine's WebSocket.
 func (h *Hub) SendToMachine(machineID string, msg interface{}) {
 	data, err := json.Marshal(msg)
@@ -143,11 +170,15 @@ func (h *Hub) notifyClientsOfMachineStatus(machineID string, online bool) {
 	}
 
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-
+	clients := make([]*ClientConn, 0, len(h.clients))
 	for _, client := range h.clients {
 		if client.MachineID == machineID {
-			client.Send(data)
+			clients = append(clients, client)
 		}
+	}
+	h.mu.RUnlock()
+
+	for _, client := range clients {
+		client.Send(data)
 	}
 }

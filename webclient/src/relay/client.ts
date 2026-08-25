@@ -9,7 +9,14 @@ import {
   saveRefreshToken,
   getRefreshToken,
 } from '../crypto/keys';
-import { getSessionKey, encryptEnvelope, decryptEnvelope } from '../crypto/e2ee';
+import {
+  getSessionKey,
+  encryptEnvelope,
+  decryptEnvelope,
+  hashPairingCode,
+  createPairingProof,
+  verifyPairingProof,
+} from '../crypto/e2ee';
 import { REMOTE_PROTOCOL_VERSION } from './types';
 import type { MachineCommand, MachineEvent, PairedMachine } from './types';
 
@@ -192,7 +199,13 @@ export class RelayClient {
     }
   }
 
-  private async handleEnvelope(msg: { nonce: string; ct: string; from: string }) {
+  private async handleEnvelope(msg: {
+    epoch: string;
+    seq: number;
+    nonce: string;
+    ct: string;
+    from: string;
+  }) {
     const deviceId = this.machine.deviceId;
     if (!deviceId) { console.error('[relay-client] No deviceId for decryption'); return; }
 
@@ -273,17 +286,50 @@ export class RelayClient {
   ): Promise<PairedMachine> {
     const pubKeyB64 = await getSigningPubKeyB64();
     const encPubKeyB64 = await getEncPubKeyB64();
+    const codeHash = hashPairingCode(code);
 
     console.log('[pairing] Completing pairing with machine:', machineId);
+
+    const infoResp = await fetch(`${relayUrl}/pair/info`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ machineId, codeHash }),
+    });
+    if (!infoResp.ok) {
+      const err = await infoResp.json().catch(() => ({})) as any;
+      throw new Error(err.message || `Pairing lookup failed: ${infoResp.status}`);
+    }
+    const pairInfo = await infoResp.json() as {
+      machineId: string;
+      machineEncryptionKey: string;
+      machineProof: string;
+    };
+    if (!verifyPairingProof(
+      code,
+      pairInfo.machineProof,
+      'agentplex-pair-machine-v1',
+      pairInfo.machineId,
+      pairInfo.machineEncryptionKey,
+    )) {
+      throw new Error('Pairing machine authentication failed');
+    }
 
     const resp = await fetch(`${relayUrl}/pair/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         machineId,
-        code,
+        codeHash,
         devicePublicKey: pubKeyB64,
         deviceEncryptionKey: encPubKeyB64,
+        deviceProof: createPairingProof(
+          code,
+          'agentplex-pair-device-v1',
+          machineId,
+          pairInfo.machineEncryptionKey,
+          pubKeyB64,
+          encPubKeyB64,
+        ),
         platform: 'web',
         name: deviceName,
       }),
@@ -298,7 +344,21 @@ export class RelayClient {
       deviceId: string;
       machineId: string;
       machineEncryptionKey: string;
+      machineProof: string;
     };
+
+    if (!verifyPairingProof(
+      code,
+      data.machineProof,
+      'agentplex-pair-machine-v1',
+      data.machineId,
+      data.machineEncryptionKey,
+    )) {
+      throw new Error('Pairing transcript authentication failed');
+    }
+    if (data.machineEncryptionKey !== pairInfo.machineEncryptionKey) {
+      throw new Error('Pairing machine key changed during completion');
+    }
 
     console.log('[pairing] Success — deviceId:', data.deviceId);
 

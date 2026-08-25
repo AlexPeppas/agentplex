@@ -1,53 +1,38 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { LayoutGrid, Plus, Wifi, WifiOff } from 'lucide-react';
 import { useStore, bootstrap } from './store';
 import PairingScreen from './components/PairingScreen';
 import GraphCanvas from './components/GraphCanvas';
 import Terminal from './components/Terminal';
 import SessionList from './components/SessionList';
+import logo from './assets/logo.svg';
 import type { MachineStatus } from './relay/types';
-
-// ── Icons ──────────────────────────────────────────────────────────────────
-
-function GridIcon() {
-  return (
-    <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor">
-      <rect x="1" y="1" width="5" height="5" rx="1" /><rect x="10" y="1" width="5" height="5" rx="1" />
-      <rect x="1" y="10" width="5" height="5" rx="1" /><rect x="10" y="10" width="5" height="5" rx="1" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M8 3v10M3 8h10" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 // ── Aggregate connection state across all machines ──────────────────────────
 
-type Agg = { dot: string; title: string };
-
-function aggregate(status: Record<string, MachineStatus>): Agg {
+function aggregate(status: Record<string, MachineStatus>): { color: string; title: string; live: boolean } {
   const all = Object.values(status);
-  if (all.length === 0) return { dot: 'bg-[#4a4038]', title: 'No machines' };
+  if (all.length === 0) return { color: 'var(--text-muted)', title: 'No machines', live: false };
   const live = all.filter(s => s.relayState === 'connected' && s.online).length;
   const connecting = all.some(s => s.relayState === 'connecting');
   const anyError = all.some(s => s.error);
-  if (live > 0) return { dot: 'bg-emerald-400', title: `${live} machine${live === 1 ? '' : 's'} live` };
-  if (connecting) return { dot: 'bg-amber-400 animate-pulse', title: 'Connecting…' };
-  if (anyError) return { dot: 'bg-red-500', title: 'Connection error' };
-  return { dot: 'bg-[#4a4038]', title: 'All machines offline' };
+  if (live > 0) return { color: 'var(--success)', title: `${live} machine${live === 1 ? '' : 's'} live`, live: true };
+  if (connecting) return { color: 'var(--warning)', title: 'Connecting…', live: false };
+  if (anyError) return { color: 'var(--error)', title: 'Connection error', live: false };
+  return { color: 'var(--text-muted)', title: 'All machines offline', live: false };
 }
 
-function ConnectionDot() {
+function ConnectionBadge() {
   const status = useStore(s => s.status);
   const agg = useMemo(() => aggregate(status), [status]);
-  return <span className={`w-2 h-2 rounded-full ${agg.dot}`} title={agg.title} />;
+  const Icon = agg.live ? Wifi : WifiOff;
+  return (
+    <span className="flex items-center gap-1.5" title={agg.title}>
+      <Icon size={13} style={{ color: agg.color }} />
+      <span className="text-[11px]" style={{ color: agg.color }}>{agg.title}</span>
+    </span>
+  );
 }
-
-// ── Main app ────────────────────────────────────────────────────────────────
 
 export default function App() {
   const machines = useStore(s => s.machines);
@@ -70,30 +55,31 @@ export default function App() {
 
   useEffect(() => { bootstrap(); }, []);
 
-  // No machines paired yet → first-run pairing.
   if (machines.length === 0) return <PairingScreen />;
 
-  return (
-    <div className="flex h-full bg-[#1a1814] overflow-hidden">
+  const activeMachineName = active ? machines.find(m => m.machineId === active.machineId)?.name : null;
 
-      {/* Left icon strip */}
-      <div className="w-10 flex-shrink-0 flex flex-col items-center py-2 gap-1 border-r border-[#232120] bg-[#181614]">
+  return (
+    <div className="flex h-full bg-surface overflow-hidden">
+
+      {/* Activity bar (left icon strip) */}
+      <div className="w-11 flex-shrink-0 flex flex-col items-center py-2.5 gap-1 border-r border-border bg-inset">
+        <img src={logo} alt="AgentPlex" className="w-6 h-6 mb-2" />
         <button
           onClick={handleBackToCanvas}
-          className={`w-8 h-8 flex items-center justify-center rounded transition-colors
-            ${activeTab === 'canvas' ? 'text-[#c4a882]' : 'text-[#4a4038] hover:text-[#8a7060]'}`}
+          className={`w-9 h-9 flex items-center justify-center rounded-md transition-colors
+            ${activeTab === 'canvas' ? 'bg-accent-subtle text-accent' : 'text-fg-muted hover:text-fg hover:bg-elevated'}`}
           title="Sessions"
         >
-          <GridIcon />
+          <LayoutGrid size={18} />
         </button>
         <button
           onClick={() => setShowAddMachine(true)}
-          className="w-8 h-8 flex items-center justify-center rounded text-[#4a4038] hover:text-[#8a7060] transition-colors"
+          className="w-9 h-9 flex items-center justify-center rounded-md text-fg-muted hover:text-fg hover:bg-elevated transition-colors"
           title="Add machine"
         >
-          <PlusIcon />
+          <Plus size={18} />
         </button>
-        <div className="flex-1" />
       </div>
 
       {/* Machines + sessions sidebar */}
@@ -107,24 +93,22 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* Toolbar */}
-        <div className="h-10 flex items-center px-4 gap-4 border-b border-[#232120] bg-[#1a1814] flex-shrink-0">
-          <span className="text-sm font-semibold text-[#ece4d8] tracking-wide">
-            {activeTab === 'terminal' && active
-              ? machines.find(m => m.machineId === active.machineId)?.name ?? 'Session'
-              : 'All machines'}
+        <div className="h-10 flex items-center px-4 gap-4 border-b border-border bg-surface flex-shrink-0">
+          <span className="text-[13px] font-semibold text-fg tracking-wide">
+            {activeTab === 'terminal' && activeMachineName ? activeMachineName : 'All machines'}
           </span>
           <div className="flex-1" />
 
           {activeTab === 'terminal' && active && (
             <button
               onClick={handleBackToCanvas}
-              className="text-xs text-[#6a6050] hover:text-[#ece4d8] px-2 py-1 rounded hover:bg-[#2a2420] transition-colors"
+              className="text-[11px] text-fg-muted hover:text-fg px-2 py-1 rounded hover:bg-elevated transition-colors"
             >
               ← Canvas
             </button>
           )}
 
-          <ConnectionDot />
+          <ConnectionBadge />
         </div>
 
         {/* Canvas or Terminal */}

@@ -20,10 +20,16 @@ import {
   getEncryptionPublicKeyBase64,
   sign,
   loadPairedDevices,
+  savePairedDevices,
   addPairedDevice,
   removePairedDevice,
   generatePairingCode,
   hashPairingCode,
+  createPairingProof,
+  verifyPairingProof,
+  rememberPairingSecret,
+  getPairingSecret,
+  forgetPairingSecret,
 } from './key-manager';
 import {
   encrypt,
@@ -227,6 +233,7 @@ export class RelayClient extends EventEmitter {
 
       // Subscribe to SessionManager events for E2EE forwarding
       this.subscribeToEvents();
+      void this.reconcilePairedDevices();
 
       // Start keepalive
       this.keepaliveTimer = setInterval(() => {
@@ -259,6 +266,71 @@ export class RelayClient extends EventEmitter {
     });
   }
 
+  /** Reconcile persisted device keys after every reconnect. Pair completion can
+   * happen while this machine socket is offline, so the one-shot WS event is not
+   * sufficient to establish the local E2EE peer record. */
+  private async reconcilePairedDevices() {
+    try {
+      const devices = await this.httpRequest(
+        'GET',
+        '/devices',
+        undefined,
+        this.tokens?.accessToken,
+      ) as Array<{
+        deviceId: string;
+        publicKey: string;
+        encryptionKey: string;
+        codeHash: string;
+        pairingProof: string;
+        name: string;
+        platform: string;
+        pairedAt: string;
+      }>;
+      const existing = new Map(loadPairedDevices().map(device => [device.deviceId, device]));
+      const verified = new Map(existing);
+      for (const device of devices) {
+        const pinned = existing.get(device.deviceId);
+        if (pinned) {
+          if (pinned.encryptionKey !== device.encryptionKey) {
+            console.warn(`[relay-client] Ignoring relay key change for ${device.deviceId}`);
+          }
+          verified.set(device.deviceId, {
+            ...pinned,
+            name: device.name,
+            platform: device.platform,
+            pairedAt: device.pairedAt,
+          });
+          continue;
+        }
+        const code = getPairingSecret(device.codeHash);
+        if (!code || !verifyPairingProof(
+          code,
+          device.pairingProof,
+          'agentplex-pair-device-v1',
+          this.machineId,
+          getEncryptionPublicKeyBase64(),
+          device.publicKey,
+          device.encryptionKey,
+        )) {
+          console.warn(`[relay-client] Ignoring unverified paired device ${device.deviceId}`);
+          continue;
+        }
+        verified.set(device.deviceId, {
+          deviceId: device.deviceId,
+          encryptionKey: device.encryptionKey,
+          name: device.name,
+          platform: device.platform,
+          pairedAt: device.pairedAt,
+        });
+        savePairedDevices([...verified.values()]);
+        forgetPairingSecret(device.codeHash);
+      }
+      savePairedDevices([...verified.values()]);
+    } catch (err: any) {
+      console.error(`[relay-client] Failed to reconcile paired devices: ${err.message}`);
+    }
+  }
+
   // ── Incoming Message Handling ─────────────────────────────────────────
 
   private handleRelayMessage(msg: any) {
@@ -284,7 +356,13 @@ export class RelayClient extends EventEmitter {
   }
 
   /** Decrypt an incoming E2EE envelope and execute the command on SessionManager. */
-  private handleEncryptedEnvelope(msg: { from: string; nonce: string; ct: string }) {
+  private handleEncryptedEnvelope(msg: {
+    from: string;
+    epoch: string;
+    seq: number;
+    nonce: string;
+    ct: string;
+  }) {
     const deviceId = msg.from;
     const device = loadPairedDevices().find(d => d.deviceId === deviceId);
     if (!device) {
@@ -497,28 +575,54 @@ export class RelayClient extends EventEmitter {
 
   // ── Pairing ───────────────────────────────────────────────────────────
 
-  /** Generate a pairing code and register it with the relay. Returns the 6-digit code. */
+  /** Generate an out-of-band secret and register only its hash with the relay. */
   async initiatePairing(): Promise<string> {
     const code = generatePairingCode();
     const codeHash = hashPairingCode(code);
+    const machineEncryptionKey = getEncryptionPublicKeyBase64();
+    const machineProof = createPairingProof(
+      code,
+      'agentplex-pair-machine-v1',
+      this.machineId,
+      machineEncryptionKey,
+    );
 
     await this.httpPost('/pair/initiate', {
       codeHash,
-      machineEncryptionKey: getEncryptionPublicKeyBase64(),
+      machineEncryptionKey,
+      machineProof,
       ttl: 300,
     }, this.tokens?.accessToken);
 
-    console.log(`[relay-client] Pairing initiated — code: ${code}`);
-    return code;
+    rememberPairingSecret(codeHash, code);
+    return code.match(/.{1,4}/g)?.join('-') ?? code;
   }
 
   /** Handle the relay's pair:completed event. */
   private handlePairCompleted(msg: {
     deviceId: string;
     deviceEncryptionKey: string;
+    devicePublicKey: string;
+    codeHash: string;
+    deviceProof: string;
     name: string;
     platform: string;
   }) {
+    const code = getPairingSecret(msg.codeHash);
+    const machineEncryptionKey = getEncryptionPublicKeyBase64();
+    if (!code || !verifyPairingProof(
+      code,
+      msg.deviceProof,
+      'agentplex-pair-device-v1',
+      this.machineId,
+      machineEncryptionKey,
+      msg.devicePublicKey,
+      msg.deviceEncryptionKey,
+    )) {
+      console.warn('[relay-client] Rejected pairing with an invalid transcript proof');
+      return;
+    }
+    forgetPairingSecret(msg.codeHash);
     console.log(`[relay-client] Device paired: ${msg.name} (${msg.deviceId})`);
 
     addPairedDevice({

@@ -65,6 +65,7 @@ interface AppState {
 
   // Terminal buffers keyed by termKey(machineId, sessionId).
   terminalData: Record<string, string>;
+  terminalGeneration: Record<string, number>;
 
   // Live trace state (plan/tasks/subagents) keyed by termKey(machineId, sessionId).
   traces: Record<string, SessionTrace>;
@@ -161,9 +162,16 @@ export const useStore = create<AppState>((set, get) => {
         break;
 
       case 'session:buffer':
-        set(s => ({
-          terminalData: { ...s.terminalData, [termKey(machineId, event.id)]: event.buffer },
-        }));
+        set(s => {
+          const key = termKey(machineId, event.id);
+          return {
+            terminalData: { ...s.terminalData, [key]: event.buffer },
+            terminalGeneration: {
+              ...s.terminalGeneration,
+              [key]: (s.terminalGeneration[key] ?? 0) + 1,
+            },
+          };
+        });
         break;
 
       case 'displayNames':
@@ -255,7 +263,16 @@ export const useStore = create<AppState>((set, get) => {
     patchStatus(machine.machineId, { relayState: 'connecting', error: null });
     const client = new RelayClient(machine, {
       onError: (msg) => patchStatus(machine.machineId, { error: msg }),
-      onStatus: (relayState, online) => patchStatus(machine.machineId, { relayState, online, error: null }),
+      onStatus: (relayState, online) => {
+        const wasOnline = get().status[machine.machineId]?.online ?? false;
+        patchStatus(machine.machineId, { relayState, online, error: null });
+        if (online && !wasOnline) {
+          const active = get().active;
+          if (active?.machineId === machine.machineId) {
+            void client.send({ type: 'session:getBuffer', id: active.sessionId });
+          }
+        }
+      },
       onEvent: (event) => handleEvent(machine.machineId, event),
     });
     void client.start();
@@ -268,6 +285,7 @@ export const useStore = create<AppState>((set, get) => {
     sessions: [],
     displayNames: {},
     terminalData: {},
+    terminalGeneration: {},
     traces: {},
     active: null,
     clients: new Map(),
@@ -313,6 +331,9 @@ export const useStore = create<AppState>((set, get) => {
         const terminalData = Object.fromEntries(
           Object.entries(s.terminalData).filter(([k]) => !k.startsWith(`${machineId}:`)),
         );
+        const terminalGeneration = Object.fromEntries(
+          Object.entries(s.terminalGeneration).filter(([k]) => !k.startsWith(`${machineId}:`)),
+        );
         const traces = Object.fromEntries(
           Object.entries(s.traces).filter(([k]) => !k.startsWith(`${machineId}:`)),
         );
@@ -322,6 +343,7 @@ export const useStore = create<AppState>((set, get) => {
           status,
           displayNames,
           terminalData,
+          terminalGeneration,
           traces,
           sessions: s.sessions.filter(sess => sess.machineId !== machineId),
           active: s.active?.machineId === machineId ? null : s.active,

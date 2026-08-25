@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -61,6 +62,8 @@ func (s *SQLiteStore) migrate() error {
 		device_id      TEXT PRIMARY KEY,
 		public_key     TEXT NOT NULL,
 		encryption_key TEXT NOT NULL DEFAULT '',
+		pairing_code_hash TEXT NOT NULL DEFAULT '',
+		pairing_proof TEXT NOT NULL DEFAULT '',
 		display_name   TEXT NOT NULL DEFAULT '',
 		platform       TEXT NOT NULL DEFAULT 'web',
 		machine_id     TEXT NOT NULL REFERENCES machines(machine_id),
@@ -76,6 +79,7 @@ func (s *SQLiteStore) migrate() error {
 		machine_id             TEXT NOT NULL REFERENCES machines(machine_id),
 		code_hash              TEXT NOT NULL,
 		machine_encryption_key TEXT NOT NULL DEFAULT '',
+		machine_proof          TEXT NOT NULL DEFAULT '',
 		expires_at             TEXT NOT NULL,
 		attempts               INTEGER NOT NULL DEFAULT 0,
 		completed              INTEGER NOT NULL DEFAULT 0
@@ -108,8 +112,23 @@ func (s *SQLiteStore) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 	`
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+	// Existing relay databases predate transcript authentication.
+	_, err := s.db.Exec(`ALTER TABLE pairing_requests ADD COLUMN machine_proof TEXT NOT NULL DEFAULT ''`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	for _, migration := range []string{
+		`ALTER TABLE devices ADD COLUMN pairing_code_hash TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN pairing_proof TEXT NOT NULL DEFAULT ''`,
+	} {
+		if _, err := s.db.Exec(migration); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return err
+		}
+	}
+	return nil
 }
 
 // --- Machines ---
@@ -153,8 +172,8 @@ func (s *SQLiteStore) TouchMachine(machineID string) error {
 
 func (s *SQLiteStore) CreateDevice(d Device) error {
 	_, err := s.db.Exec(
-		`INSERT INTO devices (device_id, public_key, encryption_key, display_name, platform, machine_id) VALUES (?, ?, ?, ?, ?, ?)`,
-		d.DeviceID, d.PublicKey, d.EncryptionKey, d.DisplayName, d.Platform, d.MachineID,
+		`INSERT INTO devices (device_id, public_key, encryption_key, pairing_code_hash, pairing_proof, display_name, platform, machine_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		d.DeviceID, d.PublicKey, d.EncryptionKey, d.PairingCodeHash, d.PairingProof, d.DisplayName, d.Platform, d.MachineID,
 	)
 	if err != nil {
 		return fmt.Errorf("create device: %w", err)
@@ -164,14 +183,14 @@ func (s *SQLiteStore) CreateDevice(d Device) error {
 
 func (s *SQLiteStore) GetDevice(deviceID string) (*Device, error) {
 	row := s.db.QueryRow(
-		`SELECT device_id, public_key, encryption_key, display_name, platform, machine_id, paired_at, last_seen, revoked
+		`SELECT device_id, public_key, encryption_key, pairing_code_hash, pairing_proof, display_name, platform, machine_id, paired_at, last_seen, revoked
 		 FROM devices WHERE device_id = ?`,
 		deviceID,
 	)
 	var d Device
 	var pairedAt, lastSeen string
 	var revoked int
-	err := row.Scan(&d.DeviceID, &d.PublicKey, &d.EncryptionKey, &d.DisplayName, &d.Platform, &d.MachineID, &pairedAt, &lastSeen, &revoked)
+	err := row.Scan(&d.DeviceID, &d.PublicKey, &d.EncryptionKey, &d.PairingCodeHash, &d.PairingProof, &d.DisplayName, &d.Platform, &d.MachineID, &pairedAt, &lastSeen, &revoked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -186,7 +205,7 @@ func (s *SQLiteStore) GetDevice(deviceID string) (*Device, error) {
 
 func (s *SQLiteStore) ListDevicesForMachine(machineID string) ([]Device, error) {
 	rows, err := s.db.Query(
-		`SELECT device_id, public_key, encryption_key, display_name, platform, machine_id, paired_at, last_seen, revoked
+		`SELECT device_id, public_key, encryption_key, pairing_code_hash, pairing_proof, display_name, platform, machine_id, paired_at, last_seen, revoked
 		 FROM devices WHERE machine_id = ? AND revoked = 0 ORDER BY paired_at DESC`,
 		machineID,
 	)
@@ -200,7 +219,7 @@ func (s *SQLiteStore) ListDevicesForMachine(machineID string) ([]Device, error) 
 		var d Device
 		var pairedAt, lastSeen string
 		var revoked int
-		if err := rows.Scan(&d.DeviceID, &d.PublicKey, &d.EncryptionKey, &d.DisplayName, &d.Platform, &d.MachineID, &pairedAt, &lastSeen, &revoked); err != nil {
+		if err := rows.Scan(&d.DeviceID, &d.PublicKey, &d.EncryptionKey, &d.PairingCodeHash, &d.PairingProof, &d.DisplayName, &d.Platform, &d.MachineID, &pairedAt, &lastSeen, &revoked); err != nil {
 			return nil, fmt.Errorf("scan device: %w", err)
 		}
 		d.PairedAt, _ = time.Parse("2006-01-02 15:04:05", pairedAt)
@@ -232,22 +251,22 @@ func (s *SQLiteStore) TouchDevice(deviceID string) error {
 
 func (s *SQLiteStore) CreatePairingRequest(p PairingRequest) error {
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO pairing_requests (id, machine_id, code_hash, machine_encryption_key, expires_at) VALUES (?, ?, ?, ?, ?)`,
-		p.ID, p.MachineID, p.CodeHash, p.MachineEncryptionKey, p.ExpiresAt.UTC().Format("2006-01-02 15:04:05"),
+		`INSERT OR REPLACE INTO pairing_requests (id, machine_id, code_hash, machine_encryption_key, machine_proof, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		p.ID, p.MachineID, p.CodeHash, p.MachineEncryptionKey, p.MachineProof, p.ExpiresAt.UTC().Format("2006-01-02 15:04:05"),
 	)
 	return err
 }
 
 func (s *SQLiteStore) GetPairingRequestByMachine(machineID string) (*PairingRequest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, machine_id, code_hash, machine_encryption_key, expires_at, attempts, completed
+		`SELECT id, machine_id, code_hash, machine_encryption_key, machine_proof, expires_at, attempts, completed
 		 FROM pairing_requests WHERE machine_id = ? AND completed = 0 ORDER BY expires_at DESC LIMIT 1`,
 		machineID,
 	)
 	var p PairingRequest
 	var expiresAt string
 	var completed int
-	err := row.Scan(&p.ID, &p.MachineID, &p.CodeHash, &p.MachineEncryptionKey, &expiresAt, &p.Attempts, &completed)
+	err := row.Scan(&p.ID, &p.MachineID, &p.CodeHash, &p.MachineEncryptionKey, &p.MachineProof, &expiresAt, &p.Attempts, &completed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -265,8 +284,18 @@ func (s *SQLiteStore) IncrementPairingAttempts(id string) error {
 }
 
 func (s *SQLiteStore) CompletePairingRequest(id string) error {
-	_, err := s.db.Exec(`UPDATE pairing_requests SET completed = 1 WHERE id = ?`, id)
-	return err
+	res, err := s.db.Exec(`UPDATE pairing_requests SET completed = 1 WHERE id = ? AND completed = 0`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrAlreadyExists
+	}
+	return nil
 }
 
 func (s *SQLiteStore) CleanExpiredPairings() error {

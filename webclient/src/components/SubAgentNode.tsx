@@ -6,24 +6,19 @@ export type SubAgentNodeData = {
   [key: string]: unknown;
 };
 
+/** Sub-agent node — mirrors the desktop SubAgentNode (border-l accent card). */
 export function SubAgentNodeComp({ data }: NodeProps) {
   const { label, status } = data as SubAgentNodeData;
   const active = status === 'active';
 
   return (
     <div
-      className={`py-1.5 px-2.5 rounded-lg border-2 border-l-4 select-none transition-all duration-200
-        bg-[#232118] min-w-[120px] max-w-[170px]
-        ${active
-          ? 'border-[#312d24] border-l-[#c4874a] shadow-[0_0_10px_rgba(196,135,74,0.25)]'
-          : 'border-[#312d24] border-l-emerald-500 opacity-70'
-        }`}
+      className={`py-1.5 px-2.5 bg-elevated border-2 border-border border-l-4 border-l-accent rounded-lg min-w-[120px] max-w-[180px] select-none
+        transition-[border-color,box-shadow,opacity] duration-200
+        ${active ? 'shadow-[0_0_10px_var(--accent-subtle-strong)]' : 'opacity-70'}`}
     >
-      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
-      <div className="flex items-center gap-1.5">
-        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${active ? 'bg-[#c4874a]' : 'bg-emerald-500'}`} />
-        <span className="text-[11px] font-medium text-[#ddd4c4] truncate">{label}</span>
-      </div>
+      <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
+      <div className="text-[11px] font-medium text-fg whitespace-nowrap overflow-hidden text-ellipsis">{label}</div>
     </div>
   );
 }

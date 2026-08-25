@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"nhooyr.io/websocket"
 )
@@ -32,7 +33,7 @@ func NewMachineConn(machineID string, ws *websocket.Conn, hub *Hub) *MachineConn
 // Blocks until the connection is closed.
 func (mc *MachineConn) ReadLoop(ctx context.Context) {
 	defer func() {
-		mc.hub.UnregisterMachine(mc.MachineID)
+		mc.hub.UnregisterMachine(mc.MachineID, mc)
 		mc.Close()
 	}()
 
@@ -93,7 +94,9 @@ func (mc *MachineConn) Send(data []byte) bool {
 		return false
 	}
 
-	err := mc.ws.Write(context.Background(), websocket.MessageText, data)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := mc.ws.Write(ctx, websocket.MessageText, data)
 	if err != nil {
 		log.Printf("[machine] %s write error: %v", mc.MachineID, err)
 		return false

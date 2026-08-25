@@ -43,11 +43,10 @@
     "lucide-react": "^1.7.0",
     "monaco-editor": "^0.55.1",
     "node-pty": "^1.1.0",
-    "puppeteer-core": "^24.40.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwindcss": "^4.2.2",
-    "ws": "^8.20.0",
+    "ws": "^8.21.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -64,10 +63,9 @@
     "electron": "^41.0.4",
     "eslint": "^10.1.0",
     "eslint-plugin-react-hooks": "^7.0.1",
-    "puppeteer": "^24.40.0",
     "sharp": "^0.34.5",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.57.2",
-    "vite": "^8.0.3"
+    "vite": "^8.0.16"
   }
 }

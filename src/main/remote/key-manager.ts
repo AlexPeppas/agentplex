@@ -26,6 +26,7 @@ const MACHINE_SIGN_KEY_PATH = path.join(KEYS_DIR, 'machine-sign.enc');
 const MACHINE_ENC_KEY_PATH = path.join(KEYS_DIR, 'machine-enc.enc');
 const MACHINE_ID_PATH = path.join(KEYS_DIR, 'machine-id');
 const PAIRED_DEVICES_PATH = path.join(homedir(), '.agentplex', 'paired-devices.json');
+const PAIRING_SECRETS_PATH = path.join(KEYS_DIR, 'pairing-secrets.enc');
 
 /**
  * By default we refuse to persist relay private keys unless the OS credential
@@ -248,13 +249,65 @@ export function getPairedDevice(deviceId: string): PairedDevice | undefined {
 
 // ── Pairing Codes ───────────────────────────────────────────────────────────
 
-/** Generate a cryptographically random 6-digit pairing code. */
+/** Generate a 128-bit pairing secret. Unlike a short numeric code, this cannot
+ * be recovered from the hash stored by an untrusted relay. */
 export function generatePairingCode(): string {
-  const n = crypto.randomInt(0, 1_000_000);
-  return n.toString().padStart(6, '0');
+  return crypto.randomBytes(16).toString('hex');
 }
 
 /** SHA-256 hash a pairing code (for sending to the relay). */
 export function hashPairingCode(code: string): string {
-  return crypto.createHash('sha256').update(code).digest('hex');
+  return crypto.createHash('sha256').update(normalizePairingCode(code), 'hex').digest('hex');
+}
+
+function normalizePairingCode(code: string): string {
+  return code.replace(/-/g, '').trim().toLowerCase();
+}
+
+/** Authenticate pairing key material with the high-entropy out-of-band secret. */
+export function createPairingProof(code: string, ...parts: string[]): string {
+  const secret = Buffer.from(normalizePairingCode(code), 'hex');
+  if (secret.length !== 16) throw new Error('Invalid pairing secret');
+  return crypto.createHmac('sha256', secret)
+    .update(parts.join('\0'), 'utf-8')
+    .digest('base64');
+}
+
+/** Constant-time validation for a pairing transcript proof. */
+export function verifyPairingProof(code: string, proof: string, ...parts: string[]): boolean {
+  try {
+    const actual = Buffer.from(proof, 'base64');
+    const expected = Buffer.from(createPairingProof(code, ...parts), 'base64');
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
+function loadPairingSecrets(): Record<string, string> {
+  const raw = loadKey(PAIRING_SECRETS_PATH);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw.toString('utf-8')) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+/** Retain in-flight secrets encrypted at rest so an offline completion can be
+ * authenticated when the desktop reconnects. */
+export function rememberPairingSecret(codeHash: string, code: string) {
+  const secrets = loadPairingSecrets();
+  secrets[codeHash] = normalizePairingCode(code);
+  storeKey(PAIRING_SECRETS_PATH, Buffer.from(JSON.stringify(secrets), 'utf-8'));
+}
+
+export function getPairingSecret(codeHash: string): string | undefined {
+  return loadPairingSecrets()[codeHash];
+}
+
+export function forgetPairingSecret(codeHash: string) {
+  const secrets = loadPairingSecrets();
+  delete secrets[codeHash];
+  storeKey(PAIRING_SECRETS_PATH, Buffer.from(JSON.stringify(secrets), 'utf-8'));
 }

@@ -1,4 +1,5 @@
 import { type NodeProps } from '@xyflow/react';
+import { Plus, Monitor } from 'lucide-react';
 import type { MachineStatus } from '../relay/types';
 
 export type MachineGroupData = {
@@ -10,12 +11,12 @@ export type MachineGroupData = {
   [key: string]: unknown;
 };
 
-function statusInfo(status: MachineStatus): { dot: string; label: string } {
-  if (status.error) return { dot: 'bg-red-500', label: 'error' };
-  if (status.relayState === 'connected' && status.online) return { dot: 'bg-emerald-400', label: 'live' };
-  if (status.relayState === 'connected' && !status.online) return { dot: 'bg-[#4a4038]', label: 'offline' };
-  if (status.relayState === 'connecting') return { dot: 'bg-amber-400 animate-pulse', label: 'connecting' };
-  return { dot: 'bg-[#4a4038]', label: 'disconnected' };
+function statusInfo(status: MachineStatus): { color: string; label: string } {
+  if (status.error) return { color: 'var(--error)', label: 'error' };
+  if (status.relayState === 'connected' && status.online) return { color: 'var(--success)', label: 'live' };
+  if (status.relayState === 'connected' && !status.online) return { color: 'var(--text-muted)', label: 'offline' };
+  if (status.relayState === 'connecting') return { color: 'var(--warning)', label: 'connecting' };
+  return { color: 'var(--text-muted)', label: 'disconnected' };
 }
 
 /** Container node representing one paired machine; sessions render inside it. */
@@ -25,23 +26,26 @@ export function MachineGroupNode({ data }: NodeProps) {
   const online = status.relayState === 'connected' && status.online;
 
   return (
-    <div className="w-full h-full rounded-xl border border-[#2a2420] bg-[#15130f]/60">
-      {/* Header bar — drag handle for the whole machine cluster */}
-      <div className="flex items-center gap-2 px-3 h-9 border-b border-[#232018] rounded-t-xl bg-[#1c1a15]">
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${info.dot}`} title={info.label} />
-        <span className="text-sm font-semibold text-[#ddd4c4] truncate">{label}</span>
-        <span className="text-[10px] uppercase tracking-wider text-[#5a5040]">{info.label}</span>
-        <span className="text-[11px] text-[#4a4038]">·</span>
-        <span className="text-[11px] text-[#6a6050]">{sessionCount} session{sessionCount === 1 ? '' : 's'}</span>
+    <div className="w-full h-full rounded-xl border-2 border-border bg-inset/60">
+      {/* Header bar */}
+      <div className="flex items-center gap-2 px-3 h-9 border-b border-border rounded-t-xl bg-elevated">
+        <Monitor size={13} className="text-fg-muted shrink-0" />
+        <span className="text-[13px] font-semibold text-fg truncate">{label}</span>
+        <span className="flex items-center gap-1 shrink-0">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: info.color }} title={info.label} />
+          <span className="text-[10px] uppercase tracking-wider text-fg-muted">{info.label}</span>
+        </span>
+        <span className="text-[11px] text-fg-muted">·</span>
+        <span className="text-[11px] text-fg-muted">{sessionCount} session{sessionCount === 1 ? '' : 's'}</span>
         <div className="flex-1" />
         <button
           onClick={(e) => { e.stopPropagation(); onAddSession(); }}
           disabled={!online}
-          className="nodrag text-[11px] px-2 py-0.5 rounded text-[#c4874a] border border-[#c4874a]/30
-            hover:bg-[#c4874a]/15 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+          className="nodrag flex items-center gap-1 text-[11px] px-2 py-0.5 rounded text-accent border border-accent-border
+            hover:bg-accent-subtle transition-colors disabled:opacity-30 disabled:pointer-events-none"
           title="New Claude session on this machine"
         >
-          + New
+          <Plus size={11} /> New
         </button>
       </div>
     </div>

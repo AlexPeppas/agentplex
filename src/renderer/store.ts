@@ -284,10 +284,19 @@ function sortGroupsFirst(nodes: Node[]): Node[] {
  *  diff the JSON to skip redundant disk writes. */
 export function serializeGroups(nodes: Node[], sessions: Record<string, SessionInfo>): PersistedGroups {
   const groups = nodes.filter((n) => n.type === 'groupNode');
+  const groupById = new Map(groups.map((g) => [g.id, g]));
   const out = groups.map((g) => {
     const members = nodes
       .filter((n) => n.parentId === g.id && n.type === 'sessionNode')
-      .map((n) => ({ sessionId: n.id, resumeSessionId: sessions[n.id]?.resumeSessionId ?? null }))
+      .map((n) => {
+        // Child positions are relative to the group; store the absolute position
+        // so the cluster can be restored to the same spot on a fresh launch.
+        const parent = groupById.get(g.id);
+        const position = parent
+          ? { x: parent.position.x + n.position.x, y: parent.position.y + n.position.y }
+          : n.position;
+        return { sessionId: n.id, resumeSessionId: sessions[n.id]?.resumeSessionId ?? null, position };
+      })
       .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
     const data = g.data as GroupNodeData;
     return { label: data.label, color: data.color, manualSize: data.manualSize, members };
@@ -408,7 +417,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       nodes: [...nodes, newNode],
       sessions: { ...get().sessions, [info.id]: info },
-      sessionBuffers: { ...get().sessionBuffers, [info.id]: '' },
+      // Restore can deliver a rendered Copilot transcript before the async
+      // restore result adds its node. Preserve that already-received history.
+      sessionBuffers: {
+        ...get().sessionBuffers,
+        [info.id]: get().sessionBuffers[info.id] ?? '',
+      },
       nodeCounter: nodeCounter + 1,
     });
   },
@@ -948,6 +962,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     for (const group of persisted.groups) {
       const memberIds: string[] = [];
+      const savedPositions = new Map<string, { x: number; y: number }>();
       for (const m of group.members) {
         // Prefer the original id (renderer reload keeps ids stable).
         let resolved: string | undefined;
@@ -960,9 +975,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (resolved && !claimed.has(resolved)) {
           claimed.add(resolved);
           memberIds.push(resolved);
+          if (m.position) savedPositions.set(resolved, m.position);
         }
       }
       if (memberIds.length === 0) continue;
+
+      // Restore each member to its saved absolute position BEFORE grouping so the
+      // auto-fit group circle lands at its previous location (and members don't
+      // collapse onto the fresh grid, which caused the overlap on relaunch).
+      if (savedPositions.size > 0) {
+        set({
+          nodes: get().nodes.map((n) =>
+            !n.parentId && savedPositions.has(n.id)
+              ? { ...n, position: { ...savedPositions.get(n.id)! } }
+              : n
+          ),
+        });
+      }
+
       get().createGroupWithMembers(memberIds, { label: group.label, color: group.color });
       if (typeof group.manualSize === 'number') {
         // createGroupWithMembers prepends the new group, so it's nodes[0].

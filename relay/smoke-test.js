@@ -4,15 +4,27 @@ const crypto = require('crypto');
 
 const BASE = process.env.RELAY_BASE || 'http://127.0.0.1:18080';
 
-async function post(path, body) {
+async function post(path, body, token) {
   const res = await fetch(BASE + path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(body),
   });
   const text = await res.text();
   let json; try { json = JSON.parse(text); } catch { json = text; }
   return { status: res.status, json };
+}
+
+async function get(path) {
+  const res = await fetch(BASE + path);
+  return { status: res.status, json: await res.json() };
+}
+
+function pairingProof(secret, ...parts) {
+  return crypto.createHmac('sha256', secret).update(parts.join('\0')).digest('base64');
 }
 
 (async () => {
@@ -59,5 +71,54 @@ async function post(path, body) {
   console.log('bad-signature:', bad.status, '(expect 401)');
   if (bad.status !== 401) throw new Error('bad signature was NOT rejected — auth bypass!');
 
-  console.log('\nSMOKE TEST PASSED — register → challenge → sign → token → refresh, bad-sig rejected.');
+  // 7) Authenticated pairing transcript. The relay receives only SHA-256(secret)
+  // and cannot forge either endpoint's HMAC over substituted X25519 keys.
+  const secret = crypto.randomBytes(16);
+  const codeHash = crypto.createHash('sha256').update(secret).digest('hex');
+  const machineProof = pairingProof(secret, 'agentplex-pair-machine-v1', machineId, encB64);
+  const initiated = await post('/pair/initiate', {
+    codeHash, machineEncryptionKey: encB64, machineProof, ttl: 300,
+  }, tok.json.accessToken);
+  if (initiated.status !== 200) throw new Error('pair initiation failed');
+
+  const info = await post('/pair/info', { machineId, codeHash });
+  if (info.status !== 200) throw new Error('pair info failed');
+  const expectedMachineProof = pairingProof(
+    secret,
+    'agentplex-pair-machine-v1',
+    machineId,
+    info.json.machineEncryptionKey,
+  );
+  if (info.json.machineProof !== expectedMachineProof) throw new Error('machine transcript proof failed');
+  const substitutedKey = crypto.randomBytes(32).toString('base64');
+  if (pairingProof(secret, 'agentplex-pair-machine-v1', machineId, substitutedKey) === info.json.machineProof) {
+    throw new Error('substituted machine key was accepted');
+  }
+
+  const deviceSign = crypto.generateKeyPairSync('ed25519');
+  const devicePub = deviceSign.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64');
+  const deviceEnc = crypto.generateKeyPairSync('x25519');
+  const deviceEncPub = deviceEnc.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64');
+  const deviceProof = pairingProof(
+    secret,
+    'agentplex-pair-device-v1',
+    machineId,
+    encB64,
+    devicePub,
+    deviceEncPub,
+  );
+  const completed = await post('/pair/complete', {
+    machineId,
+    codeHash,
+    devicePublicKey: devicePub,
+    deviceEncryptionKey: deviceEncPub,
+    deviceProof,
+    platform: 'web',
+    name: 'smoke-browser',
+  });
+  if (completed.status !== 200 || completed.json.machineProof !== machineProof) {
+    throw new Error('authenticated pair completion failed');
+  }
+
+  console.log('\nSMOKE TEST PASSED — auth, refresh, rejection, and authenticated pairing transcript.');
 })().catch(e => { console.error('SMOKE TEST FAILED:', e.message); process.exit(1); });

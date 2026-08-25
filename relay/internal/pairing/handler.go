@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"log"
@@ -18,9 +19,9 @@ const maxPairingAttempts = 5
 
 // Handler handles pairing HTTP endpoints.
 type Handler struct {
-	store   store.Store
-	audit   *audit.Logger
-	jwt     *auth.JWTManager
+	store store.Store
+	audit *audit.Logger
+	jwt   *auth.JWTManager
 	// OnPairCompleted is called when a device completes pairing.
 	// The relay hub uses this to notify the machine over WebSocket.
 	OnPairCompleted func(machineID string, event api.PairCompletedEvent)
@@ -40,8 +41,8 @@ func (h *Handler) Initiate(w http.ResponseWriter, r *http.Request, machineID str
 		return
 	}
 
-	if req.CodeHash == "" || req.MachineEncryptionKey == "" {
-		jsonError(w, http.StatusBadRequest, "codeHash and machineEncryptionKey are required")
+	if req.CodeHash == "" || req.MachineEncryptionKey == "" || req.MachineProof == "" {
+		jsonError(w, http.StatusBadRequest, "codeHash, machineEncryptionKey, and machineProof are required")
 		return
 	}
 
@@ -56,6 +57,7 @@ func (h *Handler) Initiate(w http.ResponseWriter, r *http.Request, machineID str
 		MachineID:            machineID,
 		CodeHash:             req.CodeHash,
 		MachineEncryptionKey: req.MachineEncryptionKey,
+		MachineProof:         req.MachineProof,
 		ExpiresAt:            time.Now().Add(time.Duration(ttl) * time.Second),
 	}
 
@@ -68,6 +70,40 @@ func (h *Handler) Initiate(w http.ResponseWriter, r *http.Request, machineID str
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "expiresIn": ttl})
 }
 
+// Info returns the machine half of the authenticated transcript to a device
+// that possesses the pairing verifier. The raw secret is never sent to relay.
+func (h *Handler) Info(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MachineID string `json:"machineId"`
+		CodeHash  string `json:"codeHash"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	machineID := req.MachineID
+	codeHash := req.CodeHash
+	if machineID == "" || codeHash == "" {
+		jsonError(w, http.StatusBadRequest, "machineId and codeHash are required")
+		return
+	}
+	pr, err := h.store.GetPairingRequestByMachine(machineID)
+	if err != nil || time.Now().After(pr.ExpiresAt) {
+		jsonError(w, http.StatusNotFound, "no active pairing request for this machine")
+		return
+	}
+	if len(codeHash) != len(pr.CodeHash) ||
+		subtle.ConstantTimeCompare([]byte(codeHash), []byte(pr.CodeHash)) != 1 {
+		jsonError(w, http.StatusUnauthorized, "invalid pairing code")
+		return
+	}
+	jsonResponse(w, http.StatusOK, api.PairInfoResponse{
+		MachineID:            machineID,
+		MachineEncryptionKey: pr.MachineEncryptionKey,
+		MachineProof:         pr.MachineProof,
+	})
+}
+
 // Complete handles POST /pair/complete (the code itself is the auth).
 // A device submits the code + its public keys to complete pairing.
 func (h *Handler) Complete(w http.ResponseWriter, r *http.Request) {
@@ -77,8 +113,9 @@ func (h *Handler) Complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.MachineID == "" || req.Code == "" || req.DevicePublicKey == "" || req.DeviceEncryptionKey == "" {
-		jsonError(w, http.StatusBadRequest, "machineId, code, devicePublicKey, and deviceEncryptionKey are required")
+	if req.MachineID == "" || req.CodeHash == "" || req.DevicePublicKey == "" ||
+		req.DeviceEncryptionKey == "" || req.DeviceProof == "" {
+		jsonError(w, http.StatusBadRequest, "machineId, codeHash, device keys, and deviceProof are required")
 		return
 	}
 
@@ -104,8 +141,10 @@ func (h *Handler) Complete(w http.ResponseWriter, r *http.Request) {
 	// Increment attempts before checking code (prevents brute force)
 	h.store.IncrementPairingAttempts(pr.ID)
 
-	// Verify code hash
-	if HashCode(req.Code) != pr.CodeHash {
+	// Compare the submitted verifier in constant time. The relay never receives
+	// the high-entropy pairing secret and therefore cannot forge transcript MACs.
+	if len(req.CodeHash) != len(pr.CodeHash) ||
+		subtle.ConstantTimeCompare([]byte(req.CodeHash), []byte(pr.CodeHash)) != 1 {
 		h.audit.Log(audit.EventAuthFail, req.MachineID, "", remoteAddr(r), map[string]string{
 			"reason": "invalid_pairing_code",
 		})
@@ -113,15 +152,24 @@ func (h *Handler) Complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Atomically consume the request before creating the device. Without the
+	// conditional update, concurrent valid completions could create duplicates.
+	if err := h.store.CompletePairingRequest(pr.ID); err != nil {
+		jsonError(w, http.StatusConflict, "pairing request was already completed")
+		return
+	}
+
 	// Code matches — create the device
 	deviceID := "dev-" + randomID()
 	device := store.Device{
-		DeviceID:    deviceID,
-		PublicKey:   req.DevicePublicKey,
-		EncryptionKey: req.DeviceEncryptionKey,
-		DisplayName: req.Name,
-		Platform:    req.Platform,
-		MachineID:   req.MachineID,
+		DeviceID:        deviceID,
+		PublicKey:       req.DevicePublicKey,
+		EncryptionKey:   req.DeviceEncryptionKey,
+		PairingCodeHash: req.CodeHash,
+		PairingProof:    req.DeviceProof,
+		DisplayName:     req.Name,
+		Platform:        req.Platform,
+		MachineID:       req.MachineID,
 	}
 
 	if err := h.store.CreateDevice(device); err != nil {
@@ -129,9 +177,6 @@ func (h *Handler) Complete(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusInternalServerError, "failed to create device")
 		return
 	}
-
-	// Mark pairing request as completed
-	h.store.CompletePairingRequest(pr.ID)
 
 	h.audit.Log(audit.EventPair, req.MachineID, deviceID, remoteAddr(r), map[string]string{
 		"platform": req.Platform,
@@ -143,7 +188,10 @@ func (h *Handler) Complete(w http.ResponseWriter, r *http.Request) {
 		h.OnPairCompleted(req.MachineID, api.PairCompletedEvent{
 			Type:                "pair:completed",
 			DeviceID:            deviceID,
+			DevicePublicKey:     req.DevicePublicKey,
 			DeviceEncryptionKey: req.DeviceEncryptionKey,
+			CodeHash:            req.CodeHash,
+			DeviceProof:         req.DeviceProof,
 			Name:                req.Name,
 			Platform:            req.Platform,
 		})
@@ -153,6 +201,7 @@ func (h *Handler) Complete(w http.ResponseWriter, r *http.Request) {
 		DeviceID:             deviceID,
 		MachineID:            req.MachineID,
 		MachineEncryptionKey: pr.MachineEncryptionKey,
+		MachineProof:         pr.MachineProof,
 	}
 	jsonResponse(w, http.StatusOK, resp)
 }

@@ -169,7 +169,7 @@ export function RemoteAccessPanel() {
         </div>
         {pairCode ? (
           <div className="mt-1.5 text-center">
-            <div className="text-2xl font-mono tracking-[0.4em] text-fg">{pairCode}</div>
+            <div className="text-[11px] font-mono tracking-wide break-all text-fg">{pairCode}</div>
             <div className="text-[10px] text-fg-muted mt-0.5">Expires in {mins}:{secs}</div>
           </div>
         ) : (

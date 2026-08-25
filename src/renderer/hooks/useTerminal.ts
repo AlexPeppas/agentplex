@@ -83,6 +83,7 @@ function refreshAllTerminals() {
     syncTerminalSize(entry, true);
     if (entry.term.rows > 0) {
       try {
+        entry.term.clearTextureAtlas();
         entry.term.refresh(0, entry.term.rows - 1);
       } catch { /* ignore */ }
     }
@@ -163,6 +164,11 @@ function ensureGlobalListeners() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleRefreshAllTerminals();
   });
+
+  // ResizeObserver only fires when the terminal's container changes size. A
+  // display-scale/DPI or compositor change can invalidate xterm's cell metrics
+  // without changing that box, so explicitly rebuild its renderer geometry.
+  window.addEventListener('resize', scheduleRefreshAllTerminals);
 }
 
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string) {
@@ -253,23 +259,23 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
 
 
-    // Write buffered output
-    const buffer = useAppStore.getState().sessionBuffers[sessionId];
-    if (buffer) {
-      term.write(buffer);
-    }
-
     // Forward keystrokes to pty
     term.onData((data) => {
       window.agentPlex.writeSession(sessionId, data);
     });
 
-    // Subscribe to pty output — filter by this pane's sessionId
+    // Capture the buffer and subscribe in the same event-loop turn before
+    // replaying it. Registering after term.write() left a window where busy PTY
+    // output reached Zustand but was permanently absent from this xterm pane.
+    const buffer = useAppStore.getState().sessionBuffers[sessionId];
     const cleanup = window.agentPlex.onSessionData(({ id, data }) => {
       if (id === sessionId && termRef.current) {
         termRef.current.write(data);
       }
     });
+    if (buffer) {
+      term.write(buffer);
+    }
 
     // Handle resize
     let disposed = false;

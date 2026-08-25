@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"nhooyr.io/websocket"
 
@@ -34,7 +35,7 @@ func NewClientConn(deviceID string, ws *websocket.Conn, hub *Hub) *ClientConn {
 // Blocks until the connection is closed.
 func (cc *ClientConn) ReadLoop(ctx context.Context) {
 	defer func() {
-		cc.hub.UnregisterClient(cc.DeviceID)
+		cc.hub.UnregisterClient(cc.DeviceID, cc)
 		cc.Close()
 	}()
 
@@ -70,6 +71,12 @@ func (cc *ClientConn) handleMessage(ctx context.Context, data []byte) {
 		// Device is sending an encrypted message to its machine
 		if cc.MachineID == "" {
 			cc.sendError("NOT_CONNECTED", "send a 'connect' message first")
+			return
+		}
+		device, err := cc.hub.store.GetDevice(cc.DeviceID)
+		if err != nil || device.Revoked || device.MachineID != cc.MachineID {
+			cc.sendError("DEVICE_REVOKED", "device is no longer authorized")
+			cc.Close()
 			return
 		}
 		// Inject the "from" field
@@ -155,7 +162,9 @@ func (cc *ClientConn) Send(data []byte) bool {
 		return false
 	}
 
-	err := cc.ws.Write(context.Background(), websocket.MessageText, data)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := cc.ws.Write(ctx, websocket.MessageText, data)
 	if err != nil {
 		log.Printf("[client] %s write error: %v", cc.DeviceID, err)
 		return false

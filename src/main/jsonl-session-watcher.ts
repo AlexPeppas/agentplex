@@ -129,18 +129,33 @@ export class JsonlSessionWatcher extends EventEmitter {
   private offset = 0;
   private partialLine = '';
   private activeAgents = new Map<string, { description: string; subagentType: string }>();
+  private seenAgentIds = new Set<string>();
   private copilotTasksById = new Map<string, { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }>();
   private nextCopilotTaskNumber = 1;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** When true, prime the read offset to the current end-of-file on start so
+   *  pre-existing content (a resumed/restored session's history) is NOT replayed
+   *  as fresh sub-agent/plan/task events. Only genuinely new appends are emitted. */
+  private skipExisting: boolean;
 
-  constructor(jsonlPath: string, format: WatcherFormat = 'claude') {
+  constructor(jsonlPath: string, format: WatcherFormat = 'claude', skipExisting = false) {
     super();
     this.jsonlPath = jsonlPath;
     this.format = format;
+    this.skipExisting = skipExisting;
   }
 
   start(): void {
     if (this.timer) return;
+    if (this.skipExisting) {
+      // Skip any content that already exists on disk (resume/restore): only
+      // events appended after this point should render sub-agents/plans/tasks.
+      try {
+        this.offset = fs.statSync(this.jsonlPath).size;
+      } catch {
+        // File doesn't exist yet (genuinely new session) — read from the start.
+      }
+    }
     this.timer = setInterval(() => this.poll(), 500);
   }
 
@@ -162,7 +177,14 @@ export class JsonlSessionWatcher extends EventEmitter {
 
     try {
       const stat = fs.fstatSync(fd);
-      if (stat.size <= this.offset) return;
+      if (stat.size < this.offset) {
+        // The CLI truncated or replaced the events file. Continuing from the
+        // stale byte offset would permanently miss new events and eventually
+        // resume in the middle of a JSON record.
+        this.offset = 0;
+        this.partialLine = '';
+      }
+      if (stat.size === this.offset) return;
 
       const bytesToRead = stat.size - this.offset;
       const buf = Buffer.alloc(bytesToRead);
@@ -206,6 +228,8 @@ export class JsonlSessionWatcher extends EventEmitter {
       for (const block of content) {
         if (block.type === 'tool_use' && block.name === 'Agent') {
           const toolUseId: string = block.id;
+          if (this.seenAgentIds.has(toolUseId)) continue;
+          this.seenAgentIds.add(toolUseId);
           const description: string = block.input?.description || 'Sub-agent';
           const subagentType: string = block.input?.subagent_type || 'general-purpose';
 
@@ -252,6 +276,8 @@ export class JsonlSessionWatcher extends EventEmitter {
     } else if (type === 'subagent.started') {
       const toolUseId: string | undefined = data.toolCallId;
       if (typeof toolUseId !== 'string') return;
+      if (this.seenAgentIds.has(toolUseId)) return;
+      this.seenAgentIds.add(toolUseId);
       const description: string =
         data.agentDescription || data.agentDisplayName || data.agentName || 'Sub-agent';
       const subagentType: string = data.agentName || 'general-purpose';

@@ -213,6 +213,9 @@ func main() {
 	mux.HandleFunc("POST /pair/complete", func(w http.ResponseWriter, r *http.Request) {
 		pairingHandler.Complete(w, r)
 	})
+	mux.HandleFunc("POST /pair/info", func(w http.ResponseWriter, r *http.Request) {
+		pairingHandler.Info(w, r)
+	})
 
 	// List devices for a machine (machine-authenticated)
 	mux.HandleFunc("GET /devices", func(w http.ResponseWriter, r *http.Request) {
@@ -228,12 +231,16 @@ func main() {
 		result := make([]api.DeviceInfo, 0, len(devices))
 		for _, d := range devices {
 			result = append(result, api.DeviceInfo{
-				DeviceID: d.DeviceID,
-				Name:     d.DisplayName,
-				Platform: d.Platform,
-				PairedAt: d.PairedAt.Format(time.RFC3339),
-				LastSeen: d.LastSeen.Format(time.RFC3339),
-				IsOnline: hub.IsMachineOnline(d.DeviceID), // check if device is connected
+				DeviceID:      d.DeviceID,
+				Name:          d.DisplayName,
+				Platform:      d.Platform,
+				PairedAt:      d.PairedAt.Format(time.RFC3339),
+				LastSeen:      d.LastSeen.Format(time.RFC3339),
+				IsOnline:      hub.IsClientOnline(d.DeviceID),
+				EncryptionKey: d.EncryptionKey,
+				PublicKey:     d.PublicKey,
+				CodeHash:      d.PairingCodeHash,
+				PairingProof:  d.PairingProof,
 			})
 		}
 		jsonResp(w, http.StatusOK, result)
@@ -262,6 +269,7 @@ func main() {
 			jsonErr(w, http.StatusInternalServerError, "failed to revoke device")
 			return
 		}
+		hub.DisconnectClient(deviceID)
 		auditLog.Log(audit.EventUnpair, claims.Subject, deviceID, remoteAddr(r), nil)
 		jsonResp(w, http.StatusOK, map[string]bool{"ok": true})
 	})
@@ -316,6 +324,7 @@ func main() {
 			log.Printf("[ws] Accept error: %v", err)
 			return
 		}
+		ws.SetReadLimit(4 << 20)
 
 		ctx := r.Context()
 		clientIP := remoteAddr(r)
@@ -340,15 +349,16 @@ func main() {
 	})
 
 	// --- CORS middleware ---
-	handler := corsMiddleware(mux)
+	handler := limitBodyMiddleware(corsMiddleware(mux))
 
 	// --- Server ---
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              addr,
+		Handler:           handler,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// Graceful shutdown
@@ -378,6 +388,15 @@ func main() {
 	defer cancel()
 	srv.Shutdown(ctx)
 	log.Println("[relay] Stopped")
+}
+
+func limitBodyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // --- Helpers ---

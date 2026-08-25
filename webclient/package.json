@@ -15,16 +15,17 @@
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.10.1",
     "idb": "^8.0.2",
+    "lucide-react": "^0.400.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.4",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.1",
     "tailwindcss": "^4.1.4",
-    "@tailwindcss/vite": "^4.1.4",
     "typescript": "^5.8.3",
     "vite": "^6.3.2"
   }

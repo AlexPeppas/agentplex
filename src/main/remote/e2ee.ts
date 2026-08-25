@@ -12,14 +12,105 @@
  */
 
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+import { homedir } from 'os';
 import { getEncryptionKeyPair } from './key-manager';
 
 const HKDF_SALT_PREFIX = 'agentplex-e2ee-v1';
 const NONCE_LENGTH = 12;    // 96-bit nonce for ChaCha20-Poly1305
 const TAG_LENGTH = 16;      // Poly1305 auth tag
+const OUTBOUND_EPOCH = crypto.randomBytes(16).toString('base64url');
+const REPLAY_STATE_PATH = path.join(homedir(), '.agentplex', 'remote-replay-state.json');
 
 // Cache derived session keys: deviceId → Buffer
 const sessionKeyCache = new Map<string, Buffer>();
+const sendCounters = new Map<string, number>();
+
+interface ReceiveReplayState {
+  epoch: string;
+  lastSequence: number;
+  previousEpochs: string[];
+}
+
+let receiveReplayState: Record<string, ReceiveReplayState> | null = null;
+let replaySavePending = false;
+let replaySaveDirty = false;
+
+function loadReceiveReplayState(): Record<string, ReceiveReplayState> {
+  if (receiveReplayState) return receiveReplayState;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(REPLAY_STATE_PATH, 'utf-8'));
+    receiveReplayState = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    receiveReplayState = {};
+  }
+  return receiveReplayState!;
+}
+
+function scheduleReceiveReplayStateSave() {
+  replaySaveDirty = true;
+  if (replaySavePending) return;
+  replaySavePending = true;
+  setTimeout(async () => {
+    while (replaySaveDirty) {
+      replaySaveDirty = false;
+      try {
+        const state = loadReceiveReplayState();
+        await fs.promises.mkdir(path.dirname(REPLAY_STATE_PATH), { recursive: true });
+        const tempPath = `${REPLAY_STATE_PATH}.tmp`;
+        await fs.promises.writeFile(tempPath, JSON.stringify(state), { encoding: 'utf-8', mode: 0o600 });
+        await fs.promises.rename(tempPath, REPLAY_STATE_PATH);
+      } catch (err) {
+        console.warn(`[e2ee] Failed to persist replay state: ${(err as Error).message}`);
+      }
+    }
+    replaySavePending = false;
+  }, 25);
+}
+
+function nextSequence(machineId: string, deviceId: string): number {
+  const key = `${machineId}:${deviceId}`;
+  const next = (sendCounters.get(key) ?? 0) + 1;
+  sendCounters.set(key, next);
+  return next;
+}
+
+function acceptDeviceSequence(
+  machineId: string,
+  deviceId: string,
+  epoch: string,
+  sequence: number,
+): boolean {
+  const state = loadReceiveReplayState();
+  const key = `${machineId}:${deviceId}`;
+  const stored = state[key];
+  const current = stored &&
+    typeof stored.epoch === 'string' &&
+    Number.isSafeInteger(stored.lastSequence)
+    ? {
+        epoch: stored.epoch,
+        lastSequence: stored.lastSequence,
+        previousEpochs: Array.isArray(stored.previousEpochs)
+          ? stored.previousEpochs.filter(value => typeof value === 'string')
+          : [],
+      }
+    : undefined;
+  if (current) state[key] = current;
+  if (!current) {
+    state[key] = { epoch, lastSequence: sequence, previousEpochs: [] };
+  } else if (current.epoch === epoch) {
+    if (sequence <= current.lastSequence) return false;
+    current.lastSequence = sequence;
+  } else {
+    if (current.previousEpochs.includes(epoch)) return false;
+    current.previousEpochs = [current.epoch, ...current.previousEpochs].slice(0, 8);
+    current.epoch = epoch;
+    current.lastSequence = sequence;
+  }
+  scheduleReceiveReplayStateSave();
+  return true;
+}
 
 // ── Key Agreement ───────────────────────────────────────────────────────────
 
@@ -104,6 +195,8 @@ export function clearAllSessionKeys() {
 export interface EncryptedEnvelope {
   type: 'envelope';
   to: string;
+  epoch: string;
+  seq: number;
   nonce: string; // base64
   ct: string;    // base64 (ciphertext + poly1305 tag)
 }
@@ -118,7 +211,8 @@ export interface EncryptedEnvelope {
  */
 export function encrypt(sessionKey: Buffer, machineId: string, deviceId: string, plaintext: string): EncryptedEnvelope {
   const nonce = crypto.randomBytes(NONCE_LENGTH);
-  const aad = Buffer.from(`${machineId}:${deviceId}`, 'utf-8');
+  const seq = nextSequence(machineId, deviceId);
+  const aad = Buffer.from(`${machineId}:${deviceId}:machine:${OUTBOUND_EPOCH}:${seq}`, 'utf-8');
 
   const cipher = crypto.createCipheriv('chacha20-poly1305', sessionKey, nonce, {
     authTagLength: TAG_LENGTH,
@@ -134,6 +228,8 @@ export function encrypt(sessionKey: Buffer, machineId: string, deviceId: string,
   return {
     type: 'envelope',
     to: deviceId,
+    epoch: OUTBOUND_EPOCH,
+    seq,
     nonce: nonce.toString('base64'),
     ct: Buffer.concat([encrypted, tag]).toString('base64'),
   };
@@ -148,8 +244,19 @@ export function encrypt(sessionKey: Buffer, machineId: string, deviceId: string,
  * @param envelope - the encrypted envelope
  * @returns decrypted plaintext string, or null if decryption fails
  */
-export function decrypt(sessionKey: Buffer, machineId: string, deviceId: string, envelope: { nonce: string; ct: string }): string | null {
+export function decrypt(
+  sessionKey: Buffer,
+  machineId: string,
+  deviceId: string,
+  envelope: { epoch: string; seq: number; nonce: string; ct: string },
+): string | null {
   try {
+    if (
+      typeof envelope.epoch !== 'string' ||
+      !envelope.epoch ||
+      !Number.isSafeInteger(envelope.seq) ||
+      envelope.seq <= 0
+    ) return null;
     const nonce = Buffer.from(envelope.nonce, 'base64');
     const ctWithTag = Buffer.from(envelope.ct, 'base64');
 
@@ -158,7 +265,10 @@ export function decrypt(sessionKey: Buffer, machineId: string, deviceId: string,
 
     const ciphertext = ctWithTag.subarray(0, -TAG_LENGTH);
     const tag = ctWithTag.subarray(-TAG_LENGTH);
-    const aad = Buffer.from(`${machineId}:${deviceId}`, 'utf-8');
+    const aad = Buffer.from(
+      `${machineId}:${deviceId}:device:${envelope.epoch}:${envelope.seq}`,
+      'utf-8',
+    );
 
     const decipher = crypto.createDecipheriv('chacha20-poly1305', sessionKey, nonce, {
       authTagLength: TAG_LENGTH,
@@ -171,6 +281,9 @@ export function decrypt(sessionKey: Buffer, machineId: string, deviceId: string,
       decipher.final(),
     ]);
 
+    if (!acceptDeviceSequence(machineId, deviceId, envelope.epoch, envelope.seq)) {
+      return null;
+    }
     return decrypted.toString('utf-8');
   } catch {
     return null;

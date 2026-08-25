@@ -9,6 +9,8 @@ type Envelope struct {
 	Type  string `json:"type"`  // always "envelope"
 	To    string `json:"to"`    // target machineId or deviceId
 	From  string `json:"from"`  // set by relay on outbound
+	Epoch string `json:"epoch"` // sender epoch, authenticated as AAD
+	Seq   uint64 `json:"seq"`   // monotonic sender sequence
 	Nonce string `json:"nonce"` // base64-encoded 96-bit nonce
 	CT    string `json:"ct"`    // base64-encoded ciphertext + poly1305 tag
 }
@@ -28,21 +30,24 @@ type PingMessage struct {
 
 // ConnectedEvent confirms a device is connected to a machine.
 type ConnectedEvent struct {
-	Type      string `json:"type"`      // "connected"
+	Type      string `json:"type"` // "connected"
 	MachineID string `json:"machineId"`
 }
 
 // MachineStatusEvent indicates a machine came online or went offline.
 type MachineStatusEvent struct {
-	Type      string `json:"type"`      // "machine:online" or "machine:offline"
+	Type      string `json:"type"` // "machine:online" or "machine:offline"
 	MachineID string `json:"machineId"`
 }
 
 // PairCompletedEvent notifies the machine that a device completed pairing.
 type PairCompletedEvent struct {
-	Type                string `json:"type"`                // "pair:completed"
+	Type                string `json:"type"` // "pair:completed"
 	DeviceID            string `json:"deviceId"`
+	DevicePublicKey     string `json:"devicePublicKey"`
 	DeviceEncryptionKey string `json:"deviceEncryptionKey"` // X25519 public key, base64
+	CodeHash            string `json:"codeHash"`
+	DeviceProof         string `json:"deviceProof"`
 	Name                string `json:"name"`
 	Platform            string `json:"platform"`
 }
@@ -54,7 +59,7 @@ type PongMessage struct {
 
 // ErrorMessage reports an error to the client.
 type ErrorMessage struct {
-	Type    string `json:"type"`    // "error"
+	Type    string `json:"type"` // "error"
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
@@ -105,17 +110,19 @@ type RegisterMachineResponse struct {
 
 // PairInitiateRequest is POST /pair/initiate (machine-authenticated).
 type PairInitiateRequest struct {
-	CodeHash             string `json:"codeHash"`             // SHA-256 hex of the 6-digit code
+	CodeHash             string `json:"codeHash"`             // SHA-256 hex of the out-of-band secret
 	MachineEncryptionKey string `json:"machineEncryptionKey"` // X25519 public key, base64
+	MachineProof         string `json:"machineProof"`         // HMAC binding machine identity and key
 	TTL                  int    `json:"ttl"`                  // seconds until code expires
 }
 
 // PairCompleteRequest is POST /pair/complete (code is the auth).
 type PairCompleteRequest struct {
 	MachineID           string `json:"machineId"`
-	Code                string `json:"code"` // the 6-digit code
+	CodeHash            string `json:"codeHash"`
 	DevicePublicKey     string `json:"devicePublicKey"`     // Ed25519 public key, base64
 	DeviceEncryptionKey string `json:"deviceEncryptionKey"` // X25519 public key, base64
+	DeviceProof         string `json:"deviceProof"`         // HMAC binding the complete key transcript
 	Platform            string `json:"platform"`            // "ios" | "web" | "android"
 	Name                string `json:"name"`                // e.g. "Alex's iPhone"
 }
@@ -125,16 +132,29 @@ type PairCompleteResponse struct {
 	DeviceID             string `json:"deviceId"`
 	MachineID            string `json:"machineId"`
 	MachineEncryptionKey string `json:"machineEncryptionKey"` // X25519 public key, base64
+	MachineProof         string `json:"machineProof"`
+}
+
+// PairInfoResponse lets a device authenticate the machine key before it submits
+// its own key proof. Possession of the high-entropy code hash locates the request.
+type PairInfoResponse struct {
+	MachineID            string `json:"machineId"`
+	MachineEncryptionKey string `json:"machineEncryptionKey"`
+	MachineProof         string `json:"machineProof"`
 }
 
 // DeviceInfo is returned by GET /devices.
 type DeviceInfo struct {
-	DeviceID  string `json:"deviceId"`
-	Name      string `json:"name"`
-	Platform  string `json:"platform"`
-	PairedAt  string `json:"pairedAt"`
-	LastSeen  string `json:"lastSeen"`
-	IsOnline  bool   `json:"isOnline"`
+	DeviceID      string `json:"deviceId"`
+	Name          string `json:"name"`
+	Platform      string `json:"platform"`
+	PairedAt      string `json:"pairedAt"`
+	LastSeen      string `json:"lastSeen"`
+	IsOnline      bool   `json:"isOnline"`
+	EncryptionKey string `json:"encryptionKey"`
+	PublicKey     string `json:"publicKey"`
+	CodeHash      string `json:"codeHash"`
+	PairingProof  string `json:"pairingProof"`
 }
 
 // MachineStatus is returned by GET /machines/:id/status.

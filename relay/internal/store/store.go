@@ -15,26 +15,29 @@ type Machine struct {
 
 // Device represents a paired remote client (iOS, web, Android).
 type Device struct {
-	DeviceID      string
-	PublicKey     string // Ed25519, base64
-	EncryptionKey string // X25519, base64
-	DisplayName   string
-	Platform      string // "ios" | "web" | "android"
-	MachineID     string
-	PairedAt      time.Time
-	LastSeen      time.Time
-	Revoked       bool
+	DeviceID        string
+	PublicKey       string // Ed25519, base64
+	EncryptionKey   string // X25519, base64
+	PairingCodeHash string
+	PairingProof    string
+	DisplayName     string
+	Platform        string // "ios" | "web" | "android"
+	MachineID       string
+	PairedAt        time.Time
+	LastSeen        time.Time
+	Revoked         bool
 }
 
 // PairingRequest represents an in-flight pairing flow.
 type PairingRequest struct {
-	ID        string
-	MachineID string
-	CodeHash  string
+	ID                   string
+	MachineID            string
+	CodeHash             string
 	MachineEncryptionKey string
-	ExpiresAt time.Time
-	Attempts  int
-	Completed bool
+	MachineProof         string
+	ExpiresAt            time.Time
+	Attempts             int
+	Completed            bool
 }
 
 // Store is the persistence interface for the relay.
