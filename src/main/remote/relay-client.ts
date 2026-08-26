@@ -71,6 +71,16 @@ export interface RelayClientConfig {
 
 type RelayClientState = 'disconnected' | 'connecting' | 'authenticating' | 'connected';
 
+class RelayHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RelayHttpError';
+  }
+}
+
 // ── Client ──────────────────────────────────────────────────────────────────
 
 export class RelayClient extends EventEmitter {
@@ -642,7 +652,14 @@ export class RelayClient extends EventEmitter {
 
   /** Revoke a paired device. */
   async revokeDevice(deviceId: string) {
-    await this.httpRequest('DELETE', `/devices/${deviceId}`, undefined, this.tokens?.accessToken);
+    try {
+      await this.httpRequest('DELETE', `/devices/${deviceId}`, undefined, this.tokens?.accessToken);
+    } catch (err) {
+      // A locally remembered device may belong to a previous/reset relay
+      // database. "Not found" already means it has no relay authorization, so
+      // finish the local cleanup instead of trapping the stale record forever.
+      if (!(err instanceof RelayHttpError) || err.status !== 404) throw err;
+    }
     removePairedDevice(deviceId);
     clearSessionKey(deviceId);
     console.log(`[relay-client] Device revoked: ${deviceId}`);
@@ -695,7 +712,7 @@ export class RelayClient extends EventEmitter {
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
-      throw new Error(`HTTP ${resp.status}: ${text}`);
+      throw new RelayHttpError(resp.status, `HTTP ${resp.status}: ${text}`);
     }
 
     return resp.json();
