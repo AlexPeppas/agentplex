@@ -962,13 +962,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       const memberIds: string[] = [];
       const savedPositions = new Map<string, { x: number; y: number }>();
       for (const m of group.members) {
-        // Prefer the original id (renderer reload keeps ids stable).
+        // Resume UUIDs are stable across process restarts, while transient
+        // session-N ids are reused in whichever order sessions restore. Prefer
+        // the UUID so a reordered restore cannot attach the wrong session to a
+        // group, then fall back to the live id for non-resumable shell sessions
+        // and renderer-only reloads.
         let resolved: string | undefined;
-        if (presentSessionIds.has(m.sessionId)) {
-          resolved = m.sessionId;
-        } else if (m.resumeSessionId && resumeCounts.get(m.resumeSessionId) === 1) {
+        if (m.resumeSessionId && resumeCounts.get(m.resumeSessionId) === 1) {
           const candidate = resumeToId.get(m.resumeSessionId);
           if (candidate && presentSessionIds.has(candidate)) resolved = candidate;
+        } else if (presentSessionIds.has(m.sessionId)) {
+          resolved = m.sessionId;
         }
         if (resolved && !claimed.has(resolved)) {
           claimed.add(resolved);
@@ -996,7 +1000,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         // createGroupWithMembers prepends the new group, so it's nodes[0].
         const created = get().nodes[0];
         if (created && created.type === 'groupNode') {
-          get().resizeGroup(created.id, group.manualSize, { recenter: true });
+          // Never shrink below the auto-fit diameter required by the restored
+          // member positions. An older manual size can be smaller than the
+          // saved layout, which previously left sessions scattered outside the
+          // circle after relaunch.
+          const restoredSize = Math.max(group.manualSize, groupSize(created));
+          get().resizeGroup(created.id, restoredSize, { recenter: true });
         }
       }
     }
