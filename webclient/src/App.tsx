@@ -8,6 +8,21 @@ import SessionList from './components/SessionList';
 import logo from './assets/logo.svg';
 import type { MachineStatus } from './relay/types';
 
+const MOBILE_QUERY = '(max-width: 767px)';
+
+function useMobileLayout() {
+  const [mobile, setMobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches);
+
+  useEffect(() => {
+    const media = window.matchMedia(MOBILE_QUERY);
+    const update = () => setMobile(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+
+  return mobile;
+}
+
 // ── Aggregate connection state across all machines ──────────────────────────
 
 function aggregate(status: Record<string, MachineStatus>): { color: string; title: string; live: boolean } {
@@ -39,6 +54,7 @@ export default function App() {
   const active = useStore(s => s.active);
   const setActiveSession = useStore(s => s.setActiveSession);
   const clearActiveSession = useStore(s => s.clearActiveSession);
+  const mobile = useMobileLayout();
 
   const [activeTab, setActiveTab] = useState<'canvas' | 'terminal'>('canvas');
   const [showAddMachine, setShowAddMachine] = useState(false);
@@ -63,7 +79,7 @@ export default function App() {
     <div className="flex h-full bg-surface overflow-hidden">
 
       {/* Activity bar (left icon strip) */}
-      <div className="w-11 flex-shrink-0 flex flex-col items-center py-2.5 gap-1 border-r border-border bg-inset">
+      {!mobile && <div className="w-11 flex-shrink-0 flex flex-col items-center py-2.5 gap-1 border-r border-border bg-inset">
         <img src={logo} alt="AgentPlex" className="w-6 h-6 mb-2" />
         <button
           onClick={handleBackToCanvas}
@@ -80,22 +96,27 @@ export default function App() {
         >
           <Plus size={18} />
         </button>
-      </div>
+      </div>}
 
       {/* Machines + sessions sidebar */}
-      <SessionList
-        active={active}
-        onSelectSession={handleSelectSession}
-        onAddMachine={() => setShowAddMachine(true)}
-      />
+      {(!mobile || activeTab === 'canvas') && (
+        <SessionList
+          active={active}
+          onSelectSession={handleSelectSession}
+          onAddMachine={() => setShowAddMachine(true)}
+          mobile={mobile}
+        />
+      )}
 
       {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {(!mobile || activeTab === 'terminal') && <div className="flex-1 flex flex-col min-w-0">
 
         {/* Toolbar */}
         <div className="h-10 flex items-center px-4 gap-4 border-b border-border bg-surface flex-shrink-0">
           <span className="text-[13px] font-semibold text-fg tracking-wide">
-            {activeTab === 'terminal' && activeMachineName ? activeMachineName : 'All machines'}
+            {activeTab === 'terminal' && activeMachineName
+              ? activeMachineName
+              : mobile ? 'Sessions' : 'All machines'}
           </span>
           <div className="flex-1" />
 
@@ -104,7 +125,7 @@ export default function App() {
               onClick={handleBackToCanvas}
               className="text-[11px] text-fg-muted hover:text-fg px-2 py-1 rounded hover:bg-elevated transition-colors"
             >
-              ← Canvas
+              ← {mobile ? 'Sessions' : 'Canvas'}
             </button>
           )}
 
@@ -113,7 +134,7 @@ export default function App() {
 
         {/* Canvas or Terminal */}
         <div className="flex-1 relative min-h-0">
-          {activeTab === 'canvas' ? (
+          {activeTab === 'canvas' && !mobile ? (
             <GraphCanvas onSelectSession={handleSelectSession} />
           ) : active ? (
             <Terminal
@@ -123,7 +144,7 @@ export default function App() {
             />
           ) : null}
         </div>
-      </div>
+      </div>}
 
       {/* Add-machine overlay */}
       {showAddMachine && (

@@ -20,10 +20,11 @@ function machineDot(status: MachineStatus): { color: string; label: string } {
   return { color: 'var(--text-muted)', label: 'disconnected' };
 }
 
-function SessionRow({ session, active, onClick }: {
+function SessionRow({ session, active, onClick, mobile }: {
   session: SessionInfo;
   active: boolean;
   onClick: () => void;
+  mobile: boolean;
 }) {
   const displayNames = useStore(s => s.displayNames);
   const label = displayNames[session.machineId]?.[session.id] ?? session.title;
@@ -32,13 +33,13 @@ function SessionRow({ session, active, onClick }: {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left pl-6 pr-3 py-1.5 rounded-md transition-colors group
+      className={`w-full text-left pl-6 pr-3 ${mobile ? 'py-3' : 'py-1.5'} rounded-md transition-colors group
         ${active ? 'bg-accent-subtle' : 'hover:bg-elevated'}`}
     >
       <div className="flex items-center gap-2 min-w-0">
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: STATUS_VAR[session.status] }} />
         <CliIcon cli={session.cli} size={11} />
-        <span className={`text-[13px] truncate flex-1 ${active ? 'text-fg' : 'text-fg-muted group-hover:text-fg'}`}>
+        <span className={`${mobile ? 'text-[15px]' : 'text-[13px]'} truncate flex-1 ${active ? 'text-fg' : 'text-fg-muted group-hover:text-fg'}`}>
           {label}
         </span>
       </div>
@@ -51,9 +52,10 @@ interface Props {
   active: { machineId: string; sessionId: string } | null;
   onSelectSession: (machineId: string, sessionId: string) => void;
   onAddMachine: () => void;
+  mobile?: boolean;
 }
 
-export default function SessionList({ active, onSelectSession, onAddMachine }: Props) {
+export default function SessionList({ active, onSelectSession, onAddMachine, mobile = false }: Props) {
   const machines = useStore(s => s.machines);
   const sessions = useStore(s => s.sessions);
   const status = useStore(s => s.status);
@@ -61,10 +63,13 @@ export default function SessionList({ active, onSelectSession, onAddMachine }: P
   const removeMachine = useStore(s => s.removeMachine);
 
   return (
-    <div className="w-60 flex-shrink-0 flex flex-col h-full bg-inset border-r border-border">
+    <div className={`${mobile ? 'w-full' : 'w-60 border-r'} flex-shrink-0 flex flex-col h-full bg-inset border-border`}>
       {/* Header */}
       <div className="px-3 py-3 border-b border-border flex items-center justify-between">
-        <span className="text-[11px] font-semibold text-fg tracking-wider uppercase">AgentPlex</span>
+        <div>
+          <span className="text-[11px] font-semibold text-fg tracking-wider uppercase">AgentPlex</span>
+          {mobile && <div className="text-[12px] text-fg-muted mt-0.5">Remote sessions</div>}
+        </div>
         <span className="text-[10px] text-fg-muted">{machines.length} machine{machines.length === 1 ? '' : 's'}</span>
       </div>
 
@@ -80,10 +85,10 @@ export default function SessionList({ active, onSelectSession, onAddMachine }: P
           return (
             <div key={mid} className="mb-1.5">
               {/* Machine header */}
-              <div className="flex items-center gap-2 px-3 py-1.5 group">
-                <Monitor size={13} className="text-fg-muted shrink-0" />
+              <div className={`flex items-center gap-2 px-3 group ${mobile ? 'py-3' : 'py-1.5'}`}>
+                <Monitor size={mobile ? 16 : 13} className="text-fg-muted shrink-0" />
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: dot.color }} title={dot.label} />
-                <span className="text-[12px] font-semibold text-fg truncate flex-1" title={mid}>{machine.name}</span>
+                <span className={`${mobile ? 'text-[14px]' : 'text-[12px]'} font-semibold text-fg truncate flex-1`} title={mid}>{machine.name}</span>
                 <button
                   onClick={() => sendCommand(mid, { type: 'session:create', cli: 'claude' })}
                   disabled={!online}
@@ -114,6 +119,7 @@ export default function SessionList({ active, onSelectSession, onAddMachine }: P
                       session={s}
                       active={active?.machineId === mid && active?.sessionId === s.id}
                       onClick={() => onSelectSession(mid, s.id)}
+                      mobile={mobile}
                     />
                   ))
                 )}
