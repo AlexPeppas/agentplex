@@ -114,6 +114,17 @@ Without this, cross-session messaging still works — it sends raw context inste
 4. **Send messages** — hover a node, click the send icon to share context with another session
 5. **Resume** — use "Resume" under Claude or Copilot to continue a previous session
 
+The Explorer also provides a **Needs attention** box for sessions waiting for input.
+Click an item to review its terminal; this does not automatically approve requests.
+Search by session name, project path, CLI, or group, and combine status and CLI
+filters. Projects and sessions stay alphabetically ordered as activity changes.
+Session creation remains in the main toolbar and project context menus.
+
+For Copilot, **Running** follows assistant turns and tool execution, **Needs
+attention** means an unresolved permission or `ask_user` request, and **Idle**
+means the turn has ended or been cancelled. Terminal prompt text, redraws, and
+quiet periods during long-running work do not change Copilot's lifecycle status.
+
 ## Project Structure
 
 ```

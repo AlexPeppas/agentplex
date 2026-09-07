@@ -105,37 +105,27 @@ export function scheduleRefreshAllTerminals() {
 const TERMINAL_FONT_FAMILY = 'MesloLGS Nerd Font Mono';
 
 /** xterm measures the character cell from the *currently loaded* font. The
- *  terminal font is a bundled @font-face (TTF) that may still be loading on the
- *  first paint, so an early fit() measures the fallback font's cell width and
- *  locks xterm's column count to it. Once the Nerd Font loads its glyph advance
- *  width differs, so xterm's cols no longer match the rendered glyphs and the
- *  PTY was told the wrong width — cursor-addressed TUI redraws (Copilot/Claude)
- *  then drift and overwrite themselves until a manual zoom/refit. Force the font
- *  to load, then refit + repaint so xterm and the PTY agree from the start. */
+ * terminal font may still be loading on first paint, so refit once its actual
+ * metrics are available to keep xterm columns synchronized with the PTY. */
 function fitWhenFontReady(entry: LiveTerminal) {
-  // Best-effort immediate fit (correct when the font is already cached).
   requestAnimationFrame(() => syncTerminalSize(entry, true));
 
   const fonts = document.fonts;
   if (!fonts) return;
 
   const refit = () => {
-    if (!liveTerminals.has(entry)) return; // unmounted
+    if (!liveTerminals.has(entry)) return;
     syncTerminalSize(entry, true);
     if (entry.term.rows > 0) {
       try { entry.term.refresh(0, entry.term.rows - 1); } catch { /* ignore */ }
     }
   };
 
-  // Explicitly load the weights xterm renders, then refit — covers the case
-  // where nothing else has triggered the @font-face load yet.
   const size = entry.term.options.fontSize ?? DEFAULT_FONT_SIZE;
   Promise.all([
     fonts.load(`${size}px "${TERMINAL_FONT_FAMILY}"`).catch(() => undefined),
     fonts.load(`bold ${size}px "${TERMINAL_FONT_FAMILY}"`).catch(() => undefined),
   ]).then(refit);
-
-  // Belt-and-suspenders: refit again once all document fonts settle.
   fonts.ready.then(refit).catch(() => undefined);
 }
 
@@ -164,10 +154,6 @@ function ensureGlobalListeners() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleRefreshAllTerminals();
   });
-
-  // ResizeObserver only fires when the terminal's container changes size. A
-  // display-scale/DPI or compositor change can invalidate xterm's cell metrics
-  // without changing that box, so explicitly rebuild its renderer geometry.
   window.addEventListener('resize', scheduleRefreshAllTerminals);
 }
 
@@ -200,8 +186,6 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     const entry: LiveTerminal = { term, fitAddon, sessionId, lastCols: 0, lastRows: 0 };
     liveTerminals.add(entry);
 
-    // Fit once the terminal font is loaded so xterm's column count matches the
-    // real glyph width (avoids progressive output misalignment mid-session).
     fitWhenFontReady(entry);
 
     // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
@@ -264,9 +248,8 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       window.agentPlex.writeSession(sessionId, data);
     });
 
-    // Capture the buffer and subscribe in the same event-loop turn before
-    // replaying it. Registering after term.write() left a window where busy PTY
-    // output reached Zustand but was permanently absent from this xterm pane.
+    // Capture and subscribe in one event-loop turn so live output cannot fall
+    // between buffer replay and listener registration.
     const buffer = useAppStore.getState().sessionBuffers[sessionId];
     const cleanup = window.agentPlex.onSessionData(({ id, data }) => {
       if (id === sessionId && termRef.current) {

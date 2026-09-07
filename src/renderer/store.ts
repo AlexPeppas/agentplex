@@ -394,6 +394,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addSession: (info: SessionInfo) => {
     const { nodes, nodeCounter } = get();
+    const now = Date.now();
+    const normalizedInfo: SessionInfo = {
+      ...info,
+      startedAt: info.startedAt || now,
+      lastActivityAt: info.lastActivityAt || info.startedAt || now,
+      usage: info.usage ?? null,
+      telemetrySupported: info.telemetrySupported === true,
+    };
     const col = nodeCounter % GRID_COLS;
     const row = Math.floor(nodeCounter / GRID_COLS);
 
@@ -416,7 +424,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({
       nodes: [...nodes, newNode],
-      sessions: { ...get().sessions, [info.id]: info },
+      sessions: { ...get().sessions, [info.id]: normalizedInfo },
       // Restore can deliver a rendered Copilot transcript before the async
       // restore result adds its node. Preserve that already-received history.
       sessionBuffers: {
@@ -585,11 +593,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (buf.length > 2 * 1024 * 1024) {
         buf = buf.slice(-2 * 1024 * 1024);
       }
+      const session = state.sessions[id];
+      const now = Date.now();
+      const shouldRefreshActivity = Boolean(
+        session &&
+        data.trim() &&
+        now - session.lastActivityAt >= 30_000,
+      );
       return {
         sessionBuffers: {
           ...state.sessionBuffers,
           [id]: buf,
         },
+        sessions: shouldRefreshActivity
+          ? {
+              ...state.sessions,
+              [id]: { ...session, lastActivityAt: now },
+            }
+          : state.sessions,
       };
     });
   },
@@ -964,13 +985,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       const memberIds: string[] = [];
       const savedPositions = new Map<string, { x: number; y: number }>();
       for (const m of group.members) {
-        // Prefer the original id (renderer reload keeps ids stable).
+        // Resume UUIDs are stable across process restarts, while transient
+        // session-N ids are reused in whichever order sessions restore. Prefer
+        // the UUID so a reordered restore cannot attach the wrong session to a
+        // group, then fall back to the live id for non-resumable shell sessions
+        // and renderer-only reloads.
         let resolved: string | undefined;
-        if (presentSessionIds.has(m.sessionId)) {
-          resolved = m.sessionId;
-        } else if (m.resumeSessionId && resumeCounts.get(m.resumeSessionId) === 1) {
+        if (m.resumeSessionId && resumeCounts.get(m.resumeSessionId) === 1) {
           const candidate = resumeToId.get(m.resumeSessionId);
           if (candidate && presentSessionIds.has(candidate)) resolved = candidate;
+        } else if (presentSessionIds.has(m.sessionId)) {
+          resolved = m.sessionId;
         }
         if (resolved && !claimed.has(resolved)) {
           claimed.add(resolved);
@@ -998,7 +1023,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         // createGroupWithMembers prepends the new group, so it's nodes[0].
         const created = get().nodes[0];
         if (created && created.type === 'groupNode') {
-          get().resizeGroup(created.id, group.manualSize, { recenter: true });
+          // Never shrink below the auto-fit diameter required by the restored
+          // member positions. An older manual size can be smaller than the
+          // saved layout, which previously left sessions scattered outside the
+          // circle after relaunch.
+          const restoredSize = Math.max(group.manualSize, groupSize(created));
+          get().resizeGroup(created.id, restoredSize, { recenter: true });
         }
       }
     }

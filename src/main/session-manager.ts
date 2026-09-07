@@ -7,7 +7,7 @@ import { EventEmitter } from 'events';
 import { BrowserWindow } from 'electron';
 import { homedir } from 'os';
 import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL } from '../shared/ipc-channels';
-import type { SessionInfo, CliTool, ExternalSession } from '../shared/ipc-channels';
+import type { SessionInfo, SessionUsage, CliTool, ExternalSession } from '../shared/ipc-channels';
 import { getShellById } from './shell-detector';
 import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
@@ -89,14 +89,15 @@ interface Session {
   resumeSessionId: string | null;
   pty: pty.IPty;
   status: SessionStatus;
+  startedAt: number;
+  lastActivityAt: number;
+  usage: SessionUsage | null;
   lastOutput: number;
   lastVisibleOutput: number;
   /** Timestamp when WaitingForInput was first detected (0 = not waiting) */
   waitingSince: number;
   /** Buffer length at the time HITL was detected — used to tell real output from redraws */
   waitingBufferLen: number;
-  /** Copilot-only: true while a permission.requested has not been resolved by permission.completed */
-  waitingForPermission: boolean;
   buffer: string;
   jsonlWatcher: JsonlSessionWatcher | null;
   planTaskDetector: PlanTaskDetector;
@@ -385,7 +386,7 @@ export class SessionManager {
     } else if (normalizedCli === 'copilot') {
       // ~/.copilot/session-state/<uuid>/events.jsonl is the append-only event log.
       // Used both for sub-agent detection (subagent.started + tool.execution_complete)
-      // and for "Running" status detection via mtime in checkStatuses().
+      // and for event-driven lifecycle status.
       jsonlPath = path.join(home, '.copilot', 'session-state', resumeSessionId, 'events.jsonl');
       jsonlWatcher = this.createJsonlWatcher(jsonlPath, id, 'copilot', true);
       jsonlWatcher.start();
@@ -434,12 +435,14 @@ export class SessionManager {
       cwd: workDir,
       resumeSessionId,
       pty: term,
-      status: SessionStatus.Running,
+      status: isClaude ? SessionStatus.Running : SessionStatus.Idle,
+      startedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      usage: null,
       lastOutput: Date.now(),
       lastVisibleOutput: Date.now(),
       waitingSince: 0,
       waitingBufferLen: 0,
-      waitingForPermission: false,
       buffer: '',
       jsonlWatcher,
       planTaskDetector: planDetector,
@@ -449,6 +452,7 @@ export class SessionManager {
       session.lastOutput = Date.now();
       if (stripAnsi(data).trim()) {
         session.lastVisibleOutput = Date.now();
+        session.lastActivityAt = session.lastVisibleOutput;
       }
       session.buffer += data;
       if (session.buffer.length > BUFFER_CAP) {
@@ -521,7 +525,19 @@ export class SessionManager {
       } catch { /* session may have been killed */ }
     }, launchDelayMs);
 
-    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli: session.cli, resumeSessionId: session.resumeSessionId };
+    return {
+      id,
+      title,
+      status: session.status,
+      pid: term.pid,
+      cwd: workDir,
+      cli: session.cli,
+      startedAt: session.startedAt,
+      lastActivityAt: session.lastActivityAt,
+      usage: session.usage,
+      telemetrySupported: true,
+      resumeSessionId: session.resumeSessionId,
+    };
   }
 
   stop() {
@@ -657,12 +673,14 @@ export class SessionManager {
       cwd: workDir,
       resumeSessionId: sessionUuid,
       pty: term,
-      status: SessionStatus.Running,
+      status: cli === 'copilot-resume' ? SessionStatus.Idle : SessionStatus.Running,
+      startedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      usage: null,
       lastOutput: Date.now(),
       lastVisibleOutput: Date.now(),
       waitingSince: 0,
       waitingBufferLen: 0,
-      waitingForPermission: false,
       buffer: '',
       jsonlWatcher,
       planTaskDetector: planDetector,
@@ -672,6 +690,7 @@ export class SessionManager {
       session.lastOutput = Date.now();
       if (stripAnsi(data).trim()) {
         session.lastVisibleOutput = Date.now();
+        session.lastActivityAt = session.lastVisibleOutput;
       }
       session.buffer += data;
       if (session.buffer.length > BUFFER_CAP) {
@@ -718,7 +737,19 @@ export class SessionManager {
 
     this.saveState();
 
-    return { id, title, status: SessionStatus.Running, pid: term.pid, cwd: workDir, cli, resumeSessionId: session.resumeSessionId };
+    return {
+      id,
+      title,
+      status: session.status,
+      pid: term.pid,
+      cwd: workDir,
+      cli,
+      startedAt: session.startedAt,
+      lastActivityAt: session.lastActivityAt,
+      usage: session.usage,
+      telemetrySupported: true,
+      resumeSessionId: session.resumeSessionId,
+    };
   }
 
   write(id: string, data: string) {
@@ -775,6 +806,10 @@ export class SessionManager {
       pid: s.pty.pid,
       cwd: s.cwd,
       cli: s.cli,
+      startedAt: s.startedAt,
+      lastActivityAt: s.lastActivityAt,
+      usage: s.usage,
+      telemetrySupported: true,
       resumeSessionId: s.resumeSessionId,
     }));
   }
@@ -803,8 +838,8 @@ export class SessionManager {
     return names;
   }
 
-  private createJsonlWatcher(jsonlPath: string, sessionId: string, format: WatcherFormat = 'claude', skipExisting = false): JsonlSessionWatcher {
-    const watcher = new JsonlSessionWatcher(jsonlPath, format, skipExisting);
+  private createJsonlWatcher(jsonlPath: string, sessionId: string, format: WatcherFormat = 'claude', skipExisting = false, hydrateLifecycle = false): JsonlSessionWatcher {
+    const watcher = new JsonlSessionWatcher(jsonlPath, format, skipExisting, hydrateLifecycle);
 
     watcher.on('agent-spawn', (event: { toolUseId: string; description: string; subagentType: string }) => {
       this.send(IPC.SUBAGENT_SPAWN, {
@@ -818,6 +853,18 @@ export class SessionManager {
       this.send(IPC.SUBAGENT_COMPLETE, {
         sessionId,
         subagentId: event.toolUseId,
+      });
+    });
+
+    watcher.on('telemetry', (usage: SessionUsage) => {
+      const session = this.sessions.get(sessionId);
+      if (!session || session.status === SessionStatus.Killed) return;
+      session.usage = usage;
+      session.lastActivityAt = Math.max(session.lastActivityAt, usage.updatedAt);
+      this.send(IPC.SESSION_INFO_UPDATE, {
+        id: sessionId,
+        usage,
+        lastActivityAt: session.lastActivityAt,
       });
     });
 
@@ -850,24 +897,10 @@ export class SessionManager {
         this.send(IPC.TASK_LIST, { sessionId, tasks: event.tasks });
       });
 
-      // Permission events drive WaitingForInput status immediately — no need to wait
-      // for the next 500ms checkStatuses tick. The flag is also consulted there to
-      // keep the status sticky across ticks until the user resolves the request.
-      watcher.on('permission-requested', () => {
+      watcher.on('lifecycle', (status: SessionStatus) => {
         const session = this.sessions.get(sessionId);
         if (!session) return;
-        session.waitingForPermission = true;
-        if (session.status !== SessionStatus.WaitingForInput) {
-          session.status = SessionStatus.WaitingForInput;
-          this.send(IPC.SESSION_STATUS, { id: sessionId, status: SessionStatus.WaitingForInput });
-        }
-      });
-
-      watcher.on('permission-completed', () => {
-        const session = this.sessions.get(sessionId);
-        if (!session) return;
-        session.waitingForPermission = false;
-        // Status normalizes to Running/Idle on the next checkStatuses tick (within 500ms).
+        this.updateStatus(session, status);
       });
     }
 
@@ -992,7 +1025,7 @@ export class SessionManager {
             session.resumeSessionId = dir;
             session.cli = 'copilot'; // normalize — picker is done, it's a regular Copilot session
             // Wire the events.jsonl watcher (sub-agent + plan + permission detection).
-            const watcher = this.createJsonlWatcher(eventsPath, sessionId, 'copilot', true);
+            const watcher = this.createJsonlWatcher(eventsPath, sessionId, 'copilot', true, true);
             session.jsonlWatcher = watcher;
             watcher.start();
             // Update session.cwd from workspace.yaml so the UI / git panel reflect the
@@ -1262,6 +1295,13 @@ export class SessionManager {
     for (const session of this.sessions.values()) {
       if (session.status === SessionStatus.Killed) continue;
 
+      if (session.cli === 'copilot' || session.cli === 'copilot-resume') {
+        // Copilot's prompt is normally visible even while working. Neither
+        // terminal prose/redraws nor five seconds of log silence is a boundary.
+        this.updateStatus(session, session.jsonlWatcher?.lifecycleStatus ?? SessionStatus.Idle);
+        continue;
+      }
+
       const tail = stripAnsi(session.buffer.slice(-500));
       const trimmedTail = tail.trimEnd();
 
@@ -1277,9 +1317,8 @@ export class SessionManager {
       const promptDetected = atPrompt || matchesFull || matchesLine;
 
       // Use the watcher's JSONL file mtime as the ground truth for "Running".
-      // Claude writes ~/.claude/projects/<encodedPath>/<uuid>.jsonl while working;
-      // Copilot writes ~/.copilot/session-state/<uuid>/events.jsonl. Both append
-      // continuously while the CLI is active. Terminal output is too noisy
+      // Claude writes ~/.claude/projects/<encodedPath>/<uuid>.jsonl while working.
+      // Terminal output is too noisy
       // (redraws, cursor repositioning) to be a reliable signal.
       let jsonlActive = false;
       if (session.jsonlWatcher) {
@@ -1290,12 +1329,7 @@ export class SessionManager {
       }
 
       let newStatus: SessionStatus;
-      if (session.waitingForPermission) {
-        // Copilot fast-path: an outstanding permission.requested event holds the session
-        // in WaitingForInput until permission.completed arrives. Don't touch
-        // waitingSince/waitingBufferLen — those are owned by the buffer-pattern HITL path.
-        newStatus = SessionStatus.WaitingForInput;
-      } else if (promptDetected) {
+      if (promptDetected) {
         newStatus = SessionStatus.WaitingForInput;
         if (session.waitingSince === 0) {
           session.waitingSince = now;
@@ -1316,14 +1350,14 @@ export class SessionManager {
         newStatus = SessionStatus.Idle;
       }
 
-      if (newStatus !== session.status) {
-        session.status = newStatus;
-        this.send(IPC.SESSION_STATUS, {
-          id: session.id,
-          status: newStatus,
-        });
-      }
+      this.updateStatus(session, newStatus);
     }
+  }
+
+  private updateStatus(session: Session, status: SessionStatus): void {
+    if (session.status === SessionStatus.Killed || status === session.status) return;
+    session.status = status;
+    this.send(IPC.SESSION_STATUS, { id: session.id, status });
   }
 
   private send(channel: string, data: unknown) {

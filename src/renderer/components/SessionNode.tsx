@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Send, ClipboardList, Circle, Check, Terminal, Trash2, GitBranch } from 'lucide-react';
 import { StatusIndicator } from './StatusIndicator';
+import { ContextMeter, SessionAge } from './SessionMetrics';
 import { useAppStore, type SessionNodeData } from '../store';
 import { SessionStatus, type CliTool } from '../../shared/ipc-channels';
 import claudeLogo from '../../../assets/claude-logo.svg';
@@ -38,6 +39,7 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
   const isSelected = useAppStore((s) => s.openPanes.includes(nodeData.sessionId));
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
+  const session = useAppStore((s) => s.sessions[nodeData.sessionId]);
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
   const completedTasks = nodeData.tasks
@@ -261,6 +263,16 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
         <div className="flex items-center gap-1 mt-1 text-[10px] text-fg-muted">
           <GitBranch size={9} className="shrink-0" />
           <span className="truncate">{branchName}</span>
+        </div>
+      )}
+      {session && (
+        <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-border">
+          <ContextMeter usage={session.usage} supported={session.telemetrySupported} compact />
+          <SessionAge
+            startedAt={session.startedAt}
+            lastActivityAt={session.lastActivityAt}
+            compact
+          />
         </div>
       )}
 

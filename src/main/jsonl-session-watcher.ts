@@ -1,5 +1,7 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
+import { SessionStatus } from '../shared/ipc-channels';
+import { CopilotLifecycle } from './copilot-lifecycle';
 
 export interface AgentSpawnEvent {
   toolUseId: string;
@@ -29,6 +31,17 @@ export interface PermissionCompletedEvent {
 /** Copilot-only derived task list from sql(todo) operations. */
 export interface TaskListEvent {
   tasks: { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }[];
+}
+
+export interface SessionTelemetryEvent {
+  contextTokens: number;
+  contextWindowTokens: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  model: string | null;
+  updatedAt: number;
 }
 
 export type WatcherFormat = 'claude' | 'copilot';
@@ -123,7 +136,7 @@ function extractSqlTuples(text: string): string[] {
 }
 
 export class JsonlSessionWatcher extends EventEmitter {
-  /** Public so SessionManager can read mtime for "Running" status detection. */
+  /** Claude uses mtime as a fallback; Copilot exposes structured lifecycleStatus. */
   jsonlPath: string;
   private format: WatcherFormat;
   private offset = 0;
@@ -132,17 +145,24 @@ export class JsonlSessionWatcher extends EventEmitter {
   private seenAgentIds = new Set<string>();
   private copilotTasksById = new Map<string, { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }>();
   private nextCopilotTaskNumber = 1;
+  private telemetry: SessionTelemetryEvent | null = null;
+  private copilotLifecycle = new CopilotLifecycle();
+  private lastLifecycleStatus: SessionStatus | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   /** When true, prime the read offset to the current end-of-file on start so
    *  pre-existing content (a resumed/restored session's history) is NOT replayed
    *  as fresh sub-agent/plan/task events. Only genuinely new appends are emitted. */
   private skipExisting: boolean;
 
-  constructor(jsonlPath: string, format: WatcherFormat = 'claude', skipExisting = false) {
+  constructor(jsonlPath: string, format: WatcherFormat = 'claude', skipExisting = false, private hydrateLifecycle = false) {
     super();
     this.jsonlPath = jsonlPath;
     this.format = format;
     this.skipExisting = skipExisting;
+  }
+
+  get lifecycleStatus(): SessionStatus | null {
+    return this.format === 'copilot' ? this.copilotLifecycle.status : null;
   }
 
   start(): void {
@@ -157,6 +177,12 @@ export class JsonlSessionWatcher extends EventEmitter {
       }
     }
     this.timer = setInterval(() => this.poll(), 500);
+    const snapshotEnd = this.offset;
+    queueMicrotask(() => {
+      if (!this.timer) return;
+      if (this.skipExisting) this.readLatestTelemetry(snapshotEnd);
+      this.publishLifecycle();
+    });
   }
 
   stop(): void {
@@ -183,6 +209,8 @@ export class JsonlSessionWatcher extends EventEmitter {
         // resume in the middle of a JSON record.
         this.offset = 0;
         this.partialLine = '';
+        this.copilotLifecycle.reset();
+        this.publishLifecycle();
       }
       if (stat.size === this.offset) return;
 
@@ -202,6 +230,9 @@ export class JsonlSessionWatcher extends EventEmitter {
         if (!trimmed) continue;
         this.processLine(trimmed);
       }
+      // Publish the final state of the batch: turn_end/turn_start often arrive
+      // together between tool rounds and should not flash Idle in the renderer.
+      this.publishLifecycle();
     } finally {
       fs.closeSync(fd);
     }
@@ -215,11 +246,146 @@ export class JsonlSessionWatcher extends EventEmitter {
       return; // malformed line
     }
 
+    if (!record || typeof record !== 'object') return;
     if (this.format === 'claude') this.processClaudeRecord(record);
     else this.processCopilotRecord(record);
   }
 
+  /** Read only the captured tail for usage and, when attaching to an already
+   * running CLI, lifecycle state. Never replay historical UI action events. */
+  private readLatestTelemetry(snapshotEnd: number): void {
+    let fd: number | null = null;
+    try {
+      fd = fs.openSync(this.jsonlPath, 'r');
+      const stat = fs.fstatSync(fd);
+      const end = Math.min(stat.size, snapshotEnd);
+      if (end === 0) return;
+      const maxBytes = 2 * 1024 * 1024;
+      const start = Math.max(0, end - maxBytes);
+      const buf = Buffer.alloc(end - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      let text = buf.toString('utf-8');
+      if (start > 0) {
+        const firstNewline = text.indexOf('\n');
+        if (firstNewline < 0) return;
+        text = text.slice(firstNewline + 1);
+      }
+      const lines = text.split('\n');
+      // Preserve an incomplete record across the startup offset, just as poll()
+      // preserves partial records across subsequent reads.
+      this.partialLine = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const record = JSON.parse(trimmed);
+          if (!record || typeof record !== 'object') continue;
+          if (this.format === 'claude') this.processClaudeTelemetry(record);
+          else {
+            this.processCopilotTelemetry(record);
+            if (this.hydrateLifecycle) this.copilotLifecycle.accept(record);
+          }
+        } catch {
+          // Ignore malformed or partially-written tail records.
+        }
+      }
+    } catch {
+      // The provider log may not exist yet for a new session.
+    } finally {
+      if (fd !== null) fs.closeSync(fd);
+    }
+  }
+
+  private publishLifecycle(): void {
+    const status = this.lifecycleStatus;
+    if (status === null || status === this.lastLifecycleStatus) return;
+    this.lastLifecycleStatus = status;
+    this.emit('lifecycle', status);
+  }
+
+  private emitTelemetry(next: Partial<SessionTelemetryEvent>): void {
+    const previous = this.telemetry;
+    const merged: SessionTelemetryEvent = {
+      contextTokens: next.contextTokens ?? previous?.contextTokens ?? 0,
+      contextWindowTokens: next.contextWindowTokens ?? previous?.contextWindowTokens ?? null,
+      inputTokens: next.inputTokens ?? previous?.inputTokens ?? 0,
+      outputTokens: next.outputTokens ?? previous?.outputTokens ?? 0,
+      cacheReadTokens: next.cacheReadTokens ?? previous?.cacheReadTokens ?? 0,
+      cacheWriteTokens: next.cacheWriteTokens ?? previous?.cacheWriteTokens ?? 0,
+      model: next.model ?? previous?.model ?? null,
+      updatedAt: next.updatedAt ?? Date.now(),
+    };
+    this.telemetry = merged;
+    this.emit('telemetry', merged);
+  }
+
+  private processClaudeTelemetry(record: any): void {
+    if (record.type !== 'assistant') return;
+    const usage = record.message?.usage;
+    if (!usage || typeof usage !== 'object') return;
+    const inputTokens = Number(usage.input_tokens) || 0;
+    const cacheReadTokens = Number(usage.cache_read_input_tokens) || 0;
+    const cacheWriteTokens = Number(usage.cache_creation_input_tokens) || 0;
+    this.emitTelemetry({
+      contextTokens: inputTokens + cacheReadTokens + cacheWriteTokens,
+      contextWindowTokens: 200_000,
+      inputTokens,
+      outputTokens: Number(usage.output_tokens) || 0,
+      cacheReadTokens,
+      cacheWriteTokens,
+      model: typeof record.message?.model === 'string' ? record.message.model : null,
+      updatedAt: typeof record.timestamp === 'string' ? Date.parse(record.timestamp) || Date.now() : Date.now(),
+    });
+  }
+
+  private processCopilotTelemetry(record: any): void {
+    const data = record.data;
+    if (!data || typeof data !== 'object') return;
+
+    if ((record.type === 'model.turn_started' || record.type === 'model.model_call_started') && data.modelInfo) {
+      const limit = Number(data.modelInfo?.capabilities?.limits?.max_context_window_tokens);
+      this.emitTelemetry({
+        contextWindowTokens: Number.isFinite(limit) && limit > 0 ? limit : null,
+        model: typeof data.model === 'string' ? data.model : null,
+        updatedAt: Number(data.timestampMs) || Date.now(),
+      });
+      return;
+    }
+
+    if (record.type === 'model.model_call_success') {
+      const usage = data.responseUsage;
+      if (!usage || typeof usage !== 'object') return;
+      const promptTokens = Number(usage.prompt_tokens) || 0;
+      this.emitTelemetry({
+        contextTokens: promptTokens,
+        inputTokens: Math.max(0, promptTokens - (Number(usage.prompt_tokens_details?.cached_tokens) || 0)),
+        outputTokens: Number(usage.completion_tokens) || 0,
+        cacheReadTokens: Number(usage.prompt_tokens_details?.cached_tokens) || 0,
+        cacheWriteTokens: 0,
+        model: typeof data.modelCall?.model === 'string' ? data.modelCall.model : null,
+        updatedAt: typeof record.timestamp === 'string' ? Date.parse(record.timestamp) || Date.now() : Date.now(),
+      });
+      return;
+    }
+
+    if (record.type === 'session.shutdown') {
+      const details = data.tokenDetails;
+      const currentTokens = Number(data.currentTokens);
+      if (!details || !Number.isFinite(currentTokens)) return;
+      this.emitTelemetry({
+        contextTokens: currentTokens,
+        inputTokens: Number(details.input?.tokenCount) || 0,
+        outputTokens: Number(details.output?.tokenCount) || 0,
+        cacheReadTokens: Number(details.cache_read?.tokenCount) || 0,
+        cacheWriteTokens: Number(details.cache_write?.tokenCount) || 0,
+        model: typeof data.currentModel === 'string' ? data.currentModel : null,
+        updatedAt: typeof record.timestamp === 'string' ? Date.parse(record.timestamp) || Date.now() : Date.now(),
+      });
+    }
+  }
+
   private processClaudeRecord(record: any): void {
+    this.processClaudeTelemetry(record);
     const type = record.type;
     const content = record.message?.content;
     if (!Array.isArray(content)) return;
@@ -263,6 +429,8 @@ export class JsonlSessionWatcher extends EventEmitter {
    *     status immediately (avoids the 500ms terminal-pattern poll lag).
    */
   private processCopilotRecord(record: any): void {
+    this.copilotLifecycle.accept(record);
+    this.processCopilotTelemetry(record);
     const type = record.type;
     const data = record.data;
     if (!type || !data || typeof data !== 'object') return;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FolderOpen, Search, LayoutTemplate, Pencil, Eraser, Square, Type, Undo2, Redo2, Trash2, Palette, Settings } from 'lucide-react';
 import { useAppStore, type PanelId } from '../store';
+import { SessionStatus } from '../../shared/ipc-channels';
 
 const PANELS: { id: PanelId; icon: typeof FolderOpen }[] = [
   { id: 'explorer', icon: FolderOpen },
@@ -16,6 +17,7 @@ const PRESET_COLORS = [
 export function ActivityBar() {
   const activePanelId = useAppStore((s) => s.activePanelId);
   const togglePanel = useAppStore((s) => s.togglePanel);
+  const waitingCount = useAppStore(s => Object.values(s.sessions).filter(session => session.status === SessionStatus.WaitingForInput).length);
   const drawingMode = useAppStore((s) => s.drawingMode);
   const toggleDrawingMode = useAppStore((s) => s.toggleDrawingMode);
   const drawTool = useAppStore((s) => s.drawTool);
@@ -57,12 +59,19 @@ export function ActivityBar() {
             onClick={() => togglePanel(id)}
             className={`relative ${btnBase}
               ${isActive ? 'bg-elevated text-fg' : btnInactive}`}
-            title={id.charAt(0).toUpperCase() + id.slice(1)}
+            title={id === 'explorer' && waitingCount ? `Explorer - ${waitingCount} need attention` : id.charAt(0).toUpperCase() + id.slice(1)}
+            aria-label={id === 'explorer' ? `Explorer, ${waitingCount} sessions need attention` : id}
+            aria-pressed={isActive}
           >
             {isActive && (
               <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-accent rounded-r-sm" />
             )}
             <Icon size={20} />
+            {id === 'explorer' && waitingCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-4 px-0.5 rounded-full bg-warning-bg text-surface text-[9px] font-bold">
+                {waitingCount > 99 ? '99+' : waitingCount}
+              </span>
+            )}
           </button>
         );
       })}

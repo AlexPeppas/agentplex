@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups, RemoteStatus, RemotePairedDevice, RemotePairingCode, RelayConnState } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups, RemoteStatus, RemotePairedDevice, RemotePairingCode, RelayConnState } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -61,8 +61,8 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.SESSION_EXIT, handler);
   },
 
-  onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null }) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null }) => {
+  onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null; lastActivityAt?: number; usage?: SessionUsage | null }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null; lastActivityAt?: number; usage?: SessionUsage | null }) => {
       callback(payload);
     };
     ipcRenderer.on(IPC.SESSION_INFO_UPDATE, handler);

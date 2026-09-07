@@ -1,9 +1,12 @@
 import { useRef, lazy, Suspense, useEffect, useCallback, useState } from 'react';
-import { X, GitBranch, Terminal, Maximize2, Minimize2 } from 'lucide-react';
+import { X, GitBranch, Terminal, Maximize2, Minimize2, FolderOpen } from 'lucide-react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useAppStore } from '../store';
 import { defineAgentPlexTheme } from '../monaco-theme';
 import type { CliTool } from '../../shared/ipc-channels';
+import { SessionStatus } from '../../shared/ipc-channels';
+import { StatusIndicator } from './StatusIndicator';
+import { ContextMeter, SessionAge } from './SessionMetrics';
 import claudeLogo from '../../../assets/claude-logo.svg';
 import codexDark from '../../../assets/codex-dark.svg';
 import codexLight from '../../../assets/codex-light.svg';
@@ -39,12 +42,15 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
     (s) => s.displayNames[sessionId] || s.sessions[sessionId]?.title || sessionId
   );
   const cli = useAppStore((s) => s.sessions[sessionId]?.cli);
+  const session = useAppStore((s) => s.sessions[sessionId]);
   const activePaneId = useAppStore((s) => s.activePaneId);
   const closePane = useAppStore((s) => s.closePane);
   const terminalFullscreen = useAppStore((s) => s.terminalFullscreen);
   const toggleTerminalFullscreen = useAppStore((s) => s.toggleTerminalFullscreen);
   const [terminalTab, setTerminalTab] = useState<'session' | 'git'>('session');
+  const [branchName, setBranchName] = useState<string | null>(null);
   const isActive = activePaneId === sessionId;
+  const sessionStatus = session?.status;
 
   useTerminal(containerRef, sessionId);
 
@@ -55,6 +61,22 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
       defineAgentPlexTheme();
     }
   }, [terminalTab]);
+
+  useEffect(() => {
+    if (!sessionStatus || sessionStatus === SessionStatus.Killed) return;
+    let cancelled = false;
+    const refresh = () => {
+      window.agentPlex.gitBranchInfo(sessionId)
+        .then((info) => { if (!cancelled) setBranchName(info?.current ?? null); })
+        .catch(() => { if (!cancelled) setBranchName(null); });
+    };
+    refresh();
+    const timer = setInterval(refresh, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [sessionId, sessionStatus]);
 
   const handleActivate = useCallback(() => {
     useAppStore.getState().openPane(sessionId);
@@ -113,6 +135,34 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
           </button>
         </div>
       </div>
+
+      {session && terminalTab === 'session' && (
+        <div className="flex items-center gap-3 min-h-9 px-3 py-1.5 bg-surface border-b border-border overflow-hidden">
+          <span className="flex items-center gap-1.5 shrink-0">
+            <StatusIndicator status={session.status} />
+            <span className="text-[10px] font-semibold text-fg capitalize">
+              {session.status.replace(/-/g, ' ')}
+            </span>
+          </span>
+          <div className="h-4 w-px bg-border shrink-0" />
+          <ContextMeter usage={session.usage} supported={session.telemetrySupported} />
+          <div className="h-4 w-px bg-border shrink-0" />
+          <SessionAge startedAt={session.startedAt} lastActivityAt={session.lastActivityAt} />
+          {branchName && (
+            <>
+              <div className="h-4 w-px bg-border shrink-0" />
+              <span className="flex items-center gap-1 min-w-0 text-[10px] text-fg-muted" title={branchName}>
+                <GitBranch size={11} className="shrink-0" />
+                <span className="truncate">{branchName}</span>
+              </span>
+            </>
+          )}
+          <span className="ml-auto flex items-center gap-1 min-w-0 text-[10px] text-fg-muted" title={session.cwd}>
+            <FolderOpen size={11} className="shrink-0" />
+            <span className="truncate max-w-[180px]">{session.cwd}</span>
+          </span>
+        </div>
+      )}
 
       {/* Terminal body */}
       <div

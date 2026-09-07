@@ -1,7 +1,11 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { ChevronRight, Terminal, Pencil, Trash2, Send, FolderOpen, Star, Layers } from 'lucide-react';
+import { ChevronRight, Terminal, Pencil, Trash2, Send, FolderOpen, Star, Layers, Search, X, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { CLI_TOOLS, SessionStatus, type CliTool, type DetectedShell } from '../../../shared/ipc-channels';
+import { StatusIndicator } from '../StatusIndicator';
+import { ContextMeter, SessionAge } from '../SessionMetrics';
+import { AttentionBox } from '../AttentionBox';
+import { buildExplorerProjects } from '../../session-explorer';
 import claudeLogo from '../../../../assets/claude-logo.svg';
 import codexDark from '../../../../assets/codex-dark.svg';
 import codexLight from '../../../../assets/codex-light.svg';
@@ -29,12 +33,6 @@ function hexToRgba(hex: string, alpha: number): string {
   if (!m) return hex;
   const int = parseInt(m[1], 16);
   return `rgba(${(int >> 16) & 255}, ${(int >> 8) & 255}, ${int & 255}, ${alpha})`;
-}
-
-interface DirEntry {
-  cwd: string;
-  dirName: string;
-  sessions: { id: string; label: string; status: SessionStatus; cli: CliTool }[];
 }
 
 type ContextMenu =
@@ -88,10 +86,14 @@ export function ExplorerPanel() {
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [shells, setShells] = useState<DetectedShell[]>([]);
   const [defaultShellId, setDefaultShellId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [cliFilter, setCliFilter] = useState('all');
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    window.agentPlex.getShells().then(setShells);
-    window.agentPlex.getDefaultShell().then(setDefaultShellId);
+    window.agentPlex.getShells().then(setShells).catch(err => setError(`Cannot load shells: ${String(err)}`));
+    window.agentPlex.getDefaultShell().then(setDefaultShellId).catch(err => setError(`Cannot load default shell: ${String(err)}`));
   }, []);
 
   // Close context menu on outside click
@@ -102,8 +104,15 @@ export function ExplorerPanel() {
         setContextMenu(null);
       }
     };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', onKeyDown);
+    };
   }, [contextMenu]);
 
   // Focus rename input when it appears
@@ -199,9 +208,14 @@ export function ExplorerPanel() {
     if (!contextMenu || contextMenu.type !== 'dir') return;
     const cwd = contextMenu.cwd;
     setContextMenu(null);
-    const info = await window.agentPlex.createSession(cwd, cli);
-    addSession(info);
-  }, [contextMenu, addSession]);
+    try {
+      const info = await window.agentPlex.createSession(cwd, cli);
+      addSession(info);
+      selectSession(info.id, true);
+    } catch (err) {
+      setError(`Cannot create session: ${String(err)}`);
+    }
+  }, [contextMenu, addSession, selectSession]);
 
   const handleResumeInDir = useCallback((cli: 'claude' | 'copilot' = 'claude') => {
     if (!contextMenu || contextMenu.type !== 'dir') return;
@@ -209,23 +223,20 @@ export function ExplorerPanel() {
     openLauncher('resume', cli);
   }, [contextMenu, openLauncher]);
 
-  const tree = useMemo(() => {
-    const dirs = new Map<string, DirEntry>();
-    for (const s of Object.values(sessions)) {
-      const cwd = s.cwd || 'Unknown';
-      if (!dirs.has(cwd)) {
-        const dirName = cwd.replace(/\\/g, '/').split('/').pop() || cwd;
-        dirs.set(cwd, { cwd, dirName, sessions: [] });
-      }
-      dirs.get(cwd)!.sessions.push({
-        id: s.id,
-        label: displayNames[s.id] || s.title,
-        status: s.status,
-        cli: s.cli,
-      });
+  const tree = useMemo(() => buildExplorerProjects(
+    Object.values(sessions), displayNames, sessionGroups,
+    { query, status: statusFilter, cli: cliFilter },
+  ), [sessions, displayNames, sessionGroups, query, statusFilter, cliFilter]);
+  const cliOptions = useMemo(() => {
+    const options = new Map(CLI_TOOLS.map(tool => [tool.id, tool.label]));
+    for (const shell of shells) options.set(shell.id, shell.label);
+    for (const session of Object.values(sessions)) {
+      if (!options.has(session.cli)) options.set(session.cli, session.cli);
     }
-    return Array.from(dirs.values());
-  }, [sessions, displayNames]);
+    return [...options];
+  }, [sessions, shells]);
+  const hasFilters = Boolean(query.trim() || statusFilter !== 'all' || cliFilter !== 'all');
+  const clearFilters = () => { setQuery(''); setStatusFilter('all'); setCliFilter('all'); };
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -238,29 +249,69 @@ export function ExplorerPanel() {
     });
   };
 
-  if (tree.length === 0) {
-    return (
-      <div className="p-4 text-center text-fg-muted text-xs">
-        No sessions yet
-      </div>
-    );
-  }
-
   return (
     <div className="py-1">
+      <AttentionBox />
+      <div className="px-2 py-2 space-y-2 border-b border-border">
+        <div className="flex items-center gap-1">
+          <span className="flex-1 text-[11px] font-semibold text-fg-muted">Projects</span>
+          <button title="Expand all projects" aria-label="Expand all projects" onClick={() => setCollapsed(new Set())}
+            className="p-1.5 text-fg-muted rounded hover:bg-elevated"><ChevronsUpDown size={14} /></button>
+          <button title="Collapse all projects" aria-label="Collapse all projects" onClick={() => setCollapsed(new Set(Object.values(sessions).map(s => s.cwd || 'Unknown')))}
+            className="p-1.5 text-fg-muted rounded hover:bg-elevated"><ChevronsDownUp size={14} /></button>
+        </div>
+        <div className="flex items-center gap-1 border border-border rounded bg-inset px-2">
+          <Search size={12} className="shrink-0 text-fg-muted" />
+          <input aria-label="Filter sessions" placeholder="Name, project, group..." value={query}
+            onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') clearFilters(); }}
+            className="w-full min-w-0 py-1.5 text-xs bg-transparent text-fg outline-none" />
+          {query && <button aria-label="Clear search" onClick={() => setQuery('')} className="text-fg-muted"><X size={12} /></button>}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          <select aria-label="Filter by status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            className="flex-1 min-w-0 p-1 border border-border rounded bg-inset text-fg text-[11px]">
+            <option value="all">All statuses</option>
+            <option value={SessionStatus.WaitingForInput}>Needs input</option>
+            <option value={SessionStatus.Running}>Running</option>
+            <option value={SessionStatus.Idle}>Idle</option>
+            <option value={SessionStatus.Killed}>Stopped</option>
+          </select>
+          <select aria-label="Filter by CLI" value={cliFilter} onChange={e => setCliFilter(e.target.value)}
+            className="flex-1 min-w-0 p-1 border border-border rounded bg-inset text-fg text-[11px]">
+            <option value="all">All CLIs</option>
+            {cliOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        </div>
+        <div className="flex justify-between gap-1 text-[10px] text-fg-muted">
+          <span>{tree.reduce((count, dir) => count + dir.sessions.length, 0)} / {Object.keys(sessions).length} sessions · A-Z</span>
+          {hasFilters && <button onClick={clearFilters} className="text-accent">Clear filters</button>}
+        </div>
+        {error && <p role="alert" className="text-xs text-error break-words">{error}</p>}
+      </div>
+      {tree.length === 0 && (
+        <p className="p-4 text-center text-fg-muted text-xs">
+          {Object.keys(sessions).length === 0 ? 'No sessions yet. Create one from the main toolbar.' : 'No matching sessions. Clear filters to see all sessions.'}
+        </p>
+      )}
       {tree.map((dir) => (
         <div key={dir.cwd}>
+          <div className="flex items-center pr-2">
           <button
             onClick={() => toggle(dir.cwd)}
             onContextMenu={(e) => handleDirContextMenu(e, dir.cwd)}
-            className="flex items-center gap-1.5 w-full h-8 px-3 text-[11px] font-semibold text-fg uppercase tracking-wide hover:bg-elevated transition-colors cursor-pointer"
+            aria-expanded={!collapsed.has(dir.cwd)}
+            className="flex flex-1 min-w-0 items-center gap-1.5 h-8 px-3 text-[11px] font-semibold text-fg uppercase tracking-wide hover:bg-elevated transition-colors cursor-pointer"
             title={dir.cwd}
           >
             <span className={`shrink-0 transition-transform duration-150 ${collapsed.has(dir.cwd) ? '' : 'rotate-90'}`}>
               <ChevronRight size={14} />
             </span>
             <span className="truncate">{dir.dirName}</span>
+            <span className="ml-auto text-[10px] tabular-nums text-fg-muted">
+              {dir.sessions.length === dir.total ? dir.total : `${dir.sessions.length}/${dir.total}`}
+            </span>
           </button>
+          </div>
           {!collapsed.has(dir.cwd) &&
             dir.sessions.map((s) => {
               const isSelected = openPanes.includes(s.id);
@@ -275,12 +326,13 @@ export function ExplorerPanel() {
                     backgroundColor: isSelected ? undefined : hexToRgba(group.color, 0.1),
                     boxShadow: `inset 3px 0 0 ${group.color}`,
                   } : undefined}
-                  className={`relative flex items-center gap-2 w-full min-h-7 pl-7 pr-3.5 py-1 text-xs transition-colors cursor-pointer
+                  className={`relative flex items-center gap-2 w-full min-h-10 pl-7 pr-3.5 py-1.5 text-xs transition-colors cursor-pointer
                     ${isSelected
                       ? 'bg-accent-subtle border-l-2 border-accent pl-[26px]'
                       : 'hover:bg-elevated'}`}
                 >
                   <CliIcon cli={s.cli} />
+                  <StatusIndicator status={s.status} />
                   {isRenaming ? (
                     <input
                       ref={renameInputRef}
@@ -297,17 +349,34 @@ export function ExplorerPanel() {
                       onMouseDown={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <span className="flex-1 min-w-0 flex flex-col items-start">
-                      <span className="truncate max-w-full text-fg">{s.label}</span>
-                      {group && (
-                        <span
-                          className="self-end max-w-full truncate text-[9px] font-semibold uppercase tracking-wide leading-tight"
-                          style={{ color: group.color }}
-                          title={group.label}
-                        >
-                          {group.label}
+                    <span className="flex-1 min-w-0 flex flex-col items-start gap-0.5">
+                      <span className="flex items-center gap-2 w-full min-w-0">
+                        <span className="truncate text-fg">{s.label}</span>
+                        {s.status === SessionStatus.WaitingForInput && (
+                          <span className="ml-auto px-1 py-px rounded bg-warning-bg text-[8px] font-bold uppercase text-surface">
+                            Needs input
+                          </span>
+                        )}
+                      </span>
+                      <span className="flex items-center justify-between gap-2 w-full min-w-0">
+                        {group ? (
+                          <span
+                            className="truncate text-[9px] font-semibold uppercase tracking-wide leading-tight"
+                            style={{ color: group.color }}
+                            title={group.label}
+                          >
+                            {group.label}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-fg-muted capitalize">
+                            {s.status.replace(/-/g, ' ')}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-2 ml-auto">
+                          <ContextMeter usage={s.usage} supported={s.telemetrySupported} compact />
+                          <SessionAge startedAt={s.startedAt} lastActivityAt={s.lastActivityAt} compact />
                         </span>
-                      )}
+                      </span>
                     </span>
                   )}
                 </button>

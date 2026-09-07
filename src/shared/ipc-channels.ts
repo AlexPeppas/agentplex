@@ -37,8 +37,29 @@ export interface SessionInfo {
   pid: number;
   cwd: string;
   cli: CliTool;
+  /** Timestamp when this AgentPlex-managed PTY was created. */
+  startedAt: number;
+  /** Timestamp of the latest non-empty terminal output or provider event. */
+  lastActivityAt: number;
+  /** Latest provider-reported context/token snapshot. */
+  usage: SessionUsage | null;
+  /** True when the running main process supports provider telemetry. */
+  telemetrySupported: boolean;
   /** Per-CLI session ID used to resume on restart (Claude UUID, Copilot UUID, …) */
   resumeSessionId: string | null;
+}
+
+export interface SessionUsage {
+  /** Tokens in the latest request context. */
+  contextTokens: number;
+  /** Provider/model context-window limit, when known. */
+  contextWindowTokens: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  model: string | null;
+  updatedAt: number;
 }
 
 export interface SubagentInfo {

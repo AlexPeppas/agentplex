@@ -176,6 +176,20 @@ export function App() {
               renameSession(info.id, displayName);
             }
           }
+          // Provider watchers initialize usage from existing logs immediately.
+          // Refresh after addSession() so early telemetry cannot be lost before
+          // the restored sessions exist in renderer state.
+          const initialized = await window.agentPlex.listSessions();
+          for (const info of initialized) {
+            const partial: Parameters<typeof updateSessionInfo>[1] = {};
+            if (info.startedAt !== undefined) partial.startedAt = info.startedAt;
+            if (info.lastActivityAt !== undefined) partial.lastActivityAt = info.lastActivityAt;
+            if (info.usage !== undefined) partial.usage = info.usage;
+            if (info.telemetrySupported !== undefined) {
+              partial.telemetrySupported = info.telemetrySupported;
+            }
+            updateSessionInfo(info.id, partial);
+          }
           if (restored.length > 0) {
             console.log(`[restore] Restored ${restored.length} session(s)`);
           }
@@ -251,8 +265,14 @@ export function App() {
       updateStatus(id, SessionStatus.Killed);
     });
 
-    const cleanupInfoUpdate = window.agentPlex.onSessionInfoUpdate(({ id, cli, cwd, resumeSessionId }) => {
-      updateSessionInfo(id, { cli: cli as never, cwd, resumeSessionId });
+    const cleanupInfoUpdate = window.agentPlex.onSessionInfoUpdate(({ id, cli, cwd, resumeSessionId, lastActivityAt, usage }) => {
+      const partial: Parameters<typeof updateSessionInfo>[1] = {};
+      if (cli !== undefined) partial.cli = cli as never;
+      if (cwd !== undefined) partial.cwd = cwd;
+      if (resumeSessionId !== undefined) partial.resumeSessionId = resumeSessionId;
+      if (lastActivityAt !== undefined) partial.lastActivityAt = lastActivityAt;
+      if (usage !== undefined) partial.usage = usage;
+      updateSessionInfo(id, partial);
     });
 
     const cleanupSpawn = window.agentPlex.onSubagentSpawn(({ sessionId, subagentId, description }) => {
