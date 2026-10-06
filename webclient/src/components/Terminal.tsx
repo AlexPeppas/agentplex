@@ -40,6 +40,8 @@ export default function Terminal({ machineId, sessionId }: Props) {
   const writtenRef = useRef(0);
   const generationRef = useRef(0);
   const sendCommand = useStore(s => s.sendCommand);
+  const ready = useStore(s => Boolean(s.status[machineId]?.ready));
+  const stopped = useStore(s => s.sessions.find(session => session.machineId === machineId && session.id === sessionId)?.status === 'killed');
 
   const terminalData = useStore(s => s.terminalData[termKey(machineId, sessionId)] ?? '');
   const terminalGeneration = useStore(
@@ -57,6 +59,9 @@ export default function Terminal({ machineId, sessionId }: Props) {
       cursorBlink: true,
       convertEol: true,
       allowProposedApi: true,
+      windowsPty: useStore.getState().sessions.find(session =>
+        session.machineId === machineId && session.id === sessionId)?.windowsPty,
+      disableStdin: !ready || stopped,
     });
 
     const fit = new FitAddon();
@@ -70,8 +75,16 @@ export default function Terminal({ machineId, sessionId }: Props) {
 
     // Fit once the terminal font is loaded so xterm's column count matches the
     // real glyph width (avoids output misalignment — same fix as the desktop).
-    const doFit = () => { try { fit.fit(); } catch { /* ignore */ } };
-    doFit();
+    let disposed = false;
+    const canSend = () => {
+      const state = useStore.getState();
+      return state.status[machineId]?.ready && state.sessions.some(session =>
+        session.machineId === machineId && session.id === sessionId && session.status !== 'killed');
+    };
+    const doFit = () => {
+      if (disposed || !containerRef.current?.clientWidth || !containerRef.current?.clientHeight) return;
+      fit.fit();
+    };
     const fonts = document.fonts;
     if (fonts) {
       fonts.load('13px "MesloLGS Nerd Font Mono"').then(doFit).catch(() => undefined);
@@ -79,16 +92,18 @@ export default function Terminal({ machineId, sessionId }: Props) {
     }
 
     xterm.onData((data) => {
-      sendCommand(machineId, { type: 'session:write', id: sessionId, data });
+      if (canSend()) sendCommand(machineId, { type: 'session:write', id: sessionId, data });
     });
     xterm.onResize(({ cols, rows }) => {
-      sendCommand(machineId, { type: 'session:resize', id: sessionId, cols, rows });
+      if (canSend()) sendCommand(machineId, { type: 'session:resize', id: sessionId, cols, rows });
     });
+    doFit();
 
     const observer = new ResizeObserver(() => doFit());
     observer.observe(containerRef.current);
 
     return () => {
+      disposed = true;
       observer.disconnect();
       xterm.dispose();
       xtermRef.current = null;
@@ -96,6 +111,16 @@ export default function Terminal({ machineId, sessionId }: Props) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machineId, sessionId]);
+
+  useEffect(() => {
+    const xterm = xtermRef.current;
+    if (!xterm) return;
+    xterm.options.disableStdin = !ready || stopped;
+    if (ready && !stopped) {
+      fitRef.current?.fit();
+      sendCommand(machineId, { type: 'session:resize', id: sessionId, cols: xterm.cols, rows: xterm.rows });
+    }
+  }, [ready, stopped, machineId, sessionId, sendCommand]);
 
   useEffect(() => {
     const xterm = xtermRef.current;
@@ -113,9 +138,10 @@ export default function Terminal({ machineId, sessionId }: Props) {
 
   return (
     <div
-      ref={containerRef}
-      className="flex-1 w-full h-full overflow-hidden bg-surface"
+      className="flex-1 min-h-0 min-w-0 w-full h-full overflow-hidden bg-surface"
       style={{ padding: '6px 8px' }}
-    />
+    >
+      <div ref={containerRef} className="h-full w-full overflow-hidden" />
+    </div>
   );
 }

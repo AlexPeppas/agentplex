@@ -31,6 +31,8 @@ export enum SessionStatus {
 }
 
 export interface SessionInfo {
+  /** Host PTY compatibility, including when viewed from a different OS. */
+  windowsPty?: { backend: 'conpty' | 'winpty'; buildNumber: number };
   id: string;
   title: string;
   status: SessionStatus;
@@ -50,6 +52,7 @@ export interface SessionInfo {
 }
 
 export interface SessionUsage {
+  snapshotSource?: 'copilot-checkpoint' | 'copilot-shutdown' | 'copilot-compaction';
   /** Tokens in the latest request context. */
   contextTokens: number;
   /** Provider/model context-window limit, when known. */
@@ -236,6 +239,7 @@ export interface PersistedGroups {
 
 export interface WorkspaceTemplateSession {
   name: string;
+  description?: string;
   cwd: string;
   cli: CliTool;
   /** Per-CLI session ID for resume (Claude UUID, Copilot UUID, …) */
@@ -265,6 +269,8 @@ export const REMOTE_COMMAND_ALLOWLIST = [
   'session:resize',
   'session:create',
   'session:kill',
+  'session:rename',
+  'machine:capabilities',
   'session:list',
   'session:getBuffer',
   'session:subscribe',
@@ -300,6 +306,7 @@ export const IPC = {
   SESSION_RESIZE: 'session:resize',
   SESSION_KILL: 'session:kill',
   SESSION_LIST: 'session:list',
+  SESSION_CATALOG: 'session:catalog',
   SESSION_GET_BUFFER: 'session:getBuffer',
   SESSION_GET_CWD: 'session:getCwd',
   SESSION_DATA: 'session:data',
@@ -351,8 +358,6 @@ export const IPC = {
   CANVAS_SAVE: 'canvas:save',
   GROUPS_LOAD: 'groups:load',
   GROUPS_SAVE: 'groups:save',
-  TEMPLATES_LOAD: 'templates:load',
-  TEMPLATES_SAVE: 'templates:save',
   SESSION_GET_PERSISTED: 'session:getPersisted',
   // Remote access / relay pairing
   REMOTE_GET_STATUS: 'remote:getStatus',

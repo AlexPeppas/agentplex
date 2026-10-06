@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { useAppStore } from '../store';
+import { createTerminalResizeController } from '../terminal-resize';
 
 // Terminal always uses dark palette so text stays readable in both themes
 const TERMINAL_THEME = {
@@ -35,10 +36,7 @@ let terminalFontSize = DEFAULT_FONT_SIZE;
 
 interface LiveTerminal {
   term: Terminal;
-  fitAddon: FitAddon;
-  sessionId: string;
-  lastCols: number;
-  lastRows: number;
+  resize: ReturnType<typeof createTerminalResizeController>;
 }
 
 /** Registry of all live terminal instances — zoom/refresh apply to all of them. */
@@ -52,25 +50,11 @@ function isMeasurable(term: Terminal): boolean {
   return !!el && el.offsetParent !== null && el.clientWidth > 0 && el.clientHeight > 0;
 }
 
-/** Refit a terminal and push the size to its PTY. Skips hidden terminals and
+/** Queue a refit and push the settled size to its PTY. Skips hidden terminals and
  *  redundant resizes (unless `force`, used by wake/visibility recovery to
  *  reassert the PTY size even if our cached dimensions look unchanged). */
 function syncTerminalSize(entry: LiveTerminal, force = false) {
-  if (!isMeasurable(entry.term)) return;
-  try {
-    entry.fitAddon.fit();
-  } catch {
-    return;
-  }
-  const { cols, rows } = entry.term;
-  if (cols <= 0 || rows <= 0) return;
-  if (force || cols !== entry.lastCols || rows !== entry.lastRows) {
-    entry.lastCols = cols;
-    entry.lastRows = rows;
-    try {
-      window.agentPlex.resizeSession(entry.sessionId, cols, rows);
-    } catch { /* ignore */ }
-  }
+  entry.resize.schedule(force);
 }
 
 /** Force every visible terminal to refit and fully repaint. This clears the
@@ -81,12 +65,6 @@ function refreshAllTerminals() {
   for (const entry of liveTerminals) {
     if (!isMeasurable(entry.term)) continue;
     syncTerminalSize(entry, true);
-    if (entry.term.rows > 0) {
-      try {
-        entry.term.clearTextureAtlas();
-        entry.term.refresh(0, entry.term.rows - 1);
-      } catch { /* ignore */ }
-    }
   }
 }
 
@@ -108,17 +86,14 @@ const TERMINAL_FONT_FAMILY = 'MesloLGS Nerd Font Mono';
  * terminal font may still be loading on first paint, so refit once its actual
  * metrics are available to keep xterm columns synchronized with the PTY. */
 function fitWhenFontReady(entry: LiveTerminal) {
-  requestAnimationFrame(() => syncTerminalSize(entry, true));
+  syncTerminalSize(entry);
 
   const fonts = document.fonts;
   if (!fonts) return;
 
   const refit = () => {
     if (!liveTerminals.has(entry)) return;
-    syncTerminalSize(entry, true);
-    if (entry.term.rows > 0) {
-      try { entry.term.refresh(0, entry.term.rows - 1); } catch { /* ignore */ }
-    }
+    syncTerminalSize(entry);
   };
 
   const size = entry.term.options.fontSize ?? DEFAULT_FONT_SIZE;
@@ -173,6 +148,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
       cursorBlink: true,
       convertEol: true,
+      windowsPty: useAppStore.getState().sessions[sessionId]?.windowsPty,
     });
 
     const fitAddon = new FitAddon();
@@ -183,7 +159,11 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     termRef.current = term;
 
     // Register in global set for zoom/refresh
-    const entry: LiveTerminal = { term, fitAddon, sessionId, lastCols: 0, lastRows: 0 };
+    const entry: LiveTerminal = {
+      term,
+      resize: createTerminalResizeController(term, fitAddon, containerRef.current,
+        (cols, rows) => window.agentPlex.resizeSession(sessionId, cols, rows)),
+    };
     liveTerminals.add(entry);
 
     fitWhenFontReady(entry);
@@ -282,6 +262,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     return () => {
       disposed = true;
       liveTerminals.delete(entry);
+      entry.resize.dispose();
       container.removeEventListener('contextmenu', handleContextMenu);
       resizeObserver.disconnect();
       cleanup();

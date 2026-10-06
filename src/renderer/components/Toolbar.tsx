@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Star, Plus, Radar } from 'lucide-react';
+import { Star, Plus, Radar, Bot } from 'lucide-react';
 import { useAppStore } from '../store';
+import { usePlexStore } from '../plex-store';
 import { CLI_TOOLS, type CliTool, type ExternalSession, type DetectedShell } from '../../shared/ipc-channels';
 import logoSvg from '../../../assets/logo.svg';
 import claudeLogo from '../../../assets/claude-logo.svg';
@@ -186,6 +187,10 @@ export function Toolbar() {
         <span className="text-sm font-semibold text-accent tracking-wide flex-1">AgentPlex</span>
       </div>
       <div className="[-webkit-app-region:no-drag] flex items-center gap-2.5">
+        <button title="Open Plex coordinator (POC)" onClick={() => usePlexStore.getState().setOpen(true)}
+          className="flex items-center gap-1.5 text-xs text-accent px-2 py-1 rounded hover:bg-elevated">
+          <Bot size={16} /> Plex
+        </button>
         <div className="relative" ref={discoverRef}>
           <button
             className="flex items-center gap-1 h-6 px-2 rounded text-fg-muted text-[11px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"

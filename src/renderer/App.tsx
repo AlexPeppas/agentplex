@@ -3,6 +3,8 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { Toolbar } from './components/Toolbar';
 import { GraphCanvas } from './components/GraphCanvas';
 import { TerminalPanel } from './components/TerminalPanel';
+import { PlexChat } from './components/PlexChat';
+import { PlexWorkerChat } from './components/PlexWorkerChat';
 import { SendDialog } from './components/SendDialog';
 import { ProjectLauncher } from './components/ProjectLauncher';
 import { ActivityBar } from './components/ActivityBar';
@@ -72,7 +74,7 @@ export function App() {
   const prevStatuses = useRef<Map<string, SessionStatus>>(new Map());
   const groupsReadyRef = useRef(false);
 
-  const renameSession = useAppStore((s) => s.renameSession);
+  const applySessionName = useAppStore((s) => s.applySessionName);
 
   const [terminalWidth, setTerminalWidth] = useState(40); // percentage
   const dragging = useRef(false);
@@ -153,7 +155,7 @@ export function App() {
           updateStatus(info.id, info.status);
           // Apply persisted display name to node label
           if (savedNames[info.id]) {
-            renameSession(info.id, savedNames[info.id]);
+            applySessionName(info.id, savedNames[info.id]);
           }
           try {
             const buffer = await window.agentPlex.getSessionBuffer(info.id);
@@ -173,7 +175,7 @@ export function App() {
           for (const { info, displayName } of restored) {
             addSession(info);
             if (displayName) {
-              renameSession(info.id, displayName);
+              applySessionName(info.id, displayName);
             }
           }
           // Provider watchers initialize usage from existing logs immediately.
@@ -248,6 +250,17 @@ export function App() {
 
   // Subscribe to IPC events
   useEffect(() => {
+    const cleanupCatalog = window.agentPlex.onSessionCatalog(({ sessions, names }) => {
+      const store = useAppStore.getState();
+      const ids = new Set(sessions.map(session => session.id));
+      for (const session of sessions) store.addSession(session);
+      for (const id of Object.keys(store.sessions)) {
+        if (!ids.has(id)) store.removeSession(id);
+      }
+      for (const [id, name] of Object.entries(names)) {
+        store.applySessionName(id, name);
+      }
+    });
     const cleanupData = window.agentPlex.onSessionData(({ id, data }) => {
       appendBuffer(id, data);
     });
@@ -304,6 +317,7 @@ export function App() {
     });
 
     return () => {
+      cleanupCatalog();
       cleanupData();
       cleanupStatus();
       cleanupExit();
@@ -333,7 +347,7 @@ export function App() {
   return (
     <div className="flex flex-col h-full">
       <Toolbar />
-      <div className="flex flex-1 overflow-hidden" ref={outerRef}>
+      <div className="relative flex flex-1 overflow-hidden" ref={outerRef}>
         <ActivityBar />
         {activePanelId && (
           <>
@@ -371,6 +385,8 @@ export function App() {
             </>
           )}
         </div>
+        <PlexChat />
+        <PlexWorkerChat />
       </div>
       {sendDialogSourceId && <SendDialog />}
       {launcherOpen && <ProjectLauncher />}

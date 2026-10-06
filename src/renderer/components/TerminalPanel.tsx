@@ -89,11 +89,11 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
 
   return (
     <div
-      className={`flex flex-col flex-1 min-w-0 h-full ${isActive ? '' : 'opacity-80'}`}
+      className={`flex flex-col flex-1 min-w-0 min-h-0 h-full ${isActive ? '' : 'opacity-80'}`}
       onClick={handleActivate}
     >
       {/* Pane header */}
-      <div className={`flex items-center justify-between py-0 px-1 bg-[#262420] border-b ${isActive ? 'border-[#d18a7a]' : 'border-[#3e3830]'}`}>
+      <div className={`flex shrink-0 items-center justify-between py-0 px-1 bg-[#262420] border-b ${isActive ? 'border-[#d18a7a]' : 'border-[#3e3830]'}`}>
         <div className="flex items-center gap-0.5">
           <button
             className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
@@ -137,7 +137,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
       </div>
 
       {session && terminalTab === 'session' && (
-        <div className="flex items-center gap-3 min-h-9 px-3 py-1.5 bg-surface border-b border-border overflow-hidden">
+        <div className="flex shrink-0 items-center gap-3 min-h-9 px-3 py-1.5 bg-surface border-b border-border overflow-hidden">
           <span className="flex items-center gap-1.5 shrink-0">
             <StatusIndicator status={session.status} />
             <span className="text-[10px] font-semibold text-fg capitalize">
@@ -166,10 +166,11 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
 
       {/* Terminal body */}
       <div
-        className="terminal-body flex-1 p-1 overflow-hidden"
-        ref={containerRef}
+        className="terminal-body flex-1 min-h-0 min-w-0 p-1 overflow-hidden"
         style={{ display: terminalTab === 'session' ? undefined : 'none' }}
-      />
+      >
+        <div ref={containerRef} className="h-full w-full overflow-hidden" />
+      </div>
 
       {/* Git diff panel */}
       {terminalTab === 'git' && (

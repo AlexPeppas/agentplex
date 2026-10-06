@@ -1,13 +1,13 @@
 import { useAppStore } from '../store';
 import { ExplorerPanel } from './panels/ExplorerPanel';
 import { SearchPanel } from './panels/SearchPanel';
-import { TemplatesPanel } from './panels/TemplatesPanel';
+import { SquadsPanel } from './panels/SquadsPanel';
 import { SettingsPanel } from './panels/SettingsPanel';
 
 const PANEL_TITLES: Record<string, string> = {
   explorer: 'Explorer',
   search: 'Search',
-  templates: 'Templates',
+  squads: 'Squads',
   settings: 'Settings',
 };
 
@@ -30,7 +30,7 @@ export function SidePanel() {
       <div className="flex-1 overflow-y-auto">
         {activePanelId === 'explorer' && <ExplorerPanel />}
         {activePanelId === 'search' && <SearchPanel />}
-        {activePanelId === 'templates' && <TemplatesPanel />}
+        {activePanelId === 'squads' && <SquadsPanel />}
         {activePanelId === 'settings' && <SettingsPanel />}
       </div>
     </div>

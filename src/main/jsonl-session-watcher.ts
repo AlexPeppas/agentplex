@@ -21,11 +21,38 @@ export interface PlanChangedEvent {
 /** Copilot only — fires when the agent requests interactive permission. */
 export interface PermissionRequestedEvent {
   requestId: string;
+  kind?: string;
+  toolName?: string;
+  description?: string;
+  resource?: string;
+  command?: string;
+  managedApprovalRequired?: boolean;
 }
 
 /** Copilot only — fires when the user resolves a previous request. */
 export interface PermissionCompletedEvent {
   requestId: string;
+}
+
+export function copilotPermissionRequest(data: Record<string, unknown>): PermissionRequestedEvent | null {
+  if (typeof data.requestId !== 'string') return null;
+  const raw = data.permissionRequest ?? data.request ?? data;
+  const event: PermissionRequestedEvent = { requestId: data.requestId };
+  if (!raw || typeof raw !== 'object') return event;
+  const request = raw as Record<string, unknown>;
+  const bounded = (value: unknown): string | undefined =>
+    typeof value === 'string' && value.trim() ? value.slice(0, 4000) : undefined;
+  if (request.managedApprovalRequired === true) event.managedApprovalRequired = true;
+  const details = {
+    kind: bounded(request.kind), toolName: bounded(request.toolName ?? data.toolName),
+    description: bounded(request.description ?? request.intention),
+    resource: bounded(request.path ?? request.fileName ?? request.url),
+    command: bounded(request.fullCommandText ?? request.command),
+  };
+  for (const [key, value] of Object.entries(details)) {
+    if (value !== undefined) Object.assign(event, { [key]: value });
+  }
+  return event;
 }
 
 /** Copilot-only derived task list from sql(todo) operations. */
@@ -34,6 +61,7 @@ export interface TaskListEvent {
 }
 
 export interface SessionTelemetryEvent {
+  snapshotSource?: 'copilot-checkpoint' | 'copilot-shutdown' | 'copilot-compaction';
   contextTokens: number;
   contextWindowTokens: number | null;
   inputTokens: number;
@@ -148,6 +176,7 @@ export class JsonlSessionWatcher extends EventEmitter {
   private telemetry: SessionTelemetryEvent | null = null;
   private copilotLifecycle = new CopilotLifecycle();
   private lastLifecycleStatus: SessionStatus | null = null;
+  private readSinceStart = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   /** When true, prime the read offset to the current end-of-file on start so
    *  pre-existing content (a resumed/restored session's history) is NOT replayed
@@ -167,16 +196,25 @@ export class JsonlSessionWatcher extends EventEmitter {
 
   start(): void {
     if (this.timer) return;
+    this.readSinceStart = false;
     if (this.skipExisting) {
       // Skip any content that already exists on disk (resume/restore): only
       // events appended after this point should render sub-agents/plans/tasks.
       try {
         this.offset = fs.statSync(this.jsonlPath).size;
-      } catch {
+      } catch (error) {
         // File doesn't exist yet (genuinely new session) — read from the start.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
-    this.timer = setInterval(() => this.poll(), 500);
+    this.timer = setInterval(() => {
+      try { this.poll(); }
+      catch (error) {
+        this.stop();
+        if (this.listenerCount('watch-error')) this.emit('watch-error', error);
+        else console.error('[session-watcher] Cannot read provider events:', error);
+      }
+    }, 500);
     const snapshotEnd = this.offset;
     queueMicrotask(() => {
       if (!this.timer) return;
@@ -192,12 +230,23 @@ export class JsonlSessionWatcher extends EventEmitter {
     }
   }
 
+  /** Drain the final append before an owning subprocess exits and stops watching. */
+  flush(final = false): void {
+    this.poll();
+    if (final && this.readSinceStart && this.partialLine.trim()) {
+      this.processLine(this.partialLine.trim());
+      this.partialLine = '';
+      this.publishLifecycle();
+    }
+  }
+
   private poll(): void {
     let fd: number;
     try {
       fd = fs.openSync(this.jsonlPath, 'r');
-    } catch {
+    } catch (error) {
       // File doesn't exist yet — normal during startup
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       return;
     }
 
@@ -218,6 +267,7 @@ export class JsonlSessionWatcher extends EventEmitter {
       const buf = Buffer.alloc(bytesToRead);
       fs.readSync(fd, buf, 0, bytesToRead, this.offset);
       this.offset = stat.size;
+      this.readSinceStart = true;
 
       const chunk = this.partialLine + buf.toString('utf-8');
       const lines = chunk.split('\n');
@@ -307,13 +357,14 @@ export class JsonlSessionWatcher extends EventEmitter {
     const previous = this.telemetry;
     const merged: SessionTelemetryEvent = {
       contextTokens: next.contextTokens ?? previous?.contextTokens ?? 0,
-      contextWindowTokens: next.contextWindowTokens ?? previous?.contextWindowTokens ?? null,
+      contextWindowTokens: next.contextWindowTokens !== undefined ? next.contextWindowTokens : previous?.contextWindowTokens ?? null,
       inputTokens: next.inputTokens ?? previous?.inputTokens ?? 0,
       outputTokens: next.outputTokens ?? previous?.outputTokens ?? 0,
       cacheReadTokens: next.cacheReadTokens ?? previous?.cacheReadTokens ?? 0,
       cacheWriteTokens: next.cacheWriteTokens ?? previous?.cacheWriteTokens ?? 0,
-      model: next.model ?? previous?.model ?? null,
+      model: next.model !== undefined ? next.model : previous?.model ?? null,
       updatedAt: next.updatedAt ?? Date.now(),
+      snapshotSource: next.snapshotSource,
     };
     this.telemetry = merged;
     this.emit('telemetry', merged);
@@ -342,44 +393,56 @@ export class JsonlSessionWatcher extends EventEmitter {
     const data = record.data;
     if (!data || typeof data !== 'object') return;
 
-    if ((record.type === 'model.turn_started' || record.type === 'model.model_call_started') && data.modelInfo) {
-      const limit = Number(data.modelInfo?.capabilities?.limits?.max_context_window_tokens);
+    // model.* includes title generation, routing and other auxiliary requests.
+    // Even a matching model ID does not prove that a call is the main context.
+    const validTokens = (value: unknown): value is number =>
+      typeof value === 'number' && Number.isFinite(value) && value >= 0;
+    const timestamp = Date.parse(record.timestamp);
+    if (!Number.isFinite(timestamp)) return;
+
+    if (record.type === 'session.usage_checkpoint') {
+      const main = Array.isArray(data.promptCacheBreakState)
+        ? data.promptCacheBreakState.find((entry: any) => entry?.conversation === 'main')
+        : undefined;
+      const model = main?.lastActiveModel;
+      const snapshot = typeof model === 'string' ? main?.models?.[model] : undefined;
+      const completedAt = Date.parse(snapshot?.completed_at);
+      if (!snapshot || !validTokens(snapshot.prompt_tokens) || !Number.isFinite(completedAt)) return;
+      // Checkpoints can retain old model cache entries after compaction.
+      if (this.telemetry && completedAt <= this.telemetry.updatedAt) return;
+      const cached = validTokens(snapshot.cache_read) ? snapshot.cache_read : 0;
+      const written = validTokens(snapshot.cache_write) ? snapshot.cache_write : 0;
       this.emitTelemetry({
-        contextWindowTokens: Number.isFinite(limit) && limit > 0 ? limit : null,
-        model: typeof data.model === 'string' ? data.model : null,
-        updatedAt: Number(data.timestampMs) || Date.now(),
+        contextTokens: snapshot.prompt_tokens,
+        contextWindowTokens: null,
+        inputTokens: Math.max(0, snapshot.prompt_tokens - cached - written),
+        outputTokens: 0,
+        cacheReadTokens: cached,
+        cacheWriteTokens: written,
+        model,
+        updatedAt: completedAt,
+        snapshotSource: 'copilot-checkpoint',
       });
       return;
     }
 
-    if (record.type === 'model.model_call_success') {
-      const usage = data.responseUsage;
-      if (!usage || typeof usage !== 'object') return;
-      const promptTokens = Number(usage.prompt_tokens) || 0;
+    const shutdown = record.type === 'session.shutdown';
+    const compacted = record.type === 'session.compaction_complete' && data.success === true;
+    const tokens = shutdown ? data.currentTokens : data.postCompactionTokens;
+    if ((shutdown || compacted) && validTokens(tokens)) {
+      if (this.telemetry && timestamp < this.telemetry.updatedAt) return;
       this.emitTelemetry({
-        contextTokens: promptTokens,
-        inputTokens: Math.max(0, promptTokens - (Number(usage.prompt_tokens_details?.cached_tokens) || 0)),
-        outputTokens: Number(usage.completion_tokens) || 0,
-        cacheReadTokens: Number(usage.prompt_tokens_details?.cached_tokens) || 0,
+        contextTokens: tokens,
+        // Compaction's tokenLimit is a trigger threshold, not necessarily
+        // the provider's context-window capacity.
+        contextWindowTokens: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
         cacheWriteTokens: 0,
-        model: typeof data.modelCall?.model === 'string' ? data.modelCall.model : null,
-        updatedAt: typeof record.timestamp === 'string' ? Date.parse(record.timestamp) || Date.now() : Date.now(),
-      });
-      return;
-    }
-
-    if (record.type === 'session.shutdown') {
-      const details = data.tokenDetails;
-      const currentTokens = Number(data.currentTokens);
-      if (!details || !Number.isFinite(currentTokens)) return;
-      this.emitTelemetry({
-        contextTokens: currentTokens,
-        inputTokens: Number(details.input?.tokenCount) || 0,
-        outputTokens: Number(details.output?.tokenCount) || 0,
-        cacheReadTokens: Number(details.cache_read?.tokenCount) || 0,
-        cacheWriteTokens: Number(details.cache_write?.tokenCount) || 0,
-        model: typeof data.currentModel === 'string' ? data.currentModel : null,
-        updatedAt: typeof record.timestamp === 'string' ? Date.parse(record.timestamp) || Date.now() : Date.now(),
+        model: shutdown && typeof data.currentModel === 'string' ? data.currentModel : null,
+        updatedAt: timestamp,
+        snapshotSource: shutdown ? 'copilot-shutdown' : 'copilot-compaction',
       });
     }
   }
@@ -468,9 +531,8 @@ export class JsonlSessionWatcher extends EventEmitter {
         this.emit('plan-changed', { operation } satisfies PlanChangedEvent);
       }
     } else if (type === 'permission.requested') {
-      const requestId: string | undefined = data.requestId;
-      if (typeof requestId !== 'string') return;
-      this.emit('permission-requested', { requestId } satisfies PermissionRequestedEvent);
+      const event = copilotPermissionRequest(data);
+      if (event) this.emit('permission-requested', event);
     } else if (type === 'permission.completed') {
       const requestId: string | undefined = data.requestId;
       if (typeof requestId !== 'string') return;

@@ -10,7 +10,9 @@
 
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
-import { hostname } from 'os';
+import { hostname, homedir } from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import { sessionManager } from '../session-manager';
 import { IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL, REMOTE_PROTOCOL_VERSION, REMOTE_COMMAND_ALLOWLIST } from '../../shared/ipc-channels';
 import { getCachedShells } from '../shell-detector';
@@ -51,10 +53,11 @@ const KNOWN_CLI_IDS = new Set<string>([
 /** Mirror of the local isValidCli guard so remote session:create can't request
  *  an unknown CLI; falls back to a detected shell id or 'claude'. */
 function sanitizeRemoteCli(cli: unknown): string {
-  if (typeof cli !== 'string') return 'claude';
+  if (cli === undefined) return 'claude';
+  if (typeof cli !== 'string') throw new Error('CLI must be a string');
   if (KNOWN_CLI_IDS.has(cli)) return cli;
   if (getCachedShells().some(s => s.id === cli)) return cli;
-  return 'claude';
+  throw new Error(`Unsupported CLI or shell: ${cli}`);
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -91,6 +94,7 @@ export class RelayClient extends EventEmitter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = 1000;
   private maxReconnectDelay = 60_000;
+  private stopped = true;
   private eventUnsubscribers: (() => void)[] = [];
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -104,6 +108,7 @@ export class RelayClient extends EventEmitter {
   /** Start the relay client: register, authenticate, connect WebSocket. */
   async start() {
     if (this.state !== 'disconnected') return;
+    this.stopped = false;
     this.setState('connecting');
 
     console.log(`[relay-client] Starting — machine: ${this.machineId}`);
@@ -112,6 +117,7 @@ export class RelayClient extends EventEmitter {
     try {
       await this.registerMachine();
       await this.authenticate();
+      if (this.stopped) return;
       this.connectWebSocket();
     } catch (err: any) {
       console.error(`[relay-client] Start failed: ${err.message}`);
@@ -123,6 +129,7 @@ export class RelayClient extends EventEmitter {
   /** Stop the relay client and clean up. */
   stop() {
     console.log('[relay-client] Stopping');
+    this.stopped = true;
     this.setState('disconnected');
     this.unsubscribeFromEvents();
     clearAllSessionKeys();
@@ -236,6 +243,10 @@ export class RelayClient extends EventEmitter {
     });
 
     this.ws.on('open', () => {
+      if (this.stopped) {
+        this.ws?.close();
+        return;
+      }
       console.log('[relay-client] WebSocket connected to relay');
       this.setState('connected');
       this.reconnectDelay = 1000; // reset backoff
@@ -266,7 +277,7 @@ export class RelayClient extends EventEmitter {
     this.ws.on('close', (code, reason) => {
       console.log(`[relay-client] WebSocket closed: ${code} ${reason}`);
       this.cleanup();
-      if (this.state !== 'disconnected') {
+      if (!this.stopped) {
         this.scheduleReconnect();
       }
     });
@@ -400,29 +411,45 @@ export class RelayClient extends EventEmitter {
 
   /** Execute a decrypted command from a remote device. */
   private executeRemoteCommand(cmd: any, fromDeviceId: string) {
+    const requestId = typeof cmd?.requestId === 'string' ? cmd.requestId : undefined;
+    try {
+      const session = this.dispatchRemoteCommand(cmd, fromDeviceId);
+      if (requestId) this.sendEncryptedToDevice(fromDeviceId, { type: 'command:result', requestId, session });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[relay-client] Command ${cmd?.type} failed: ${message}`);
+      this.sendEncryptedToDevice(fromDeviceId, { type: 'command:result', requestId, error: message });
+    }
+  }
+
+  private dispatchRemoteCommand(cmd: any, fromDeviceId: string) {
     // Reject anything that isn't a well-formed command object.
     if (!cmd || typeof cmd !== 'object' || typeof cmd.type !== 'string') {
-      console.warn('[relay-client] Dropping malformed remote command');
-      return;
+      throw new Error('Malformed remote command');
     }
 
     // Protocol version gate — reject incompatible major versions.
     if (cmd.v !== undefined && Math.floor(Number(cmd.v)) !== REMOTE_PROTOCOL_VERSION) {
-      console.warn(`[relay-client] Dropping command with incompatible protocol version: ${cmd.v}`);
-      return;
+      throw new Error('Incompatible remote protocol version');
     }
 
     // Command allowlist — only known, permitted commands reach SessionManager.
     if (!COMMAND_ALLOWLIST.has(cmd.type)) {
-      console.warn(`[relay-client] Dropping disallowed remote command: ${cmd.type}`);
-      return;
+      throw new Error(`Unsupported remote command: ${cmd.type}`);
+    }
+
+    if (['session:write', 'session:resize', 'session:kill', 'session:rename', 'session:getBuffer'].includes(cmd.type)) {
+      const session = sessionManager.list().find(s => s.id === cmd.id);
+      if (!session) throw new Error('Session no longer exists; refresh the session list');
+      if (session.status === 'killed' && ['session:write', 'session:resize'].includes(cmd.type)) {
+        throw new Error('Session has stopped');
+      }
     }
 
     switch (cmd.type) {
       case 'session:write':
-        if (typeof cmd.id === 'string' && typeof cmd.data === 'string') {
-          sessionManager.write(cmd.id, cmd.data);
-        }
+        if (typeof cmd.data !== 'string' || cmd.data.length > 100_000) throw new Error('Invalid terminal input');
+        sessionManager.write(cmd.id, cmd.data);
         break;
 
       case 'session:resize':
@@ -435,19 +462,35 @@ export class RelayClient extends EventEmitter {
 
       case 'session:create': {
         const cwd = typeof cmd.cwd === 'string' ? cmd.cwd : undefined;
+        if (cwd && (!path.isAbsolute(cwd) || !fs.statSync(cwd).isDirectory())) throw new Error('Choose an existing absolute directory on this machine');
         const cli = sanitizeRemoteCli(cmd.cli);
         const resumeSessionId = typeof cmd.resumeSessionId === 'string' ? cmd.resumeSessionId : undefined;
         const info = sessionManager.create(cwd, cli, resumeSessionId);
         this.sendEncryptedToDevice(fromDeviceId, { type: 'session:created', ...info });
-        break;
+        return info;
       }
+
+      case 'session:rename':
+        if (typeof cmd.name !== 'string' || !cmd.name.trim() || cmd.name.length > 200) throw new Error('Name must contain 1-200 characters');
+        sessionManager.updateDisplayName(cmd.id, cmd.name.trim());
+        break;
+
+      case 'machine:capabilities':
+        this.sendEncryptedToDevice(fromDeviceId, {
+          type: 'machine:capabilities',
+          home: homedir(),
+          clis: [...CLI_TOOLS.map(({ id, label }) => ({ id, label })), ...getCachedShells().map(({ id, label }) => ({ id, label }))],
+        });
+        break;
 
       case 'session:kill':
         if (typeof cmd.id === 'string') sessionManager.kill(cmd.id);
         break;
 
       case 'session:list':
-        this.sendEncryptedToDevice(fromDeviceId, { type: 'session:list', sessions: sessionManager.list() });
+        this.sendEncryptedToDevice(fromDeviceId, {
+          type: 'session:list', sessions: sessionManager.list(), names: sessionManager.getDisplayNames(),
+        });
         break;
 
       case 'session:getBuffer':
@@ -483,6 +526,13 @@ export class RelayClient extends EventEmitter {
       em.on(channel, handler);
       this.eventUnsubscribers.push(() => em.off(channel, handler));
     };
+
+    on(IPC.SESSION_CATALOG, (data) => {
+      this.broadcastEncrypted({ type: 'session:list', ...data });
+    });
+    on(IPC.SESSION_INFO_UPDATE, (data) => {
+      this.broadcastEncrypted({ type: 'session:info', ...data });
+    });
 
     // Forward terminal data to all paired devices
     on(IPC.SESSION_DATA, (data: { id: string; data: string }) => {
@@ -669,13 +719,15 @@ export class RelayClient extends EventEmitter {
   // ── Reconnection ──────────────────────────────────────────────────────
 
   private scheduleReconnect() {
-    if (this.state === 'disconnected') return;
+    if (this.stopped || this.reconnectTimer) return;
 
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
 
     console.log(`[relay-client] Reconnecting in ${delay}ms...`);
     this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+      if (this.stopped) return;
       this.setState('disconnected');
       await this.start();
     }, delay);

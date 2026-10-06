@@ -21,7 +21,11 @@ const sessionKeyCache = new Map<string, Uint8Array>();
 const receiveSequences = new Map<string, { epoch: string; sequence: number; previousEpochs: string[] }>();
 
 function encodeBase64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+  }
+  return btoa(binary);
 }
 
 function nextEnvelopeState(machineId: string, deviceId: string): { epoch: string; seq: number } {

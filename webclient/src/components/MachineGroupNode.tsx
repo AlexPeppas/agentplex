@@ -13,7 +13,7 @@ export type MachineGroupData = {
 
 function statusInfo(status: MachineStatus): { color: string; label: string } {
   if (status.error) return { color: 'var(--error)', label: 'error' };
-  if (status.relayState === 'connected' && status.online) return { color: 'var(--success)', label: 'live' };
+  if (status.relayState === 'connected' && status.online) return { color: 'var(--success)', label: status.ready ? 'live' : 'syncing' };
   if (status.relayState === 'connected' && !status.online) return { color: 'var(--text-muted)', label: 'offline' };
   if (status.relayState === 'connecting') return { color: 'var(--warning)', label: 'connecting' };
   return { color: 'var(--text-muted)', label: 'disconnected' };
@@ -23,7 +23,7 @@ function statusInfo(status: MachineStatus): { color: string; label: string } {
 export function MachineGroupNode({ data }: NodeProps) {
   const { label, status, sessionCount, onAddSession } = data as MachineGroupData;
   const info = statusInfo(status);
-  const online = status.relayState === 'connected' && status.online;
+  const online = status.relayState === 'connected' && status.online && status.ready;
 
   return (
     <div className="w-full h-full rounded-xl border-2 border-border bg-inset/60">
@@ -43,7 +43,7 @@ export function MachineGroupNode({ data }: NodeProps) {
           disabled={!online}
           className="nodrag flex items-center gap-1 text-[11px] px-2 py-0.5 rounded text-accent border border-accent-border
             hover:bg-accent-subtle transition-colors disabled:opacity-30 disabled:pointer-events-none"
-          title="New Claude session on this machine"
+          title="New session on this machine"
         >
           <Plus size={11} /> New
         </button>

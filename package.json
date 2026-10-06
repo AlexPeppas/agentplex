@@ -15,7 +15,7 @@
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -34,13 +34,17 @@
     "make": "pnpm generate-icons && electron-forge make"
   },
   "dependencies": {
+    "@github/copilot-sdk": "^1.0.14",
+    "amqplib": "^0.10.9",
     "@anthropic-ai/sdk": "^0.80.0",
     "@monaco-editor/react": "^4.7.0",
+    "@noble/ciphers": "1.2.1",
     "@tailwindcss/vite": "^4.2.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.10.1",
     "lucide-react": "^1.7.0",
+    "lottie-web": "^5.13.0",
     "monaco-editor": "^0.55.1",
     "node-pty": "^1.1.0",
     "react": "^19.2.4",
@@ -50,6 +54,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@types/amqplib": "^0.10.7",
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-squirrel": "^7.11.1",
     "@electron-forge/maker-zip": "^7.11.1",

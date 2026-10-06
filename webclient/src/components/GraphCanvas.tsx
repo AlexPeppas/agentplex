@@ -53,16 +53,16 @@ function estSessionHeight(trace: SessionTrace): number {
 
 interface Props {
   onSelectSession: (machineId: string, sessionId: string) => void;
+  onNewSession: (machineId: string) => void;
 }
 
-export default function GraphCanvas({ onSelectSession }: Props) {
+export default function GraphCanvas({ onSelectSession, onNewSession }: Props) {
   const machines = useStore(s => s.machines);
   const sessions = useStore(s => s.sessions);
   const displayNames = useStore(s => s.displayNames);
   const status = useStore(s => s.status);
   const traces = useStore(s => s.traces);
   const active = useStore(s => s.active);
-  const sendCommand = useStore(s => s.sendCommand);
 
   const alive = useMemo(() => sessions.filter(s => s.status !== 'killed'), [sessions]);
 
@@ -135,7 +135,7 @@ export default function GraphCanvas({ onSelectSession }: Props) {
         machineId: mid,
         status: status[mid] ?? DISCONNECTED,
         sessionCount: mSessions.length,
-        onAddSession: () => sendCommand(mid, { type: 'session:create', cli: 'claude' }),
+        onAddSession: () => onNewSession(mid),
       };
       nodes.push({
         id: `group:${mid}`,
@@ -152,7 +152,7 @@ export default function GraphCanvas({ onSelectSession }: Props) {
     }
 
     return { nodes, edges };
-  }, [machines, alive, displayNames, status, traces, active, sendCommand, onSelectSession]);
+  }, [machines, alive, displayNames, status, traces, active, onNewSession, onSelectSession]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(build().nodes);
   const edges = useMemo(() => build().edges, [build]);

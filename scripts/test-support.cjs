@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
+const { createRequire } = require('node:module');
 
 // Compile isolated modules with the project's compiler, without starting
 // Electron. Callers supply replacements for side-effectful native/UI services.
@@ -10,13 +11,14 @@ function loadSource(relativePath, overrides = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   const module = { exports: {} };
+  const sourceRequire = createRequire(filename);
   const localRequire = name => {
     if (Object.hasOwn(overrides, name)) return overrides[name];
     if (name.startsWith('.')) {
       const target = path.resolve(path.dirname(filename), name);
       return loadSource(fs.existsSync(`${target}.ts`) ? `${target}.ts` : `${target}.tsx`, overrides);
     }
-    return require(name);
+    return sourceRequire(name);
   };
   new Function('require', 'module', 'exports', code)(localRequire, module, module.exports);
   return module.exports;

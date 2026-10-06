@@ -4,7 +4,7 @@ export default defineConfig({
   build: {
     target: 'node22',
     rollupOptions: {
-      external: ['node-pty', 'ws'],
+      external: ['node-pty', 'ws', 'amqplib', '@github/copilot-sdk'],
     },
   },
 });

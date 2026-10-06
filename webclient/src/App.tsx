@@ -5,6 +5,8 @@ import PairingScreen from './components/PairingScreen';
 import GraphCanvas from './components/GraphCanvas';
 import Terminal from './components/Terminal';
 import SessionList from './components/SessionList';
+import SessionControls from './components/SessionControls';
+import NewSessionForm from './components/NewSessionForm';
 import logo from './assets/logo.svg';
 import type { MachineStatus } from './relay/types';
 
@@ -28,7 +30,7 @@ function useMobileLayout() {
 function aggregate(status: Record<string, MachineStatus>): { color: string; title: string; live: boolean } {
   const all = Object.values(status);
   if (all.length === 0) return { color: 'var(--text-muted)', title: 'No machines', live: false };
-  const live = all.filter(s => s.relayState === 'connected' && s.online).length;
+  const live = all.filter(s => s.relayState === 'connected' && s.online && s.ready).length;
   const connecting = all.some(s => s.relayState === 'connecting');
   const anyError = all.some(s => s.error);
   if (live > 0) return { color: 'var(--success)', title: `${live} machine${live === 1 ? '' : 's'} live`, live: true };
@@ -58,6 +60,7 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'canvas' | 'terminal'>('canvas');
   const [showAddMachine, setShowAddMachine] = useState(false);
+  const [newSessionMachine, setNewSessionMachine] = useState<string | null>(null);
 
   const handleSelectSession = useCallback((machineId: string, sessionId: string) => {
     setActiveSession(machineId, sessionId);
@@ -70,6 +73,7 @@ export default function App() {
   }, [clearActiveSession]);
 
   useEffect(() => { bootstrap(); }, []);
+  useEffect(() => { if (!active) setActiveTab('canvas'); }, [active]);
 
   if (machines.length === 0) return <PairingScreen />;
 
@@ -135,18 +139,27 @@ export default function App() {
         {/* Canvas or Terminal */}
         <div className="flex-1 relative min-h-0">
           {activeTab === 'canvas' && !mobile ? (
-            <GraphCanvas onSelectSession={handleSelectSession} />
+            <GraphCanvas onSelectSession={handleSelectSession} onNewSession={setNewSessionMachine} />
           ) : active ? (
-            <Terminal
-              key={`${active.machineId}:${active.sessionId}`}
-              machineId={active.machineId}
-              sessionId={active.sessionId}
-            />
+            <div key={`${active.machineId}:${active.sessionId}`} className="flex flex-col h-full min-h-0">
+              <SessionControls machineId={active.machineId} sessionId={active.sessionId} />
+              <div className="flex-1 min-h-0">
+                <Terminal machineId={active.machineId} sessionId={active.sessionId} />
+              </div>
+            </div>
           ) : null}
         </div>
       </div>}
 
       {/* Add-machine overlay */}
+      {newSessionMachine && (
+        <div role="dialog" aria-modal="true" aria-label="New session" className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-surface rounded max-w-md w-full">
+            <NewSessionForm machineId={newSessionMachine} onCancel={() => setNewSessionMachine(null)}
+              onDone={sessionId => { handleSelectSession(newSessionMachine, sessionId); setNewSessionMachine(null); }} />
+          </div>
+        </div>
+      )}
       {showAddMachine && (
         <PairingScreen
           overlay

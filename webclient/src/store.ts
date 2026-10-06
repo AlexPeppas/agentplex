@@ -8,6 +8,8 @@ import type {
   MachineEvent,
   SessionTrace,
   TaskStatus,
+  MachineCapabilities,
+  CommandResult,
 } from './relay/types';
 import { EMPTY_TRACE } from './relay/types';
 import { RelayClient } from './relay/client';
@@ -23,6 +25,7 @@ export function termKey(machineId: string, sessionId: string): string {
 }
 
 const DISCONNECTED: MachineStatus = { relayState: 'disconnected', online: false, error: null };
+const TERMINAL_BUFFER_LIMIT = 512 * 1024;
 
 async function getDB() {
   return openDB(PAIRED_DB, 1, {
@@ -62,6 +65,7 @@ interface AppState {
   // Merged session list across all machines. Every session is tagged machineId.
   sessions: SessionInfo[];
   displayNames: Record<string, Record<string, string>>; // machineId → sessionId → name
+  capabilities: Record<string, MachineCapabilities>;
 
   // Terminal buffers keyed by termKey(machineId, sessionId).
   terminalData: Record<string, string>;
@@ -83,6 +87,7 @@ interface AppState {
   setActiveSession: (machineId: string, sessionId: string) => void;
   clearActiveSession: () => void;
   sendCommand: (machineId: string, cmd: MachineCommand) => void;
+  executeCommand: (machineId: string, cmd: MachineCommand) => Promise<CommandResult>;
   requestBuffer: (machineId: string, sessionId: string) => void;
 }
 
@@ -108,11 +113,41 @@ export const useStore = create<AppState>((set, get) => {
 
     switch (event.type) {
       case 'session:list':
-        set(s => ({
-          sessions: [
+        set(s => {
+          const ids = new Set(event.sessions.map(session => session.id));
+          const belongsToMissingSession = (key: string) =>
+            key.startsWith(`${machineId}:`) && !ids.has(key.slice(machineId.length + 1));
+          return {
+            sessions: [
             ...s.sessions.filter(sess => sess.machineId !== machineId),
             ...event.sessions.map(sess => ({ ...sess, machineId })),
-          ],
+            ],
+            displayNames: { ...s.displayNames, [machineId]: event.names ?? s.displayNames[machineId] ?? {} },
+            terminalData: Object.fromEntries(Object.entries(s.terminalData).filter(([key]) => !belongsToMissingSession(key))),
+            terminalGeneration: Object.fromEntries(Object.entries(s.terminalGeneration).filter(([key]) => !belongsToMissingSession(key))),
+            traces: Object.fromEntries(Object.entries(s.traces).filter(([key]) => !belongsToMissingSession(key))),
+            active: s.active?.machineId === machineId && !ids.has(s.active.sessionId) ? null : s.active,
+          };
+        });
+        if (!get().status[machineId]?.ready) {
+          patchStatus(machineId, { ready: true, error: null });
+          const active = get().active;
+          if (active?.machineId === machineId) get().requestBuffer(machineId, active.sessionId);
+        }
+        break;
+
+      case 'machine:capabilities':
+        set(s => ({ capabilities: { ...s.capabilities, [machineId]: { home: event.home, clis: event.clis } } }));
+        break;
+
+      case 'command:result':
+        if (event.error) patchStatus(machineId, { error: event.error });
+        break;
+
+      case 'session:info':
+        set(s => ({
+          sessions: s.sessions.map(session => session.machineId === machineId && session.id === event.id
+            ? { ...session, ...event, machineId } : session),
         }));
         break;
 
@@ -127,7 +162,7 @@ export const useStore = create<AppState>((set, get) => {
               pid: event.pid,
               cwd: event.cwd,
               cli: event.cli,
-              claudeSessionUuid: event.claudeSessionUuid,
+              resumeSessionId: event.resumeSessionId,
               machineId,
             },
           ],
@@ -157,7 +192,13 @@ export const useStore = create<AppState>((set, get) => {
       case 'session:data':
         set(s => {
           const k = termKey(machineId, event.id);
-          return { terminalData: { ...s.terminalData, [k]: (s.terminalData[k] ?? '') + event.data } };
+          const buffer = (s.terminalData[k] ?? '') + event.data;
+          return {
+            terminalData: { ...s.terminalData, [k]: buffer.slice(-TERMINAL_BUFFER_LIMIT) },
+            terminalGeneration: buffer.length > TERMINAL_BUFFER_LIMIT
+              ? { ...s.terminalGeneration, [k]: (s.terminalGeneration[k] ?? 0) + 1 }
+              : s.terminalGeneration,
+          };
         });
         break;
 
@@ -165,7 +206,7 @@ export const useStore = create<AppState>((set, get) => {
         set(s => {
           const key = termKey(machineId, event.id);
           return {
-            terminalData: { ...s.terminalData, [key]: event.buffer },
+            terminalData: { ...s.terminalData, [key]: event.buffer.slice(-TERMINAL_BUFFER_LIMIT) },
             terminalGeneration: {
               ...s.terminalGeneration,
               [key]: (s.terminalGeneration[key] ?? 0) + 1,
@@ -264,14 +305,7 @@ export const useStore = create<AppState>((set, get) => {
     const client = new RelayClient(machine, {
       onError: (msg) => patchStatus(machine.machineId, { error: msg }),
       onStatus: (relayState, online) => {
-        const wasOnline = get().status[machine.machineId]?.online ?? false;
-        patchStatus(machine.machineId, { relayState, online, error: null });
-        if (online && !wasOnline) {
-          const active = get().active;
-          if (active?.machineId === machine.machineId) {
-            void client.send({ type: 'session:getBuffer', id: active.sessionId });
-          }
-        }
+        patchStatus(machine.machineId, { relayState, online, ready: false });
       },
       onEvent: (event) => handleEvent(machine.machineId, event),
     });
@@ -284,6 +318,7 @@ export const useStore = create<AppState>((set, get) => {
     status: {},
     sessions: [],
     displayNames: {},
+    capabilities: {},
     terminalData: {},
     terminalGeneration: {},
     traces: {},
@@ -328,6 +363,7 @@ export const useStore = create<AppState>((set, get) => {
       set(s => {
         const status = { ...s.status }; delete status[machineId];
         const displayNames = { ...s.displayNames }; delete displayNames[machineId];
+        const capabilities = { ...s.capabilities }; delete capabilities[machineId];
         const terminalData = Object.fromEntries(
           Object.entries(s.terminalData).filter(([k]) => !k.startsWith(`${machineId}:`)),
         );
@@ -342,6 +378,7 @@ export const useStore = create<AppState>((set, get) => {
           clients,
           status,
           displayNames,
+          capabilities,
           terminalData,
           terminalGeneration,
           traces,
@@ -353,20 +390,29 @@ export const useStore = create<AppState>((set, get) => {
 
     setActiveSession: (machineId, sessionId) => {
       set({ active: { machineId, sessionId } });
-      const { terminalData, clients } = get();
-      if (!terminalData[termKey(machineId, sessionId)]) {
-        clients.get(machineId)?.send({ type: 'session:getBuffer', id: sessionId });
-      }
+      if (get().status[machineId]?.ready) get().requestBuffer(machineId, sessionId);
     },
 
     clearActiveSession: () => set({ active: null }),
 
     sendCommand: (machineId, cmd) => {
-      get().clients.get(machineId)?.send(cmd);
+      const client = get().clients.get(machineId);
+      if (!client || !get().status[machineId]?.ready) {
+        patchStatus(machineId, { error: 'Machine is not ready; command was not sent' });
+        return;
+      }
+      void client.send(cmd).catch(error => patchStatus(machineId, { error: error.message }));
+    },
+
+    executeCommand: async (machineId, cmd) => {
+      const client = get().clients.get(machineId);
+      if (!client || !get().status[machineId]?.ready) throw new Error('Machine is not ready');
+      patchStatus(machineId, { error: null });
+      return client.request(cmd);
     },
 
     requestBuffer: (machineId, sessionId) => {
-      get().clients.get(machineId)?.send({ type: 'session:getBuffer', id: sessionId });
+      get().sendCommand(machineId, { type: 'session:getBuffer', id: sessionId });
     },
   };
 });

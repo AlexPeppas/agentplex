@@ -86,6 +86,17 @@ export function ContextMeter({
     `Cache write ${formatTokens(usage.cacheWriteTokens)}`,
   ].join(' · ');
 
+  if (usage.snapshotSource) {
+    const source = usage.snapshotSource === 'copilot-checkpoint' ? 'Last main-conversation prompt'
+      : usage.snapshotSource === 'copilot-compaction' ? 'Context after compaction' : 'Context at last CLI shutdown';
+    return (
+      <span className={`text-fg-muted tabular-nums whitespace-nowrap ${compact ? 'text-[9px]' : 'text-[10px]'}`}
+        title={`${source}: ${usage.contextTokens.toLocaleString()} tokens. Recorded ${new Date(usage.updatedAt).toLocaleString()}. Snapshot, not live /context usage; context capacity unavailable.`}>
+        {formatTokens(usage.contextTokens)}{compact ? ' (snapshot)' : ' tokens · snapshot'}
+      </span>
+    );
+  }
+
   if (compact) {
     return (
       <span className="flex items-center gap-1.5 shrink-0" title={`${label} · ${detail}`}>

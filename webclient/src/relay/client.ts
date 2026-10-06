@@ -18,7 +18,7 @@ import {
   verifyPairingProof,
 } from '../crypto/e2ee';
 import { REMOTE_PROTOCOL_VERSION } from './types';
-import type { MachineCommand, MachineEvent, PairedMachine } from './types';
+import type { MachineCommand, MachineEvent, PairedMachine, CommandResult } from './types';
 
 type RelayState = 'disconnected' | 'connecting' | 'connected';
 
@@ -34,6 +34,11 @@ export class RelayClient {
   private reconnectDelay = 1000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  private stopped = true;
+  private syncTimer: ReturnType<typeof setInterval> | null = null;
+  private sendQueue: Promise<void> = Promise.resolve();
+  private receiveQueue: Promise<void> = Promise.resolve();
+  private pending = new Map<string, { resolve: (result: CommandResult) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private onEvent: EventHandler;
   private onStatus: StatusHandler;
   private onError: ErrorHandler;
@@ -51,10 +56,16 @@ export class RelayClient {
 
   async start() {
     if (this.state !== 'disconnected') return;
+    this.stopped = false;
     this.setState('connecting');
     console.log('[relay-client] Starting, relay:', this.machine.relayUrl);
     try {
+      const currentEncryptionKey = await getEncPubKeyB64();
+      if (currentEncryptionKey !== this.machine.deviceEncryptionKey) {
+        throw new Error('Browser encryption keys changed — unpair and pair this machine again');
+      }
       await this.authenticate();
+      if (this.stopped) return;
       this.connectWebSocket();
     } catch (err: any) {
       const msg = `Auth failed: ${err.message}`;
@@ -66,8 +77,10 @@ export class RelayClient {
   }
 
   stop() {
+    this.stopped = true;
     this.reconnectDelay = 1000;
     this.clearTimers();
+    this.rejectPending('Connection closed; command outcome may be unknown. Refresh before retrying.');
     this.ws?.close();
     this.ws = null;
     this.setState('disconnected');
@@ -114,9 +127,14 @@ export class RelayClient {
     const url = `${wsUrl}?token=${encodeURIComponent(this.accessToken)}`;
     console.log('[relay-client] Connecting WS:', wsUrl);
 
-    this.ws = new WebSocket(url);
+    const ws = new WebSocket(url);
+    this.ws = ws;
 
-    this.ws.onopen = () => {
+    ws.onopen = () => {
+      if (this.stopped || this.ws !== ws) {
+        ws.close();
+        return;
+      }
       console.log('[relay-client] WS open — sending connect for machine:', this.machine.machineId);
       this.reconnectDelay = 1000;
       this.setState('connected');
@@ -124,35 +142,30 @@ export class RelayClient {
       this.wsSend({ type: 'connect', machineId: this.machine.machineId });
       this.keepaliveTimer = setInterval(() => this.wsSend({ type: 'ping' }), 30_000);
 
-      // Request initial state — small delay to ensure connect is processed
-      setTimeout(() => {
-        console.log('[relay-client] Requesting session list...');
-        this.send({ type: 'session:list' }).catch(e =>
-          console.error('[relay-client] session:list send failed:', e)
-        );
-        this.send({ type: 'displayNames:get' }).catch(e =>
-          console.error('[relay-client] displayNames send failed:', e)
-        );
-      }, 200);
     };
 
-    this.ws.onmessage = (ev) => {
-      this.handleRawMessage(ev.data as string).catch(e =>
-        console.error('[relay-client] handleRawMessage error:', e)
-      );
+    ws.onmessage = (ev) => {
+      // Decrypt in wire order: concurrent key lookups can otherwise reorder
+      // envelopes and trigger replay rejection or corrupt terminal output.
+      this.receiveQueue = this.receiveQueue.then(async () => {
+        if (this.ws === ws && !this.stopped) await this.handleRawMessage(ev.data as string);
+      }).catch(e => this.onError(e instanceof Error ? e.message : String(e)));
     };
 
-    this.ws.onclose = (ev) => {
+    ws.onclose = (ev) => {
+      if (this.ws !== ws) return;
       console.log('[relay-client] WS closed:', ev.code, ev.reason);
       this.clearTimers();
       this.ws = null;
-      if (this.state !== 'disconnected') {
+      this.rejectPending('Connection lost; command outcome may be unknown. Refresh before retrying.');
+      if (!this.stopped) {
         this.setState('disconnected');
         this.scheduleReconnect();
       }
     };
 
-    this.ws.onerror = () => {
+    ws.onerror = () => {
+      if (this.ws !== ws || this.stopped) return;
       console.error('[relay-client] WS error (check relay is running at', this.machine.relayUrl, ')');
       this.onError(`Cannot connect to relay at ${this.machine.relayUrl}`);
     };
@@ -175,13 +188,24 @@ export class RelayClient {
         console.log('[relay-client] Machine is online');
         this.machineOnline = true;
         this.onStatus(this.state, true);
-        await this.send({ type: 'session:list' });
-        await this.send({ type: 'displayNames:get' });
+        if (this.syncTimer) clearInterval(this.syncTimer);
+        let attempts = 0;
+        const sync = () => {
+          if (++attempts === 6) this.onError('Machine is online but encrypted session sync has not completed. Check desktop pairing.');
+          void this.send({ type: 'session:list' }).catch(e => this.onError(e.message));
+          void this.send({ type: 'machine:capabilities' }).catch(e => this.onError(e.message));
+        };
+        sync();
+        // Pair completion can precede the machine's local allowlist update.
+        // Retry only read-only discovery, never replay terminal input/mutations.
+        this.syncTimer = setInterval(sync, 2000);
         break;
 
       case 'machine:offline':
         console.log('[relay-client] Machine went offline');
         this.machineOnline = false;
+        if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null; }
+        this.rejectPending('Machine went offline; refresh before retrying the command.');
         this.onStatus(this.state, false);
         break;
 
@@ -194,7 +218,10 @@ export class RelayClient {
 
       case 'error':
         console.warn('[relay-client] Relay error:', msg.code, msg.message);
-        if (msg.code === 'NOT_PAIRED') this.onError('Device is not paired with this machine');
+        this.onError(msg.message || 'Relay rejected the request');
+        if (['NOT_PAIRED', 'DEVICE_REVOKED', 'DEVICE_NOT_FOUND'].includes(msg.code)) {
+          this.stop();
+        }
         break;
     }
   }
@@ -208,6 +235,7 @@ export class RelayClient {
   }) {
     const deviceId = this.machine.deviceId;
     if (!deviceId) { console.error('[relay-client] No deviceId for decryption'); return; }
+    if (msg.from !== this.machine.machineId) throw new Error('Unexpected machine sender');
 
     console.log('[relay-client] Decrypting envelope from', msg.from);
 
@@ -230,26 +258,69 @@ export class RelayClient {
       return;
     }
 
-    try {
-      const event = JSON.parse(plaintext) as MachineEvent;
-      console.log('[relay-client] ✓ Decrypted event:', event.type);
-      this.onEvent(event);
-    } catch (e) {
-      console.error('[relay-client] Decrypted payload is not valid JSON:', plaintext.slice(0, 100));
+    const event = JSON.parse(plaintext) as MachineEvent & { v?: number };
+    if (event.v !== REMOTE_PROTOCOL_VERSION) throw new Error('Machine protocol is incompatible; update AgentPlex');
+    if (event.type === 'session:list' && this.syncTimer) {
+      clearInterval(this.syncTimer);
+      this.syncTimer = null;
     }
+    if (event.type === 'command:result' && event.requestId) {
+      const pending = this.pending.get(event.requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pending.delete(event.requestId);
+        if (event.error) pending.reject(new Error(event.error));
+        else pending.resolve(event);
+      }
+    }
+    this.onEvent(event);
   }
 
   // ── Send commands to machine ───────────────────────────────────────────────
 
-  async send(command: MachineCommand) {
+  send(command: MachineCommand): Promise<void> {
+    const ws = this.ws;
+    const task = this.sendQueue.then(() => {
+      if (this.ws !== ws || this.stopped) throw new Error('Connection changed; command was not sent');
+      return this.sendNow(command);
+    });
+    this.sendQueue = task.catch(() => undefined);
+    return task;
+  }
+
+  request(command: MachineCommand): Promise<CommandResult> {
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(requestId);
+        reject(new Error('No machine response. Command outcome is unknown; refresh before retrying.'));
+      }, 15_000);
+      this.pending.set(requestId, { resolve, reject, timer });
+      void this.send({ ...command, requestId }).catch(error => {
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        reject(error);
+      });
+    });
+  }
+
+  private rejectPending(message: string) {
+    for (const { reject, timer } of this.pending.values()) {
+      clearTimeout(timer);
+      reject(new Error(message));
+    }
+    this.pending.clear();
+  }
+
+  private async sendNow(command: MachineCommand) {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.warn('[relay-client] send() skipped — WS not open, cmd:', command.type);
-      return;
+      throw new Error('Relay is disconnected; command was not sent');
     }
+    if (!this.machineOnline) throw new Error('Machine is offline; command was not sent');
 
     const deviceId = this.machine.deviceId;
-    if (!deviceId) { console.error('[relay-client] No deviceId, cannot send'); return; }
+    if (!deviceId) throw new Error('Device is not paired');
 
     const sessionKey = await getSessionKey(
       this.machine.machineId,
@@ -266,9 +337,8 @@ export class RelayClient {
     );
 
     // Re-check after awaits — WS could have closed
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[relay-client] WS closed during encryption, dropping:', command.type);
-      return;
+    if (this.ws !== ws || ws.readyState !== WebSocket.OPEN || this.stopped || !this.machineOnline) {
+      throw new Error('Connection changed during encryption; command was not sent');
     }
 
     console.log('[relay-client] →', command.type);
@@ -412,17 +482,23 @@ export class RelayClient {
 
   private setState(state: RelayState) {
     this.state = state;
+    if (state !== 'connected') this.machineOnline = false;
     this.onStatus(state, this.machineOnline);
   }
 
   private scheduleReconnect() {
+    if (this.stopped || this.reconnectTimer) return;
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30_000);
     console.log(`[relay-client] Reconnecting in ${delay}ms`);
-    this.reconnectTimer = setTimeout(() => this.start(), delay);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.stopped) void this.start();
+    }, delay);
   }
 
   private clearTimers() {
+    if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null; }
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     if (this.keepaliveTimer) { clearInterval(this.keepaliveTimer); this.keepaliveTimer = null; }
   }

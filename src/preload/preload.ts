@@ -1,9 +1,33 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups, RemoteStatus, RemotePairedDevice, RemotePairingCode, RelayConnState } from '../shared/ipc-channels';
+import { PLEX_IPC, type PlexModel, type PlexTranscript, type PlexWorkspace, type PlexSquadBlueprint } from '../shared/plex';
+import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, SessionSearchResult, PersistedGroups, RemoteStatus, RemotePairedDevice, RemotePairingCode, RelayConnState } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
+  plexWorkspace: (): Promise<PlexWorkspace> => ipcRenderer.invoke(PLEX_IPC.workspace),
+  plexModels: (): Promise<PlexModel[]> => ipcRenderer.invoke(PLEX_IPC.models),
+  plexTranscript: (conversationId: string, agentId: string): Promise<PlexTranscript> =>
+    ipcRenderer.invoke(PLEX_IPC.transcript, conversationId, agentId),
+  plexCreateConversation: (cwd: string, blueprintId: string, requestId: string): Promise<PlexWorkspace> =>
+    ipcRenderer.invoke(PLEX_IPC.createConversation, cwd, blueprintId, requestId),
+  plexSaveBlueprint: (blueprint: PlexSquadBlueprint): Promise<PlexWorkspace> => ipcRenderer.invoke(PLEX_IPC.saveBlueprint, blueprint),
+  plexDeleteBlueprint: (id: string): Promise<PlexWorkspace> => ipcRenderer.invoke(PLEX_IPC.deleteBlueprint, id),
+  plexChat: (message: string, conversationId: string, messageId: string): Promise<PlexWorkspace> =>
+    ipcRenderer.invoke(PLEX_IPC.chat, message, conversationId, messageId),
+  plexApprove: (conversationId: string, approvalId: string): Promise<PlexWorkspace> =>
+    ipcRenderer.invoke(PLEX_IPC.approve, conversationId, approvalId),
+  plexCancel: (conversationId: string, approvalId?: string): Promise<PlexWorkspace> =>
+    ipcRenderer.invoke(PLEX_IPC.cancel, conversationId, approvalId),
+  plexPermissionDecision: (conversationId: string, jobId: string, requestId: string, decision: 'approve-once' | 'reject'): Promise<PlexWorkspace> =>
+    ipcRenderer.invoke(PLEX_IPC.permissionDecision, conversationId, jobId, requestId, decision),
+  plexAnswerQuestion: (conversationId: string, questionId: string, answer: string): Promise<PlexWorkspace> =>
+    ipcRenderer.invoke(PLEX_IPC.answerQuestion, conversationId, questionId, answer),
+  onPlexChanged: (callback: (state: PlexWorkspace) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: PlexWorkspace) => callback(state);
+    ipcRenderer.on(PLEX_IPC.changed, handler);
+    return () => ipcRenderer.removeListener(PLEX_IPC.changed, handler);
+  },
 
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string): Promise<SessionInfo> => {
     return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli, resumeSessionId });
@@ -59,6 +83,12 @@ const api = {
     };
     ipcRenderer.on(IPC.SESSION_EXIT, handler);
     return () => ipcRenderer.removeListener(IPC.SESSION_EXIT, handler);
+  },
+
+  onSessionCatalog: (callback: (data: { sessions: SessionInfo[]; names: Record<string, string> }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { sessions: SessionInfo[]; names: Record<string, string> }) => callback(payload);
+    ipcRenderer.on(IPC.SESSION_CATALOG, handler);
+    return () => ipcRenderer.removeListener(IPC.SESSION_CATALOG, handler);
   },
 
   onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null; lastActivityAt?: number; usage?: SessionUsage | null }) => void): (() => void) => {
@@ -291,14 +321,6 @@ const api = {
 
   getPersistedState: (): Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }> => {
     return ipcRenderer.invoke(IPC.SESSION_GET_PERSISTED);
-  },
-
-  templatesLoad: (): Promise<WorkspaceTemplate[]> => {
-    return ipcRenderer.invoke(IPC.TEMPLATES_LOAD);
-  },
-
-  templatesSave: (templates: WorkspaceTemplate[]): Promise<void> => {
-    return ipcRenderer.invoke(IPC.TEMPLATES_SAVE, templates);
   },
 
   // ── Remote access (relay pairing) ──

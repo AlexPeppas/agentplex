@@ -15,6 +15,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { homedir } from 'os';
+import { chacha20poly1305 } from '@noble/ciphers/chacha';
 import { getEncryptionKeyPair } from './key-manager';
 
 const HKDF_SALT_PREFIX = 'agentplex-e2ee-v1';
@@ -213,17 +214,8 @@ export function encrypt(sessionKey: Buffer, machineId: string, deviceId: string,
   const nonce = crypto.randomBytes(NONCE_LENGTH);
   const seq = nextSequence(machineId, deviceId);
   const aad = Buffer.from(`${machineId}:${deviceId}:machine:${OUTBOUND_EPOCH}:${seq}`, 'utf-8');
-
-  const cipher = crypto.createCipheriv('chacha20-poly1305', sessionKey, nonce, {
-    authTagLength: TAG_LENGTH,
-  });
-  cipher.setAAD(aad, { plaintextLength: Buffer.byteLength(plaintext, 'utf-8') });
-
-  const encrypted = Buffer.concat([
-    cipher.update(plaintext, 'utf-8'),
-    cipher.final(),
-  ]);
-  const tag = cipher.getAuthTag();
+  const cipher = chacha20poly1305(sessionKey, nonce, aad);
+  const sealed = cipher.encrypt(Buffer.from(plaintext, 'utf-8'));
 
   return {
     type: 'envelope',
@@ -231,7 +223,7 @@ export function encrypt(sessionKey: Buffer, machineId: string, deviceId: string,
     epoch: OUTBOUND_EPOCH,
     seq,
     nonce: nonce.toString('base64'),
-    ct: Buffer.concat([encrypted, tag]).toString('base64'),
+    ct: Buffer.from(sealed).toString('base64'),
   };
 }
 
@@ -263,28 +255,17 @@ export function decrypt(
     if (nonce.length !== NONCE_LENGTH) return null;
     if (ctWithTag.length < TAG_LENGTH) return null;
 
-    const ciphertext = ctWithTag.subarray(0, -TAG_LENGTH);
-    const tag = ctWithTag.subarray(-TAG_LENGTH);
     const aad = Buffer.from(
       `${machineId}:${deviceId}:device:${envelope.epoch}:${envelope.seq}`,
       'utf-8',
     );
-
-    const decipher = crypto.createDecipheriv('chacha20-poly1305', sessionKey, nonce, {
-      authTagLength: TAG_LENGTH,
-    });
-    decipher.setAAD(aad, { plaintextLength: ciphertext.length });
-    decipher.setAuthTag(tag);
-
-    const decrypted = Buffer.concat([
-      decipher.update(ciphertext),
-      decipher.final(),
-    ]);
+    const cipher = chacha20poly1305(sessionKey, nonce, aad);
+    const decrypted = cipher.decrypt(ctWithTag);
 
     if (!acceptDeviceSequence(machineId, deviceId, envelope.epoch, envelope.seq)) {
       return null;
     }
-    return decrypted.toString('utf-8');
+    return Buffer.from(decrypted).toString('utf-8');
   } catch {
     return null;
   }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import {
   ReactFlow,
   Background,
@@ -12,11 +12,15 @@ import { GroupNode } from './GroupNode';
 import { SubAgentNode } from './SubAgentNode';
 import { DrawingOverlay } from './DrawingOverlay';
 import { useAppStore } from '../store';
+import { usePlexStore } from '../plex-store';
+import { PlexNode, PlexSquadNode } from './PlexNode';
 
 const nodeTypes = {
   sessionNode: SessionNode,
   groupNode: GroupNode,
   subagentNode: SubAgentNode,
+  plexNode: PlexNode,
+  plexSquadNode: PlexSquadNode,
 };
 
 export function GraphCanvas() {
@@ -33,6 +37,38 @@ export function GraphCanvas() {
   const shouldFocusNode = useAppStore((s) => s.shouldFocusNode);
   const drawingMode = useAppStore((s) => s.drawingMode);
   const { fitView } = useReactFlow();
+  const plex = usePlexStore(s => s.state);
+  const plexNodes = useMemo((): Node[] => {
+    if (!plex?.enabled) return [];
+    const result: Node[] = [{
+      id: 'plex:coordinator', type: 'plexNode', position: { x: 0, y: -190 },
+      data: { label: 'Plex', detail: `Coordinator · ${plex.phase}` }, draggable: false, deletable: false,
+    }];
+    const squads = [...new Set(plex.agents.map(agent => agent.squadId))];
+    squads.forEach((squadId, index) => {
+      const members = plex.agents.filter(agent => agent.squadId === squadId);
+      const id = `plex:squad:${squadId}`;
+      result.push({
+        id, type: 'plexSquadNode', position: { x: 280, y: -190 + index * 190 },
+        style: { width: members.length * 235 + 20, height: 135 },
+        data: { label: members[0].squadName }, draggable: false, selectable: false, deletable: false,
+      });
+      members.forEach((agent, member) => result.push({
+        id: `plex:agent:${agent.id}`, parentId: id, type: 'plexNode',
+        position: { x: 15 + member * 235, y: 40 },
+        data: { label: agent.name, detail: `Copilot worker · ${agent.status}`,
+          agentId: agent.id, conversationId: plex.mount?.conversationId },
+        draggable: false, deletable: false,
+      }));
+    });
+    return result;
+  }, [plex]);
+
+  useEffect(() => {
+    if (!plex?.enabled) return;
+    const timer = setTimeout(() => { void fitView({ nodes: [{ id: 'plex:coordinator' }], duration: 200, maxZoom: 1 }); }, 100);
+    return () => clearTimeout(timer);
+  }, [plex?.enabled, fitView]);
 
   useEffect(() => {
     if (!shouldFocusNode) return;
@@ -118,10 +154,13 @@ export function GraphCanvas() {
   return (
     <div className="graph-canvas w-full h-full relative">
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        nodes={[...nodes, ...plexNodes]}
+        edges={[...edges, ...(plex?.enabled ? plex.agents.map(agent => ({
+          id: `plex:edge:${agent.id}`, source: 'plex:coordinator', target: `plex:agent:${agent.id}`,
+          animated: agent.status === 'running', deletable: false,
+        })) : [])]}
+        onNodesChange={changes => onNodesChange(changes.filter(change => !('id' in change) || !change.id.startsWith('plex:')))}
+        onEdgesChange={changes => onEdgesChange(changes.filter(change => !('id' in change) || !change.id.startsWith('plex:')))}
         onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}
         onMove={onMove}

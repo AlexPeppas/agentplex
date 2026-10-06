@@ -6,7 +6,7 @@ import { SessionStatus } from '../../shared/ipc-channels';
 const PANELS: { id: PanelId; icon: typeof FolderOpen }[] = [
   { id: 'explorer', icon: FolderOpen },
   { id: 'search', icon: Search },
-  { id: 'templates', icon: LayoutTemplate },
+  { id: 'squads', icon: LayoutTemplate },
 ];
 
 const PRESET_COLORS = [
@@ -59,8 +59,8 @@ export function ActivityBar() {
             onClick={() => togglePanel(id)}
             className={`relative ${btnBase}
               ${isActive ? 'bg-elevated text-fg' : btnInactive}`}
-            title={id === 'explorer' && waitingCount ? `Explorer - ${waitingCount} need attention` : id.charAt(0).toUpperCase() + id.slice(1)}
-            aria-label={id === 'explorer' ? `Explorer, ${waitingCount} sessions need attention` : id}
+            title={id === 'squads' ? 'Squads' : id === 'explorer' && waitingCount ? `Explorer - ${waitingCount} need attention` : id.charAt(0).toUpperCase() + id.slice(1)}
+            aria-label={id === 'squads' ? 'Squads' : id === 'explorer' ? `Explorer, ${waitingCount} sessions need attention` : id}
             aria-pressed={isActive}
           >
             {isActive && (

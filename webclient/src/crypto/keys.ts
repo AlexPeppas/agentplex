@@ -12,7 +12,7 @@ import { openDB, type IDBPDatabase } from 'idb';
 import { ed25519, x25519 } from '@noble/curves/ed25519';
 
 const DB_NAME = 'agentplex-keys';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'keys';
 
 let _db: IDBPDatabase | null = null;
@@ -21,7 +21,9 @@ async function getDB(): Promise<IDBPDatabase> {
   if (_db) return _db;
   _db = await openDB(DB_NAME, DB_VERSION, {
     upgrade(db) {
-      db.createObjectStore(STORE);
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE);
+      }
     },
   });
   return _db;
@@ -29,10 +31,13 @@ async function getDB(): Promise<IDBPDatabase> {
 
 async function loadOrGenerate(key: string, generate: () => Uint8Array): Promise<Uint8Array> {
   const db = await getDB();
-  const existing = await db.get(STORE, key);
+  // Serialize first-use generation across concurrent machine connections/tabs.
+  const tx = db.transaction(STORE, 'readwrite');
+  const existing = await tx.store.get(key);
   if (existing instanceof Uint8Array && existing.length > 0) return existing;
   const fresh = generate();
-  await db.put(STORE, fresh, key);
+  await tx.store.put(fresh, key);
+  await tx.done;
   return fresh;
 }
 

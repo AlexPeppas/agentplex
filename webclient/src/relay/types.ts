@@ -16,13 +16,14 @@ export interface PairedMachine {
 export type SessionStatus = 'running' | 'idle' | 'waiting-for-input' | 'killed';
 
 export interface SessionInfo {
+  windowsPty?: { backend: 'conpty' | 'winpty'; buildNumber: number };
   id: string;
   title: string;
   status: SessionStatus;
   pid: number;
   cwd: string;
   cli: string;
-  claudeSessionUuid: string | null;
+  resumeSessionId: string | null;
   /**
    * The machine this session belongs to. Injected by the store when a session
    * arrives from a given machine's RelayClient — never present on the wire,
@@ -38,7 +39,15 @@ export interface MachineStatus {
   relayState: RelayConnState;
   online: boolean;
   error: string | null;
+  ready?: boolean;
 }
+
+export interface MachineCapabilities {
+  home: string;
+  clis: { id: string; label: string }[];
+}
+
+export type CommandResult = { type: 'command:result'; requestId?: string; error?: string; session?: Omit<SessionInfo, 'machineId'> };
 
 // ── Live "trace" state mirrored from the desktop event stream ─────────────────
 // The desktop emits structured subagent/plan/task events over the same E2EE
@@ -77,8 +86,11 @@ export type MachineEvent =
   | { type: 'session:data';    id: string; data: string }
   | { type: 'session:status';  id: string; status: SessionStatus }
   | { type: 'session:exit';    id: string; exitCode: number }
-  | { type: 'session:list';    sessions: SessionInfo[] }
-  | { type: 'session:created'; id: string; title: string; status: SessionStatus; pid: number; cwd: string; cli: string; claudeSessionUuid: string | null }
+  | { type: 'session:list';    sessions: Omit<SessionInfo, 'machineId'>[]; names?: Record<string, string> }
+  | ({ type: 'session:created' } & Omit<SessionInfo, 'machineId'>)
+  | ({ type: 'session:info'; id: string } & Partial<Omit<SessionInfo, 'machineId'>>)
+  | ({ type: 'machine:capabilities' } & MachineCapabilities)
+  | CommandResult
   | { type: 'session:buffer';  id: string; buffer: string }
   | { type: 'displayNames';    names: Record<string, string> }
   | { type: 'subagent:spawn';  sessionId: string; subagentId: string; description: string }
@@ -90,11 +102,14 @@ export type MachineEvent =
   | { type: 'task:list';       sessionId: string; tasks: Array<{ taskNumber: number; description: string; status: string }> };
 
 // Commands we send to the machine (encrypted)
-export type MachineCommand =
+export type MachineCommand = (
   | { type: 'session:list' }
   | { type: 'session:write';     id: string; data: string }
   | { type: 'session:resize';    id: string; cols: number; rows: number }
   | { type: 'session:create';    cwd?: string; cli?: string; resumeSessionId?: string }
   | { type: 'session:kill';      id: string }
+  | { type: 'session:rename';    id: string; name: string }
+  | { type: 'machine:capabilities' }
   | { type: 'session:getBuffer'; id: string }
-  | { type: 'displayNames:get' };
+  | { type: 'displayNames:get' }
+) & { requestId?: string };

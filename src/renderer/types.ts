@@ -1,6 +1,8 @@
-import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups, RemoteStatus, RemotePairedDevice, RemotePairingCode, RelayConnState } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, SessionSearchResult, PersistedGroups, RemoteStatus, RemotePairedDevice, RemotePairingCode, RelayConnState } from '../shared/ipc-channels';
 
-export interface AgentPlexAPI {
+import type { PlexAPI } from '../shared/plex';
+
+export interface AgentPlexAPI extends PlexAPI {
   platform: string;
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string) => Promise<SessionInfo>;
   pickDirectory: () => Promise<string | null>;
@@ -13,6 +15,7 @@ export interface AgentPlexAPI {
   onSessionData: (callback: (data: { id: string; data: string }) => void) => () => void;
   onSessionStatus: (callback: (data: { id: string; status: SessionStatus }) => void) => () => void;
   onSessionExit: (callback: (data: { id: string; exitCode: number }) => void) => () => void;
+  onSessionCatalog: (callback: (data: { sessions: SessionInfo[]; names: Record<string, string> }) => void) => () => void;
   onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null; lastActivityAt?: number; usage?: SessionUsage | null }) => void) => () => void;
   onSubagentSpawn: (callback: (data: SubagentInfo) => void) => () => void;
   onSubagentComplete: (callback: (data: SubagentInfo) => void) => () => void;
@@ -61,8 +64,6 @@ export interface AgentPlexAPI {
   groupsLoad: () => Promise<PersistedGroups>;
   groupsSave: (data: PersistedGroups) => Promise<void>;
   getPersistedState: () => Promise<{ sessions: Record<string, { displayName: string; cwd: string; cli: string; resumeSessionId: string | null }> }>;
-  templatesLoad: () => Promise<WorkspaceTemplate[]>;
-  templatesSave: (templates: WorkspaceTemplate[]) => Promise<void>;
   remoteGetStatus: () => Promise<RemoteStatus>;
   remoteConnect: (relayUrl: string) => Promise<RemoteStatus>;
   remoteDisconnect: () => Promise<RemoteStatus>;

@@ -28,6 +28,10 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	// SQLite has one writer. Serialize auth/pairing writes and keep connection-
+	// scoped PRAGMAs effective rather than opening unconfigured pooled handles.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	// WAL mode for concurrent reads during writes
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
@@ -37,6 +41,10 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set busy timeout: %w", err)
 	}
 
 	s := &SQLiteStore{db: db}

@@ -2,7 +2,8 @@ import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
-import { IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData, type WorkspaceTemplate, type PersistedGroups } from '../shared/ipc-channels';
+import { registerPlexHandlers } from './plex-ipc';
+import { IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL, type CliTool, type PinnedProject, type DrawingData, type PersistedGroups } from '../shared/ipc-channels';
 import { ensureGlobalConfig, ensureProjectConfig } from './config-loader';
 import { sessionManager } from './session-manager';
 import { detectShells, getCachedShells } from './shell-detector';
@@ -38,6 +39,7 @@ function isValidCli(id: string): boolean {
 const MAX_CONTEXT_LENGTH = 100_000;
 
 export function registerIpcHandlers() {
+  registerPlexHandlers();
   ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli, resumeSessionId }: { cwd?: string; cli?: string; resumeSessionId?: string } = {}) => {
     const safeCli: CliTool = (cli && isValidCli(cli) ? cli : 'claude') as CliTool;
     return sessionManager.create(cwd, safeCli, resumeSessionId);
@@ -507,22 +509,6 @@ ${safeContext}
   // Return persisted state (state.json) so renderer can read UUIDs
   ipcMain.handle(IPC.SESSION_GET_PERSISTED, async () => {
     return sessionManager.loadState();
-  });
-
-  // ── Workspace templates ────────────────────────────────────────────────────
-  const templatesPath = path.join(canvasDir, 'templates.json');
-
-  ipcMain.handle(IPC.TEMPLATES_LOAD, async (): Promise<WorkspaceTemplate[]> => {
-    try {
-      return JSON.parse(fs.readFileSync(templatesPath, 'utf-8'));
-    } catch {
-      return [];
-    }
-  });
-
-  ipcMain.handle(IPC.TEMPLATES_SAVE, async (_event, templates: WorkspaceTemplate[]): Promise<void> => {
-    fs.mkdirSync(canvasDir, { recursive: true });
-    fs.writeFileSync(templatesPath, JSON.stringify(templates, null, 2), 'utf-8');
   });
 
   // ── Remote access (relay pairing) ──────────────────────────────────────────

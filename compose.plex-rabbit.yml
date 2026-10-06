@@ -1,0 +1,18 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4
+    hostname: plex-rabbit
+    ports:
+      - "127.0.0.1:5672:5672"
+    environment:
+      RABBITMQ_DEFAULT_USER: plex
+      RABBITMQ_DEFAULT_PASS: ${PLEX_RABBITMQ_PASSWORD:?Set PLEX_RABBITMQ_PASSWORD before starting RabbitMQ}
+    volumes:
+      - plex-rabbit-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+volumes:
+  plex-rabbit-data:

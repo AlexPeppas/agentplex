@@ -5,7 +5,7 @@ import * as crypto from 'crypto';
 import { execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import { BrowserWindow } from 'electron';
-import { homedir } from 'os';
+import { homedir, release } from 'os';
 import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL } from '../shared/ipc-channels';
 import type { SessionInfo, SessionUsage, CliTool, ExternalSession } from '../shared/ipc-channels';
 import { getShellById } from './shell-detector';
@@ -18,6 +18,14 @@ import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
 
 const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
+
+function getWindowsPty(): SessionInfo['windowsPty'] {
+  if (process.platform !== 'win32') return undefined;
+  const buildNumber = Number.parseInt(release().split('.')[2], 10);
+  if (!Number.isFinite(buildNumber)) throw new Error('Cannot determine Windows PTY build number');
+  // Match node-pty's default backend selection.
+  return { backend: buildNumber >= 18309 ? 'conpty' : 'winpty', buildNumber };
+}
 
 /**
  * Default delay between PTY spawn and the auto-launched CLI command.
@@ -269,9 +277,10 @@ export class SessionManager {
   /** Update display name in memory and persist */
   updateDisplayName(sessionId: string, displayName: string) {
     const session = this.sessions.get(sessionId);
-    if (session) {
+    if (session && session.displayName !== displayName) {
       session.displayName = displayName;
       this.saveState();
+      this.publishCatalog();
     }
   }
 
@@ -316,6 +325,8 @@ export class SessionManager {
           false,
           launchDelayMs,
         );
+        const session = this.sessions.get(info.id);
+        if (session) session.displayName = persisted.displayName;
         results.push({ info, displayName: persisted.displayName });
         console.log(`[restore] Restored "${persisted.displayName}" (${persisted.cli}: ${persisted.resumeSessionId}) — launch in ${launchDelayMs}ms`);
       } catch (err: any) {
@@ -473,6 +484,7 @@ export class SessionManager {
     });
 
     this.sessions.set(id, session);
+    this.publishCatalog();
 
     // Pre-populate the terminal with the conversation transcript so the user sees
     // their history immediately on resume.
@@ -536,6 +548,7 @@ export class SessionManager {
       lastActivityAt: session.lastActivityAt,
       usage: session.usage,
       telemetrySupported: true,
+      windowsPty: getWindowsPty(),
       resumeSessionId: session.resumeSessionId,
     };
   }
@@ -708,6 +721,7 @@ export class SessionManager {
     });
 
     this.sessions.set(id, session);
+    this.publishCatalog();
 
     // Auto-start the selected CLI tool after a short delay for shell to initialize.
     // Raw shell sessions (powershell/bash) skip this — the PTY is already the shell.
@@ -748,6 +762,7 @@ export class SessionManager {
       lastActivityAt: session.lastActivityAt,
       usage: session.usage,
       telemetrySupported: true,
+      windowsPty: getWindowsPty(),
       resumeSessionId: session.resumeSessionId,
     };
   }
@@ -787,6 +802,7 @@ export class SessionManager {
       this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
       this.sessions.delete(id);
       this.saveState();
+      this.publishCatalog();
     }
   }
 
@@ -810,6 +826,7 @@ export class SessionManager {
       lastActivityAt: s.lastActivityAt,
       usage: s.usage,
       telemetrySupported: true,
+      windowsPty: getWindowsPty(),
       resumeSessionId: s.resumeSessionId,
     }));
   }
@@ -1358,6 +1375,17 @@ export class SessionManager {
     if (session.status === SessionStatus.Killed || status === session.status) return;
     session.status = status;
     this.send(IPC.SESSION_STATUS, { id: session.id, status });
+  }
+
+  private catalogPending = false;
+
+  private publishCatalog(): void {
+    if (this.catalogPending) return;
+    this.catalogPending = true;
+    queueMicrotask(() => {
+      this.catalogPending = false;
+      this.send(IPC.SESSION_CATALOG, { sessions: this.list(), names: this.getDisplayNames() });
+    });
   }
 
   private send(channel: string, data: unknown) {

@@ -17,19 +17,35 @@ const config: ForgeConfig = {
   },
   hooks: {
     packageAfterCopy: async (_config, buildPath) => {
-      // node-pty and ws are marked external by Vite, so they're not in the bundle.
-      // Copy them into the packaged app's node_modules.
+      // External runtimes must include their required dependencies, including under pnpm.
       const path = await import('path');
       const fs = await import('fs/promises');
-
-      for (const pkg of ['node-pty', 'ws']) {
-        const src = path.join(process.cwd(), 'node_modules', pkg);
-        const dest = path.join(buildPath, 'node_modules', pkg);
-        try {
-          await fs.cp(src, dest, { recursive: true });
-        } catch {
-          // package not found — skip
+      const { createRequire } = await import('node:module');
+      const copy = async (pkg: string, from: string, destination: string, ancestors: Set<string>) => {
+        const resolve = createRequire(path.join(from, 'package.json')).resolve;
+        let source = path.dirname(resolve(pkg));
+        let manifest: { name?: string; dependencies?: Record<string, string> };
+        for (;;) {
+          try { manifest = JSON.parse(await fs.readFile(path.join(source, 'package.json'), 'utf8')); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            manifest = {};
+          }
+          if (manifest.name === pkg) break;
+          const parent = path.dirname(source);
+          if (parent === source) throw new Error(`Cannot find package manifest for ${pkg}`);
+          source = parent;
         }
+        if (ancestors.has(source)) return;
+        const dest = path.join(destination, 'node_modules', pkg);
+        await fs.cp(source, dest, { recursive: true, dereference: true,
+          filter: file => path.basename(file) !== 'node_modules' });
+        const chain = new Set([...ancestors, source]);
+        // Optional SDK native runtimes are intentionally omitted: Plex uses the installed CLI.
+        for (const dependency of Object.keys(manifest.dependencies ?? {})) await copy(dependency, source, dest, chain);
+      };
+      for (const pkg of ['node-pty', 'ws', 'amqplib', '@github/copilot-sdk']) {
+        await copy(pkg, process.cwd(), buildPath, new Set());
       }
     },
   },
