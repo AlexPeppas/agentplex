@@ -32,7 +32,7 @@ interface Props {
 export function GitDiffPanel({ sessionId }: Props) {
   const [files, setFiles] = useState<GitChangedFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<{ path: string; staged: boolean } | null>(null);
-  const [diff, setDiff] = useState<GitFileDiffResult | null>(null);
+  const [diff, setDiff] = useState<(GitFileDiffResult & { sessionId: string; filePath: string; staged: boolean }) | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +40,8 @@ export function GitDiffPanel({ sessionId }: Props) {
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const currentSessionRef = useRef(sessionId);
   const [editorFontSize, setEditorFontSize] = useState(13);
+  const activeDiff = diff?.sessionId === sessionId && diff.filePath === selectedFile?.path &&
+    diff.staged === selectedFile?.staged ? diff : null;
 
   // Commit state
   const [commitMsg, setCommitMsg] = useState('');
@@ -118,7 +120,7 @@ export function GitDiffPanel({ sessionId }: Props) {
       try {
         const result = await window.agentPlex.gitFileDiff(sessionId, filePath, staged);
         if (!cancelled) {
-          setDiff(result);
+          setDiff({ ...result, sessionId, filePath, staged });
           setIsModified(false);
         }
       } catch (err: any) {
@@ -129,20 +131,21 @@ export function GitDiffPanel({ sessionId }: Props) {
   }, [sessionId, selectedFile]);
 
   const handleSave = useCallback(async () => {
-    if (!selectedFile || !editorRef.current || selectedFile.staged) return;
-    const modifiedEditor = editorRef.current.getModifiedEditor();
+    if (!selectedFile || !activeDiff || !editorRef.current || selectedFile.staged) return;
+    const savingEditor = editorRef.current;
+    const modifiedEditor = savingEditor.getModifiedEditor();
     const content = modifiedEditor.getValue();
     setSaving(true);
     try {
       await window.agentPlex.gitSaveFile(sessionId, selectedFile.path, content);
-      setIsModified(false);
+      if (editorRef.current === savingEditor) setIsModified(false);
       refreshFiles();
     } catch (err: any) {
       setError(err.message || 'Failed to save');
     } finally {
       setSaving(false);
     }
-  }, [sessionId, selectedFile, refreshFiles]);
+  }, [sessionId, selectedFile, activeDiff, refreshFiles]);
 
   const handleStage = useCallback(async (filePath: string) => {
     try {
@@ -519,7 +522,7 @@ export function GitDiffPanel({ sessionId }: Props) {
                     : 'text-[#6a5e50] cursor-default'
                 }`}
                 onClick={handleSave}
-                disabled={!isModified || saving}
+                disabled={!activeDiff || !isModified || saving}
                 title="Save (Ctrl+S)"
               >
                 <Save size={12} />
@@ -534,11 +537,12 @@ export function GitDiffPanel({ sessionId }: Props) {
               Select a file to view diff
             </div>
           )}
-          {selectedFile && diff && (
+          {selectedFile && activeDiff && (
             <DiffEditor
-              original={diff.original}
-              modified={diff.modified}
-              language={diff.language}
+              key={`${sessionId}:${selectedFile.staged}:${selectedFile.path}`}
+              original={activeDiff.original}
+              modified={activeDiff.modified}
+              language={activeDiff.language}
               theme="agentplex-dark"
               onMount={handleEditorMount}
               options={{
@@ -557,7 +561,7 @@ export function GitDiffPanel({ sessionId }: Props) {
               }}
             />
           )}
-          {selectedFile && !diff && !error && (
+          {selectedFile && !activeDiff && !error && (
             <div className="flex items-center justify-center h-full text-sm text-[#6a5e50]">
               Loading...
             </div>
