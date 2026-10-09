@@ -119,16 +119,27 @@ interface PersistedSession {
   resumeSessionId: string | null;
 }
 
-/** Old persisted-session shape with `claudeSessionUuid` — read for one-shot migration. */
-interface LegacyPersistedSession {
-  displayName: string;
-  cwd: string;
-  cli: CliTool;
-  claudeSessionUuid: string | null;
-}
-
 export interface PersistedState {
   sessions: Record<string, PersistedSession>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parsePersistedState(raw: unknown): PersistedState {
+  if (!isRecord(raw) || !isRecord(raw.sessions)) throw new Error('Invalid persisted session state');
+  const sessions: Record<string, PersistedSession> = {};
+  for (const [id, value] of Object.entries(raw.sessions)) {
+    if (!isRecord(value)) throw new Error(`Invalid persisted session record: ${id}`);
+    const resumeSessionId = value.resumeSessionId === undefined ? value.claudeSessionUuid ?? null : value.resumeSessionId;
+    if (typeof value.displayName !== 'string' || typeof value.cwd !== 'string' || typeof value.cli !== 'string' ||
+      (resumeSessionId !== null && typeof resumeSessionId !== 'string')) {
+      throw new Error(`Invalid persisted session record: ${id}`);
+    }
+    sessions[id] = { displayName: value.displayName, cwd: value.cwd, cli: value.cli, resumeSessionId };
+  }
+  return { sessions };
 }
 
 let sessionCounter = 0;
@@ -137,6 +148,9 @@ export class SessionManager {
   private sessions = new Map<string, Session>();
   private statusInterval: ReturnType<typeof setInterval> | null = null;
   private window: BrowserWindow | null = null;
+  private pendingRestores = new Map<string, PersistedSession>();
+  private stateLoaded = false;
+  private stateWritable = true;
 
   /** Event bus for remote API server — emits the same events as webContents.send() */
   public readonly events = new EventEmitter();
@@ -147,24 +161,50 @@ export class SessionManager {
 
   /** Load persisted state from disk. Migrates old `claudeSessionUuid` → `resumeSessionId`. */
   loadState(): PersistedState {
+    this.stateLoaded = true;
+    let contents: string;
     try {
-      const raw = JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'));
-      if (raw && typeof raw === 'object' && raw.sessions && typeof raw.sessions === 'object') {
-        for (const ps of Object.values(raw.sessions) as Array<PersistedSession & Partial<LegacyPersistedSession>>) {
-          if (ps && ps.resumeSessionId === undefined) {
-            ps.resumeSessionId = ps.claudeSessionUuid ?? null;
-          }
-        }
+      contents = fs.readFileSync(STATE_PATH, 'utf-8');
+    } catch (error) {
+      this.stateWritable = (error as NodeJS.ErrnoException).code === 'ENOENT';
+      if (!this.stateWritable) console.error('[state] Cannot read session state:', error);
+      return { sessions: {} };
+    }
+    try {
+      const state = parsePersistedState(JSON.parse(contents));
+      this.stateWritable = true;
+      return state;
+    } catch (error) {
+      this.stateWritable = false;
+      console.error('[state] Invalid session state:', error);
+      const recoveryPath = `${STATE_PATH}.corrupt-${Date.now()}-${crypto.randomUUID()}`;
+      try {
+        fs.renameSync(STATE_PATH, recoveryPath);
+        this.stateWritable = true;
+        console.warn('[state] Preserved invalid session state for recovery:', recoveryPath);
+      } catch (recoveryError) {
+        console.error('[state] Cannot preserve invalid state; writes are disabled:', recoveryError);
       }
-      return raw as PersistedState;
-    } catch {
       return { sessions: {} };
     }
   }
 
+  private allocateSessionId(): string {
+    let id: string;
+    do {
+      id = `session-${++sessionCounter}`;
+    } while (this.sessions.has(id) || this.pendingRestores.has(id));
+    return id;
+  }
+
   /** Persist all sessions in the Map to disk */
   private saveState() {
-    const state: PersistedState = { sessions: {} };
+    if (!this.stateLoaded) this.loadState();
+    if (!this.stateWritable) {
+      console.error('[state] Refusing to overwrite unreadable session state');
+      return;
+    }
+    const state: PersistedState = { sessions: Object.fromEntries(this.pendingRestores) };
     for (const session of this.sessions.values()) {
       state.sessions[session.id] = {
         displayName: session.displayName,
@@ -173,11 +213,25 @@ export class SessionManager {
         resumeSessionId: session.resumeSessionId,
       };
     }
+    const temporaryPath = `${STATE_PATH}.${process.pid}.${crypto.randomUUID()}.tmp`;
     try {
       fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
-      fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+      const fd = fs.openSync(temporaryPath, 'wx');
+      try {
+        fs.writeFileSync(fd, JSON.stringify(state, null, 2), 'utf-8');
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      fs.renameSync(temporaryPath, STATE_PATH);
     } catch (err: any) {
       console.error('[state] Failed to save:', err.message);
+    } finally {
+      try {
+        fs.unlinkSync(temporaryPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.error('[state] Cannot remove temporary state:', error);
+      }
     }
   }
 
@@ -202,6 +256,8 @@ export class SessionManager {
   restoreAll(): { info: SessionInfo; displayName: string }[] {
     const state = this.loadState();
     const results: { info: SessionInfo; displayName: string }[] = [];
+    if (!this.stateWritable) return results;
+    this.pendingRestores = new Map(Object.entries(state.sessions));
 
     // Stagger CLI launches so multiple Claude/Copilot processes don't race on
     // shared config files (notably ~/.claude.json — a known Windows footgun
@@ -210,13 +266,26 @@ export class SessionManager {
 
     for (const [oldId, persisted] of Object.entries(state.sessions)) {
       // Only sessions with a known resume ID for a supported CLI can be restored
-      if (!persisted.resumeSessionId) continue;
+      if (!persisted.resumeSessionId) {
+        this.pendingRestores.delete(oldId);
+        continue;
+      }
       if (
         persisted.cli !== 'claude' &&
         persisted.cli !== 'claude-resume' &&
         persisted.cli !== 'copilot' &&
         persisted.cli !== 'copilot-resume'
-      ) continue;
+      ) {
+        this.pendingRestores.delete(oldId);
+        continue;
+      }
+      const normalizedCli = persisted.cli === 'claude-resume' ? 'claude' :
+        persisted.cli === 'copilot-resume' ? 'copilot' : persisted.cli;
+      if (Array.from(this.sessions.values()).some(session => session.resumeSessionId === persisted.resumeSessionId &&
+        session.cwd === persisted.cwd && session.cli === normalizedCli)) {
+        this.pendingRestores.delete(oldId);
+        continue;
+      }
       try {
         // Validate cwd exists before restoring
         if (!fs.existsSync(persisted.cwd) || !fs.statSync(persisted.cwd).isDirectory()) {
@@ -234,6 +303,7 @@ export class SessionManager {
         );
         const session = this.sessions.get(info.id);
         if (session) session.displayName = persisted.displayName;
+        this.pendingRestores.delete(oldId);
         results.push({ info, displayName: persisted.displayName });
         console.log(`[restore] Restored "${persisted.displayName}" (${persisted.cli}: ${persisted.resumeSessionId}) — launch in ${launchDelayMs}ms`);
       } catch (err: any) {
@@ -276,8 +346,7 @@ export class SessionManager {
       : cli === 'copilot-resume'
         ? 'copilot'
         : cli;
-    sessionCounter++;
-    const id = `session-${sessionCounter}`;
+    const id = this.allocateSessionId();
     const workDir = cwd;
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
     const title = `Session ${sessionCounter} — ${dirName}`;
@@ -500,8 +569,7 @@ export class SessionManager {
       return info;
     }
 
-    sessionCounter++;
-    const id = `session-${sessionCounter}`;
+    const id = this.allocateSessionId();
     const workDir = cwd || homedir();
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
     const cliTools = [...CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL];
