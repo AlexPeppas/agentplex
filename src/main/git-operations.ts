@@ -223,12 +223,7 @@ export async function gitPush(repoRoot: string): Promise<GitCommandResult> {
     const output = await git(['push'], repoRoot);
     return { success: true, output: output.trim() || 'Push successful' };
   } catch (err: any) {
-    // git push writes to stderr even on success
-    const stderr = err.stderr || '';
-    if (err.code === 0 || stderr.includes('->')) {
-      return { success: true, output: stderr.trim() || 'Push successful' };
-    }
-    return { success: false, output: stderr || err.message || 'Push failed' };
+    return { success: false, output: err.stderr || err.message || 'Push failed' };
   }
 }
 
