@@ -16,6 +16,7 @@ interface ClientState {
   id: string;
   subscribedSessions: Set<string>;
   subscribeAll: boolean;
+  backpressureTimer?: ReturnType<typeof setTimeout>;
 }
 
 let clientIdCounter = 0;
@@ -83,11 +84,13 @@ export class WsServer {
       });
 
       ws.on('close', () => {
+        if (state.backpressureTimer) clearTimeout(state.backpressureTimer);
         console.log(`[remote/ws] Client disconnected: ${state.id}`);
         this.clients.delete(ws);
       });
 
       ws.on('error', (err) => {
+        if (state.backpressureTimer) clearTimeout(state.backpressureTimer);
         console.error(`[remote/ws] Client ${state.id} error:`, err.message);
         this.clients.delete(ws);
       });
@@ -238,17 +241,25 @@ export class WsServer {
       // Check subscription
       if (!state.subscribeAll && !state.subscribedSessions.has(sessionId)) continue;
 
-      // Backpressure: skip if the client's send buffer is too full (1MB)
-      if (ws.bufferedAmount > 1_048_576) continue;
-
-      ws.send(json);
+      if (this.canSend(ws, state)) ws.send(json);
     }
   }
 
   private sendToClient(ws: WebSocket, message: WsServerMessage) {
-    if (ws.readyState === WebSocket.OPEN) {
+    const state = this.clients.get(ws);
+    if (state && this.canSend(ws, state)) {
       ws.send(JSON.stringify(message));
     }
+  }
+
+  private canSend(ws: WebSocket, state: ClientState): boolean {
+    if (ws.readyState !== WebSocket.OPEN || state.backpressureTimer) return false;
+    if (ws.bufferedAmount <= 1_048_576) return true;
+    console.warn(`[remote/ws] Disconnecting slow client: ${state.id}`);
+    ws.close(1013, 'Slow client: reconnect and resync session state');
+    state.backpressureTimer = setTimeout(() => ws.terminate(), 1000);
+    state.backpressureTimer.unref();
+    return false;
   }
 
   stop() {
@@ -257,7 +268,12 @@ export class WsServer {
     this.eventUnsubscribers.length = 0;
 
     // Close all connections
-    for (const ws of this.clients.keys()) {
+    for (const [ws, state] of this.clients) {
+      if (state.backpressureTimer) {
+        clearTimeout(state.backpressureTimer);
+        ws.terminate();
+        continue;
+      }
       try { ws.close(1001, 'Server shutting down'); } catch { /* ignore */ }
     }
     this.clients.clear();

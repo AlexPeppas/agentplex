@@ -136,6 +136,16 @@ Desktop resizes wait for settled layout and queued output before synchronizing
 the PTY and repainting. Windows PTY compatibility travels with each session so
 desktop and web viewers use the host's scrollback behavior.
 
+### Local WebSocket recovery
+
+The local `/ws` API closes slow subscribers with code **1013** when their queued
+output exceeds 1 MiB. It never silently resumes after dropping terminal or
+lifecycle events. On this close, clients must mark their cached stream/state
+stale, reconnect and resubscribe, then reload the authenticated
+`GET /api/v1/sessions` catalog and needed session buffers. Terminal buffers are
+bounded replay windows, not complete transcripts. Healthy subscribers are
+unaffected; an unresponsive closing socket is terminated after one second.
+
 ### Plex coordinator POC
 
 The **Plex** toolbar button opens a docked right-hand chat pane. Plex is an
