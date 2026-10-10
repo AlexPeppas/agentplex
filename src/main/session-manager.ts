@@ -46,7 +46,7 @@ const RESTORE_STAGGER_MS = 300;
 const PROMPT_PATTERNS = [
   /\[Y\/n\]/i,                                   // [Y/n], [y/N] variants
   /\(y\/n\)/i,                                   // (y/N), (Y/n) variants
-  /\b(?:do you want|proceed|confirm|approve|allow)\b/i, // common prompt phrases
+  /^(?:do you want|would you like|proceed|continue|confirm|approve|allow)\b[^\r\n]*\?\s*$/i,
   /Yes\s*\/\s*No/,                                // Yes / No (Claude CLI)
   /Allow\s*\/\s*Deny/,                            // Allow / Deny (Claude CLI)
   /Enter to select/,                              // Claude CLI multi-choice selection
@@ -104,8 +104,8 @@ interface Session {
   lastVisibleOutput: number;
   /** Timestamp when WaitingForInput was first detected (0 = not waiting) */
   waitingSince: number;
-  /** Buffer length at the time HITL was detected — used to tell real output from redraws */
-  waitingBufferLen: number;
+  /** Monotonic output boundary at the time HITL was detected. */
+  waitingOutputOffset: number;
   buffer: string;
   outputOffset: number;
   jsonlWatcher: JsonlSessionWatcher | null;
@@ -432,7 +432,7 @@ export class SessionManager {
         lastOutput: Date.now(),
         lastVisibleOutput: Date.now(),
         waitingSince: 0,
-        waitingBufferLen: 0,
+        waitingOutputOffset: 0,
         buffer: '',
         outputOffset: 0,
         jsonlWatcher,
@@ -684,7 +684,7 @@ export class SessionManager {
       lastOutput: Date.now(),
       lastVisibleOutput: Date.now(),
       waitingSince: 0,
-      waitingBufferLen: 0,
+      waitingOutputOffset: 0,
       buffer: '',
       outputOffset: 0,
       jsonlWatcher,
@@ -1328,11 +1328,10 @@ export class SessionManager {
       const atPrompt = /^>\s*$/m.test(trimmedTail.split('\n').pop() || '');
 
       // Check for interactive prompts (Y/n, Allow/Deny, etc.)
-      const matchesFull = PROMPT_PATTERNS.some((re) => re.test(tail));
-      const matchesLine = !matchesFull && tail.split('\n').filter((l) => l.trim()).slice(-5)
+      const matchesLine = tail.split('\n').filter((l) => l.trim()).slice(-5)
         .some((line) => PROMPT_PATTERNS.some((re) => re.test(line.trim())));
 
-      const promptDetected = atPrompt || matchesFull || matchesLine;
+      const promptDetected = atPrompt || matchesLine;
 
       // Use the watcher's JSONL file mtime as the ground truth for "Running".
       // Claude writes ~/.claude/projects/<encodedPath>/<uuid>.jsonl while working.
@@ -1351,13 +1350,13 @@ export class SessionManager {
         newStatus = SessionStatus.WaitingForInput;
         if (session.waitingSince === 0) {
           session.waitingSince = now;
-          session.waitingBufferLen = session.buffer.length;
+          session.waitingOutputOffset = session.outputOffset;
         }
       } else if (session.waitingSince > 0) {
-        const newBytes = session.buffer.length - session.waitingBufferLen;
+        const newBytes = session.outputOffset - session.waitingOutputOffset;
         if (newBytes > HITL_RESPONSE_THRESHOLD) {
           session.waitingSince = 0;
-          session.waitingBufferLen = 0;
+          session.waitingOutputOffset = 0;
           newStatus = jsonlActive ? SessionStatus.Running : SessionStatus.Idle;
         } else {
           newStatus = SessionStatus.WaitingForInput;
