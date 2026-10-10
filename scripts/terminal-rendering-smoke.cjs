@@ -43,7 +43,7 @@ async function rendererTest(root) {
     sessions: { demo: { id: 'demo', title: 'Demo', cli: 'copilot', status: 'idle',
       cwd: 'C:\\demo', startedAt: Date.now(), lastActivityAt: Date.now(),
       windowsPty: { backend: 'conpty', buildNumber: 26100 } } },
-    sessionBuffers: {}, buffersReady: false, displayNames: {}, openPanes: ['demo'], activePaneId: 'demo',
+    sessionBuffers: {}, sessionBufferOffsets: {}, buffersReady: false, displayNames: {}, openPanes: ['demo'], activePaneId: 'demo',
     terminalFullscreen: false, openPane() {}, closePane() {},
     toggleTerminalFullscreen() { state.terminalFullscreen = !state.terminalFullscreen; render(); },
   };
@@ -75,6 +75,7 @@ async function rendererTest(root) {
   await wait();
   assert.equal(terminals.length, 0, 'a pane opened during hydration must defer mounting');
   state.sessionBuffers.demo = 'HYDRATED_HISTORY\r\n';
+  state.sessionBufferOffsets.demo = state.sessionBuffers.demo.length;
   state.buffersReady = true;
   render();
   await wait();
@@ -82,6 +83,9 @@ async function rendererTest(root) {
   assert.ok(term);
   await new Promise(resolve => term.write('', resolve));
   assert.equal(term.buffer.active.getLine(0).translateToString(true), 'HYDRATED_HISTORY');
+  output({ id: 'demo', data: 'HYDRATED_HISTORY\r\n', offset: state.sessionBufferOffsets.demo });
+  await new Promise(resolve => term.write('', resolve));
+  assert.equal(term.buffer.active.getLine(1).translateToString(true), '', 'late overlap must not duplicate hydrated history');
   assert.deepEqual(term.options.windowsPty, { backend: 'conpty', buildNumber: 26100 });
   output({ id: 'demo', data: Array.from({ length: 90 }, (_, i) => `Chat line ${i}: ${'wrapped text '.repeat(10)}\r\n`).join('') });
   await wait();

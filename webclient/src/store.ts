@@ -36,7 +36,7 @@ export function subscribeTerminalOutput(key: string, listener: (output: Terminal
   terminalListeners.set(key, listeners);
   return () => {
     listeners.delete(listener);
-    if (!listeners.size) terminalListeners.delete(key);
+    if (!listeners.size && terminalListeners.get(key) === listeners) terminalListeners.delete(key);
   };
 }
 

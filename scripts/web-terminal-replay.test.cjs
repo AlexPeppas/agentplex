@@ -50,6 +50,7 @@ async function fixture(t, initial) {
     data(data) { receive({ type: 'session:data', id: 'session', data }); },
     snapshot(buffer) { receive({ type: 'session:buffer', id: 'session', buffer }); },
     unmount() { cleanups.forEach(cleanup => cleanup?.()); },
+    listen: listener => subscribeTerminalOutput(key, listener),
   };
 }
 
@@ -81,4 +82,10 @@ test('explicit snapshots reset once, later live output appends and unmounted lis
   f.unmount();
   f.data('AFTER_UNMOUNT\n');
   assert.deepEqual(f.writes, ['NEW\n', 'LIVE\n']);
+  const delivered = [];
+  const unsubscribe = f.listen(output => delivered.push(output.data));
+  f.unmount();
+  f.data('NEW_OWNER\n');
+  assert.deepEqual(delivered, ['NEW_OWNER\n'], 'old cleanup must not remove a new subscription');
+  unsubscribe();
 });
