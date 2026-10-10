@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { useStore, termKey } from '../store';
+import { useStore, termKey, subscribeTerminalOutput } from '../store';
 
 // Identical palette to the desktop useTerminal TERMINAL_THEME.
 const TERMINAL_THEME = {
@@ -37,16 +37,9 @@ export default function Terminal({ machineId, sessionId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const writtenRef = useRef(0);
-  const generationRef = useRef(0);
   const sendCommand = useStore(s => s.sendCommand);
   const ready = useStore(s => Boolean(s.status[machineId]?.ready));
   const stopped = useStore(s => s.sessions.find(session => session.machineId === machineId && session.id === sessionId)?.status === 'killed');
-
-  const terminalData = useStore(s => s.terminalData[termKey(machineId, sessionId)] ?? '');
-  const terminalGeneration = useStore(
-    s => s.terminalGeneration[termKey(machineId, sessionId)] ?? 0,
-  );
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -70,8 +63,15 @@ export default function Terminal({ machineId, sessionId }: Props) {
 
     xtermRef.current = xterm;
     fitRef.current = fit;
-    writtenRef.current = 0;
-    generationRef.current = terminalGeneration;
+    // Capture replay and subscribe synchronously; live chunks bypass the bounded
+    // cache and React batching, while explicit snapshots replace the terminal.
+    const key = termKey(machineId, sessionId);
+    const replay = useStore.getState().terminalData[key];
+    if (replay) xterm.write(replay);
+    const unsubscribeOutput = subscribeTerminalOutput(key, output => {
+      if (output.type === 'buffer') xterm.reset();
+      if (output.data) xterm.write(output.data);
+    });
 
     // Fit once the terminal font is loaded so xterm's column count matches the
     // real glyph width (avoids output misalignment — same fix as the desktop).
@@ -105,6 +105,7 @@ export default function Terminal({ machineId, sessionId }: Props) {
     return () => {
       disposed = true;
       observer.disconnect();
+      unsubscribeOutput();
       xterm.dispose();
       xtermRef.current = null;
       fitRef.current = null;
@@ -121,20 +122,6 @@ export default function Terminal({ machineId, sessionId }: Props) {
       sendCommand(machineId, { type: 'session:resize', id: sessionId, cols: xterm.cols, rows: xterm.rows });
     }
   }, [ready, stopped, machineId, sessionId, sendCommand]);
-
-  useEffect(() => {
-    const xterm = xtermRef.current;
-    if (!xterm) return;
-    if (generationRef.current !== terminalGeneration) {
-      xterm.reset();
-      writtenRef.current = 0;
-      generationRef.current = terminalGeneration;
-    }
-    const newData = terminalData.slice(writtenRef.current);
-    if (newData.length === 0) return;
-    xterm.write(newData);
-    writtenRef.current = terminalData.length;
-  }, [terminalData, terminalGeneration]);
 
   return (
     <div

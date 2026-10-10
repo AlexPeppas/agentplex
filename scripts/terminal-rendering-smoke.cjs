@@ -118,6 +118,55 @@ async function rendererTest(root) {
   reactRoot.unmount();
   assert.equal(output, null);
 
+  const { flushSync } = fromRoot('react-dom');
+  let receiveWeb;
+  const webStore = loadSource('webclient/src/store.ts', {
+    zustand: fromRoot('zustand'),
+    './relay/client': { RelayClient: class {
+      constructor(_machine, callbacks) { receiveWeb = callbacks.onEvent; }
+      async start() {} stop() {} async send() {}
+    } },
+  });
+  webStore.useStore.setState({ machines: [{ machineId: 'synthetic-machine' }] });
+  await webStore.useStore.getState().initRelay();
+  const cap = 512 * 1024;
+  receiveWeb({ type: 'session:buffer', id: 'synthetic-session', buffer: 'h'.repeat(cap) });
+  let webTerminal, submitted = 0, resets = 0;
+  const { default: WebTerminal } = loadSource('webclient/src/components/Terminal.tsx', {
+    react: React, 'react/jsx-runtime': fromRoot('react/jsx-runtime'), '../store': webStore,
+    '@xterm/xterm': { Terminal: class extends Terminal {
+      constructor(options) { super(options); webTerminal = this; }
+      write(data, callback) { submitted += data.length; return super.write(data, callback); }
+      reset() { resets++; return super.reset(); }
+    } },
+    '@xterm/xterm/css/xterm.css': {},
+  });
+  const webRoot = createRoot(host);
+  const renderWeb = () => webRoot.render(React.createElement(WebTerminal, {
+    machineId: 'synthetic-machine', sessionId: 'synthetic-session',
+  }));
+  flushSync(renderWeb);
+  await new Promise(resolve => webTerminal.write('', resolve));
+  submitted = 0;
+  resets = 0;
+  for (let i = 0; i < 16; i++) {
+    flushSync(() => {
+      receiveWeb({ type: 'session:data', id: 'synthetic-session', data: String(i % 10).repeat(1024) });
+      renderWeb();
+    });
+  }
+  await new Promise(resolve => webTerminal.write('', resolve));
+  assert.equal(resets, 0, 'live cache eviction must not reset real xterm');
+  assert.equal(submitted, 16 * 1024, 'real xterm must consume only the new live characters');
+  assert.equal(webStore.useStore.getState().terminalData['synthetic-machine:synthetic-session'].length, cap);
+  receiveWeb({ type: 'session:buffer', id: 'synthetic-session', buffer: 'RECONNECTED\r\n' });
+  await new Promise(resolve => webTerminal.write('', resolve));
+  assert.equal(resets, 1, 'explicit reconnect snapshot must reset exactly once');
+  assert.equal(webTerminal.buffer.active.getLine(0).translateToString(true), 'RECONNECTED');
+  const webReplay = { liveCharacters: 16 * 1024, submittedCharacters: submitted - 'RECONNECTED\r\n'.length, liveResets: 0 };
+  webRoot.unmount();
+  webStore.useStore.getState().clients.forEach(client => client.stop());
+
   // Demonstrate the underlying ConPTY row-growth mismatch with real xterm.
   async function rowGrowth(windowsPty) {
     const el = document.createElement('div');
@@ -136,7 +185,7 @@ async function rendererTest(root) {
   const fixedBehavior = await rowGrowth({ backend: 'conpty', buildNumber: 26100 });
   assert.ok(oldBehavior.after < oldBehavior.before, 'reproduce scrollback pulled into viewport');
   assert.equal(fixedBehavior.after, fixedBehavior.before, 'ConPTY scrollback must stay in history');
-  return { fullscreenTransitions: 12, dimensionsRestored: initial, hiddenTabRecovery: true, oldBehavior, fixedBehavior };
+  return { fullscreenTransitions: 12, dimensionsRestored: initial, hiddenTabRecovery: true, webReplay, oldBehavior, fixedBehavior };
 }
 
 let window;

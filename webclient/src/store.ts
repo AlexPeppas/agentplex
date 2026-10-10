@@ -27,6 +27,23 @@ export function termKey(machineId: string, sessionId: string): string {
 const DISCONNECTED: MachineStatus = { relayState: 'disconnected', online: false, error: null };
 const TERMINAL_BUFFER_LIMIT = 512 * 1024;
 
+type TerminalOutput = { type: 'data' | 'buffer'; data: string };
+const terminalListeners = new Map<string, Set<(output: TerminalOutput) => void>>();
+
+export function subscribeTerminalOutput(key: string, listener: (output: TerminalOutput) => void): () => void {
+  const listeners = terminalListeners.get(key) ?? new Set();
+  listeners.add(listener);
+  terminalListeners.set(key, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) terminalListeners.delete(key);
+  };
+}
+
+function publishTerminalOutput(key: string, output: TerminalOutput): void {
+  terminalListeners.get(key)?.forEach(listener => listener(output));
+}
+
 async function getDB() {
   return openDB(PAIRED_DB, 1, {
     upgrade(db) { db.createObjectStore(PAIRED_STORE); },
@@ -234,11 +251,9 @@ export const useStore = create<AppState>((set, get) => {
           const buffer = (s.terminalData[k] ?? '') + event.data;
           return {
             terminalData: { ...s.terminalData, [k]: buffer.slice(-TERMINAL_BUFFER_LIMIT) },
-            terminalGeneration: buffer.length > TERMINAL_BUFFER_LIMIT
-              ? { ...s.terminalGeneration, [k]: (s.terminalGeneration[k] ?? 0) + 1 }
-              : s.terminalGeneration,
           };
         });
+        publishTerminalOutput(termKey(machineId, event.id), { type: 'data', data: event.data });
         break;
 
       case 'session:buffer':
@@ -251,6 +266,9 @@ export const useStore = create<AppState>((set, get) => {
               [key]: (s.terminalGeneration[key] ?? 0) + 1,
             },
           };
+        });
+        publishTerminalOutput(termKey(machineId, event.id), {
+          type: 'buffer', data: event.buffer.slice(-TERMINAL_BUFFER_LIMIT),
         });
         break;
 
