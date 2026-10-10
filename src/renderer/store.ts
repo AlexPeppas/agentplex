@@ -339,6 +339,19 @@ function detachFromGroup(nodes: Node[], nodeId: string): Node[] {
 
 const SUBAGENT_SPACING_X = 140;
 
+function persistOpenPanes(openPanes: string[], activePaneId: string | null) {
+  try {
+    sessionStorage.setItem('agentplex:openPanes', JSON.stringify(openPanes));
+    if (activePaneId) {
+      sessionStorage.setItem('agentplex:activePaneId', activePaneId);
+    } else {
+      sessionStorage.removeItem('agentplex:activePaneId');
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   nodes: [],
   edges: [],
@@ -498,7 +511,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (state.activePaneId === id) {
         newActivePaneId = newOpenPanes.length > 0 ? newOpenPanes[newOpenPanes.length - 1] : null;
       }
-
+      persistOpenPanes(newOpenPanes, newActivePaneId);
       return {
         nodes,
         edges,
@@ -559,6 +572,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectSession: (id: string | null, focus = false) => {
     if (id === null) {
       // Close all panes
+      persistOpenPanes([], null);
       set({ openPanes: [], activePaneId: null, selectedSessionId: null, shouldFocusNode: focus, terminalTab: 'session' });
     } else {
       // Open or activate pane
@@ -571,9 +585,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { openPanes } = get();
     if (openPanes.includes(sessionId)) {
       // Already open — just activate it
+      persistOpenPanes(openPanes, sessionId);
       set({ activePaneId: sessionId, selectedSessionId: sessionId });
     } else if (!getSplitPaneEnabled()) {
       // Split pane disabled — replace all panes with the new one
+      persistOpenPanes([sessionId], sessionId);
       set({ openPanes: [sessionId], activePaneId: sessionId, selectedSessionId: sessionId });
     } else {
       // Add new pane (cap at 3 — remove the oldest non-active pane if needed)
@@ -581,6 +597,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (newPanes.length > 3) {
         newPanes = [...newPanes.slice(1)];
       }
+      persistOpenPanes(newPanes, sessionId);
       set({ openPanes: newPanes, activePaneId: sessionId, selectedSessionId: sessionId });
     }
   },
@@ -593,9 +610,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Activate the last remaining pane, or null
       newActive = newPanes.length > 0 ? newPanes[newPanes.length - 1] : null;
     }
+    persistOpenPanes(newPanes, newActive);
     const updates: Partial<AppState> = { openPanes: newPanes, activePaneId: newActive, selectedSessionId: newActive };
     if (newPanes.length === 0) updates.terminalFullscreen = false;
     set(updates);
+    window.agentPlex.killSessionTerminal(sessionId).catch(() => {});
   },
 
   hydrateBuffer: (id, snapshot) => {

@@ -169,6 +169,28 @@ export function App() {
             throw new Error(`Terminal replay outpaced hydration: ${info.id}`);
           }
         }
+
+        // Restore open panes that survived a renderer reload
+        try {
+          const rawPanes = sessionStorage.getItem('agentplex:openPanes');
+          const savedActive = sessionStorage.getItem('agentplex:activePaneId');
+          if (rawPanes) {
+            const parsed = JSON.parse(rawPanes);
+            if (Array.isArray(parsed)) {
+              const valid = parsed.filter((id: string) => existing.some((e) => e.id === id));
+              if (valid.length > 0) {
+                const active = valid.includes(savedActive || '') ? savedActive! : valid[0];
+                useAppStore.setState({
+                  openPanes: valid,
+                  activePaneId: active,
+                  selectedSessionId: active,
+                });
+              }
+            }
+          }
+        } catch {
+          // ignore session storage parse errors
+        }
       } else {
         // Fresh launch — don't load old display names (stale IDs would collide
         // with new session IDs since sessionCounter resets to 0).

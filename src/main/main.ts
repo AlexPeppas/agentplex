@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, nativeImage, powerMonitor, session } from 'electron';
 import path from 'node:path';
 import { sessionManager } from './session-manager';
+import { sessionTerminalManager } from './session-terminal-manager';
 import { registerIpcHandlers } from './ipc-handlers';
 import { detectShells } from './shell-detector';
 
@@ -177,6 +178,7 @@ function createWindow() {
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   sessionManager.setWindow(mainWindow);
+  sessionTerminalManager.setWindow(mainWindow);
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -258,6 +260,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   sessionManager.stop();
+  sessionTerminalManager.killAll();
   if (process.platform !== 'darwin') {
     app.quit();
   }
