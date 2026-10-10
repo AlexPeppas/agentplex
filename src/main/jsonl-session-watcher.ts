@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
+import { StringDecoder } from 'string_decoder';
 import { SessionStatus } from '../shared/ipc-channels';
 import { CopilotLifecycle } from './copilot-lifecycle';
 
@@ -91,6 +92,40 @@ function parseSqlStrings(text: string): string[] {
   return out;
 }
 
+function splitSqlStatements(query: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let quote = '';
+  for (let i = 0; i < query.length; i++) {
+    const ch = query[i];
+    if (quote) {
+      current += ch;
+      if (ch === quote) {
+        if (query[i + 1] === quote) current += query[++i];
+        else quote = '';
+      }
+    } else if (ch === "'" || ch === '"' || ch === '`' || ch === '[') {
+      quote = ch === '[' ? ']' : ch;
+      current += ch;
+    } else if (ch === '-' && query[i + 1] === '-') {
+      while (i < query.length && query[i] !== '\n') i++;
+      current += ' ';
+    } else if (ch === '/' && query[i + 1] === '*') {
+      i += 2;
+      while (i < query.length && !(query[i] === '*' && query[i + 1] === '/')) i++;
+      i++;
+      current += ' ';
+    } else if (ch === ';') {
+      if (current.trim()) statements.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) statements.push(current.trim());
+  return statements;
+}
+
 function parseSqlCsv(text: string): string[] {
   const parts: string[] = [];
   let current = '';
@@ -173,6 +208,7 @@ export class JsonlSessionWatcher extends EventEmitter {
   private seenAgentIds = new Set<string>();
   private copilotTasksById = new Map<string, { taskNumber: number; description: string; status: 'pending' | 'in_progress' | 'completed' }>();
   private nextCopilotTaskNumber = 1;
+  private pendingTodoSql = new Map<string, string>();
   private telemetry: SessionTelemetryEvent | null = null;
   private copilotLifecycle = new CopilotLifecycle();
   private lastLifecycleStatus: SessionStatus | null = null;
@@ -218,7 +254,17 @@ export class JsonlSessionWatcher extends EventEmitter {
     const snapshotEnd = this.offset;
     queueMicrotask(() => {
       if (!this.timer) return;
-      if (this.skipExisting) this.readLatestTelemetry(snapshotEnd);
+      if (this.skipExisting) {
+        try {
+          if (this.format === 'copilot') this.hydrateCopilotTasks(snapshotEnd);
+          this.readLatestTelemetry(snapshotEnd);
+        } catch (error) {
+          this.stop();
+          if (this.listenerCount('watch-error')) this.emit('watch-error', error);
+          else console.error('[session-watcher] Cannot hydrate provider events:', error);
+          return;
+        }
+      }
       this.publishLifecycle();
     });
   }
@@ -258,6 +304,10 @@ export class JsonlSessionWatcher extends EventEmitter {
         // resume in the middle of a JSON record.
         this.offset = 0;
         this.partialLine = '';
+        this.pendingTodoSql.clear();
+        this.copilotTasksById.clear();
+        this.nextCopilotTaskNumber = 1;
+        if (this.format === 'copilot') this.emit('task-list', { tasks: [] } satisfies TaskListEvent);
         this.copilotLifecycle.reset();
         this.publishLifecycle();
       }
@@ -299,6 +349,55 @@ export class JsonlSessionWatcher extends EventEmitter {
     if (!record || typeof record !== 'object') return;
     if (this.format === 'claude') this.processClaudeRecord(record);
     else this.processCopilotRecord(record);
+  }
+
+  private hydrateCopilotTasks(snapshotEnd: number): void {
+    let fd: number;
+    try {
+      fd = fs.openSync(this.jsonlPath, 'r');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+    try {
+      this.pendingTodoSql.clear();
+      this.copilotTasksById.clear();
+      this.nextCopilotTaskNumber = 1;
+      const decoder = new StringDecoder('utf8');
+      const buffer = Buffer.alloc(64 * 1024);
+      const end = Math.min(snapshotEnd, fs.fstatSync(fd).size);
+      let offset = 0;
+      let partial = '';
+      while (offset < end) {
+        const count = fs.readSync(fd, buffer, 0, Math.min(buffer.length, end - offset), offset);
+        if (!count) break;
+        offset += count;
+        const lines = (partial + decoder.write(buffer.subarray(0, count))).split('\n');
+        partial = lines.pop() || '';
+        for (const line of lines) {
+          let record;
+          try { record = JSON.parse(line); } catch { continue; }
+          this.processCopilotTodoRecord(record);
+        }
+      }
+      this.emit('task-list', { tasks: this.getCopilotTaskList() } satisfies TaskListEvent);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  private processCopilotTodoRecord(record: any): boolean {
+    const data = record?.data;
+    if (!data || typeof data.toolCallId !== 'string') return false;
+    if (record.type === 'tool.execution_start' && data.toolName === 'sql' &&
+      typeof data.arguments?.query === 'string') {
+      this.pendingTodoSql.set(data.toolCallId, data.arguments.query);
+    } else if (record.type === 'tool.execution_complete') {
+      const query = this.pendingTodoSql.get(data.toolCallId);
+      this.pendingTodoSql.delete(data.toolCallId);
+      if (query && data.success === true) return this.applyCopilotTodoSql(query);
+    }
+    return false;
   }
 
   /** Read only the captured tail for usage and, when attaching to an already
@@ -498,13 +597,10 @@ export class JsonlSessionWatcher extends EventEmitter {
     const data = record.data;
     if (!type || !data || typeof data !== 'object') return;
 
-    if (type === 'tool.execution_start') {
-      const toolName = typeof data.toolName === 'string' ? data.toolName : '';
-      const query = typeof data.arguments?.query === 'string' ? data.arguments.query : '';
-      if (toolName === 'sql' && query && this.applyCopilotTodoSql(query)) {
-        this.emit('task-list', { tasks: this.getCopilotTaskList() } satisfies TaskListEvent);
-      }
-    } else if (type === 'subagent.started') {
+    if (this.processCopilotTodoRecord(record)) {
+      this.emit('task-list', { tasks: this.getCopilotTaskList() } satisfies TaskListEvent);
+    }
+    if (type === 'subagent.started') {
       const toolUseId: string | undefined = data.toolCallId;
       if (typeof toolUseId !== 'string') return;
       if (this.seenAgentIds.has(toolUseId)) return;
@@ -548,9 +644,17 @@ export class JsonlSessionWatcher extends EventEmitter {
 
   private applyCopilotTodoSql(query: string): boolean {
     let changed = false;
+    for (const statement of splitSqlStatements(query)) {
+      changed = this.applyCopilotTodoStatement(statement) || changed;
+    }
+    return changed;
+  }
+
+  private applyCopilotTodoStatement(query: string): boolean {
+    let changed = false;
 
     // INSERT INTO todos (...) VALUES (...), (...)
-    const insertRe = /insert\s+into\s+todos\s*\(([\s\S]*?)\)\s*values\s*([\s\S]*?)(?:;|$)/gi;
+    const insertRe = /^insert\s+(?:or\s+(?:replace|ignore)\s+)?into\s+todos\s*\(([\s\S]*?)\)\s*values\s*([\s\S]*)$/gi;
     let insertMatch: RegExpExecArray | null;
     while ((insertMatch = insertRe.exec(query)) !== null) {
       const columns = insertMatch[1].split(',').map((c: string) => c.trim().toLowerCase());
@@ -566,6 +670,7 @@ export class JsonlSessionWatcher extends EventEmitter {
         const id = row.id;
         if (!id) continue;
         const current = this.copilotTasksById.get(id);
+        if (current && /^insert\s+or\s+ignore\b/i.test(query)) continue;
         const taskNumber = current?.taskNumber ?? this.nextCopilotTaskNumber++;
         const description = (row.title || row.description || current?.description || id).trim();
         const status = normalizeTodoStatus(row.status || current?.status);
@@ -575,7 +680,7 @@ export class JsonlSessionWatcher extends EventEmitter {
     }
 
     // UPDATE todos SET ... WHERE ... (status mutations)
-    const updateRe = /update\s+todos\s+set\s+([\s\S]*?)\s+where\s+([\s\S]*?)(?:;|$)/gi;
+    const updateRe = /^update\s+todos\s+set\s+([\s\S]*?)\s+where\s+([\s\S]*)$/gi;
     let updateMatch: RegExpExecArray | null;
     while ((updateMatch = updateRe.exec(query)) !== null) {
       const setPart = updateMatch[1];
@@ -603,7 +708,7 @@ export class JsonlSessionWatcher extends EventEmitter {
     }
 
     // DELETE FROM todos;
-    if (/delete\s+from\s+todos\s*;/i.test(query)) {
+    if (/^delete\s+from\s+todos\s*$/i.test(query)) {
       if (this.copilotTasksById.size > 0) {
         this.copilotTasksById.clear();
         this.nextCopilotTaskNumber = 1;
@@ -612,7 +717,7 @@ export class JsonlSessionWatcher extends EventEmitter {
     }
 
     // DELETE FROM todos WHERE id ...
-    const deleteRe = /delete\s+from\s+todos\s+where\s+([\s\S]*?)(?:;|$)/gi;
+    const deleteRe = /^delete\s+from\s+todos\s+where\s+([\s\S]*)$/gi;
     let deleteMatch: RegExpExecArray | null;
     while ((deleteMatch = deleteRe.exec(query)) !== null) {
       const wherePart = deleteMatch[1];
