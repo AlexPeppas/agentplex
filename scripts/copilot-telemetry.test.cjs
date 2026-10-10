@@ -84,8 +84,134 @@ test('header and explorer explicitly label Copilot snapshots without false press
   for (const compact of [true, false]) {
     const html = renderToStaticMarkup(React.createElement(ContextMeter, { usage, compact }));
     assert.match(html, /215k/);
-    assert.match(html, /snapshot/);
+    assert.match(html, /prompt/);
     assert.match(html, /not live \/context usage/);
     assert.doesNotMatch(html, /width:|gpt-6-astra|Input 0/);
   }
+});
+
+const usageRecord = (tokens, n, sourceSessionId = 'main-session', extra = {}) => record('session.usage_record', {
+  usage: { model: 'gpt-6.1-sol', interactionType: 'conversation-agent',
+    inputTokens: tokens, outputTokens: 588, cacheReadTokens: 100000, cacheWriteTokens: 500,
+    accounting: { sourceSessionId }, ...extra },
+}, n);
+
+test('durable main-session usage records refresh sparse checkpoints without adding cache or output tokens to context', () => {
+  const watcher = new JsonlSessionWatcher(path.join('main-session', 'events.jsonl'), 'copilot');
+  const updates = [];
+  watcher.on('telemetry', usage => updates.push(usage));
+  const feed = e => watcher.processLine(JSON.stringify(e));
+  feed(checkpoint(107000));
+  feed(usageRecord(119000, 3));
+  assert.equal(updates.at(-1).contextTokens, 119000);
+  assert.equal(updates.at(-1).inputTokens, 18500);
+  assert.equal(updates.at(-1).outputTokens, 588);
+  assert.equal(updates.at(-1).snapshotSource, 'copilot-usage');
+  assert.equal(updates.at(-1).contextWindowTokens, null);
+  feed(checkpoint(107000, 2, 4));
+  assert.equal(updates.at(-1).contextTokens, 119000);
+  feed(usageRecord(120000, 5));
+  assert.equal(updates.at(-1).contextTokens, 120000);
+});
+
+test('child, auxiliary, malformed and stale durable usage records cannot replace the main prompt', () => {
+  const watcher = new JsonlSessionWatcher(path.join('main-session', 'events.jsonl'), 'copilot');
+  const updates = [];
+  watcher.on('telemetry', usage => updates.push(usage));
+  const feed = e => watcher.processLine(JSON.stringify(e));
+  feed(usageRecord(119000, 3));
+  feed(usageRecord(400, 4, 'child-session'));
+  feed({ ...usageRecord(400, 4), agentId: 'child-agent' });
+  feed(usageRecord(400, 4, 'main-session', { interactionType: 'title-generation' }));
+  feed(usageRecord(400, 4, 'main-session', { accounting: {} }));
+  feed(usageRecord(400, 4, 'main-session', { inputTokens: '400' }));
+  feed(usageRecord(400, 4, 'main-session', { outputTokens: -1 }));
+  feed(usageRecord(400, 2));
+  feed({ ...checkpoint(400, 5), agentId: 'child-agent' });
+  assert.equal(updates.length, 1);
+  feed(record('session.compaction_start', { currentTokens: 130000, tokenLimit: 272000 }, 5));
+  assert.equal(updates.at(-1).contextTokens, 130000);
+  assert.equal(updates.at(-1).snapshotSource, 'copilot-compaction-start');
+  assert.equal(updates.at(-1).contextWindowTokens, null);
+  feed(record('session.compaction_complete', { success: true, postCompactionTokens: 30000 }, 6));
+  feed(usageRecord(119000, 3));
+  assert.equal(updates.at(-1).contextTokens, 30000);
+  feed(usageRecord(31000, 7));
+  assert.equal(updates.at(-1).contextTokens, 31000);
+});
+
+test('restore and incremental events.jsonl polling use current durable usage records, including split appends', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentplex-durable-usage-'));
+  const sessionId = path.basename(dir);
+  const file = path.join(dir, 'events.jsonl');
+  fs.writeFileSync(file, [checkpoint(107000), usageRecord(119000, 3, sessionId), checkpoint(107000, 2, 4)]
+    .map(e => JSON.stringify(e) + '\n').join(''));
+  const watcher = new JsonlSessionWatcher(file, 'copilot', true);
+  t.after(() => { watcher.stop(); fs.unlinkSync(file); fs.rmdirSync(dir); });
+  const updates = [];
+  watcher.on('telemetry', usage => updates.push(usage));
+  watcher.start();
+  await Promise.resolve();
+  assert.equal(updates.at(-1).contextTokens, 119000);
+  const live = JSON.stringify(usageRecord(121000, 5, sessionId)) + '\n';
+  fs.appendFileSync(file, live.slice(0, 50));
+  watcher.poll();
+  assert.equal(updates.at(-1).contextTokens, 119000);
+  fs.appendFileSync(file, live.slice(50));
+  watcher.poll();
+  assert.equal(updates.at(-1).contextTokens, 121000);
+  assert.equal(updates.at(-1).updatedAt, Date.parse(time(5)));
+});
+
+test('header and explorer distinguish a durable last prompt from exact context snapshots', () => {
+  const watcher = new JsonlSessionWatcher(path.join('main-session', 'events.jsonl'), 'copilot');
+  let usage;
+  watcher.on('telemetry', value => { usage = value; });
+  watcher.processLine(JSON.stringify(usageRecord(119000, 3)));
+  for (const compact of [true, false]) {
+    const html = renderToStaticMarkup(React.createElement(ContextMeter, { usage, compact }));
+    assert.match(html, /119k/);
+    assert.match(html, /prompt/);
+    assert.match(html, /not live \/context usage/);
+    assert.doesNotMatch(html, /width:|44%/);
+  }
+  watcher.processLine(JSON.stringify(record('session.compaction_start', { currentTokens: 130000 }, 5)));
+  const html = renderToStaticMarkup(React.createElement(ContextMeter, { usage }));
+  assert.match(html, /Context before compaction/);
+  assert.match(html, /snapshot/);
+});
+
+test('managed session header receives restored and newly appended durable usage through IPC', async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentplex-usage-ipc-'));
+  const uuid = '11111111-1111-4111-8111-111111111111';
+  const file = path.join(home, '.copilot', 'session-state', uuid, 'events.jsonl');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(usageRecord(119000, 3, uuid)) + '\n');
+  const updates = [];
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { SessionManager } = loadSource('src/main/session-manager.ts', {
+    os: { ...os, homedir: () => home }, electron: {},
+    'node-pty': { spawn: () => ({ pid: 123, onData() {}, onExit() {}, write() {}, kill() {} }) },
+    './shell-detector': { getShellById: () => ({ path: 'synthetic-shell' }) },
+    './settings-manager': { getDefaultShellId: () => 'synthetic-shell' },
+    './copilot-session-scanner': { renderCopilotTranscript: () => '' },
+  });
+  const manager = new SessionManager();
+  manager.setWindow({ isDestroyed: () => false, webContents: { send: (channel, data) => {
+    if (channel === 'session:infoUpdate') updates.push(data);
+  } } });
+  t.after(() => {
+    manager.stop();
+    t.mock.timers.reset();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  const info = manager.create(home, 'copilot', uuid);
+  await Promise.resolve();
+  assert.equal(manager.list()[0].usage.contextTokens, 119000);
+  fs.appendFileSync(file, JSON.stringify(usageRecord(121000, 5, uuid)) + '\n');
+  manager.sessions.get(info.id).jsonlWatcher.poll();
+  assert.equal(manager.list()[0].usage.contextTokens, 121000);
+  assert.equal(updates.at(-1).id, info.id);
+  assert.equal(updates.at(-1).usage.snapshotSource, 'copilot-usage');
+  assert.equal(updates.at(-1).usage.contextTokens, 121000);
 });

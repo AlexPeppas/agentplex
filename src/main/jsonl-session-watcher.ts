@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
+import * as path from 'path';
 import { StringDecoder } from 'string_decoder';
 import { SessionStatus } from '../shared/ipc-channels';
 import { CopilotLifecycle } from './copilot-lifecycle';
@@ -35,7 +36,7 @@ export interface TaskListEvent {
 }
 
 export interface SessionTelemetryEvent {
-  snapshotSource?: 'copilot-checkpoint' | 'copilot-shutdown' | 'copilot-compaction';
+  snapshotSource?: 'copilot-checkpoint' | 'copilot-shutdown' | 'copilot-compaction' | 'copilot-usage' | 'copilot-compaction-start';
   contextTokens: number;
   contextWindowTokens: number | null;
   inputTokens: number;
@@ -450,6 +451,34 @@ export class JsonlSessionWatcher extends EventEmitter {
       typeof value === 'number' && Number.isFinite(value) && value >= 0;
     const timestamp = Date.parse(record.timestamp);
     if (!Number.isFinite(timestamp)) return;
+    if (record.agentId != null) return;
+
+    if (record.type === 'session.usage_record') {
+      const usage = data.usage;
+      // Root logs also contain attributed child/auxiliary accounting. Require
+      // both the conversation purpose and the originating session identity.
+      if (usage?.interactionType !== 'conversation-agent' ||
+        usage.accounting?.sourceSessionId !== path.basename(path.dirname(this.jsonlPath)) ||
+        typeof usage.model !== 'string' || !validTokens(usage.inputTokens) ||
+        !validTokens(usage.outputTokens)) return;
+      if (this.telemetry && timestamp <= this.telemetry.updatedAt) return;
+      const cached = validTokens(usage.cacheReadTokens) ? usage.cacheReadTokens : 0;
+      const written = validTokens(usage.cacheWriteTokens) ? usage.cacheWriteTokens : 0;
+      this.emitTelemetry({
+        // inputTokens already includes cached input; adding cache counts again
+        // would inflate the context. Output is request accounting, not /context.
+        contextTokens: usage.inputTokens,
+        contextWindowTokens: null,
+        inputTokens: Math.max(0, usage.inputTokens - cached - written),
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: cached,
+        cacheWriteTokens: written,
+        model: usage.model,
+        updatedAt: timestamp,
+        snapshotSource: 'copilot-usage',
+      });
+      return;
+    }
 
     if (record.type === 'session.usage_checkpoint') {
       const main = Array.isArray(data.promptCacheBreakState)
@@ -478,9 +507,10 @@ export class JsonlSessionWatcher extends EventEmitter {
     }
 
     const shutdown = record.type === 'session.shutdown';
+    const compacting = record.type === 'session.compaction_start';
     const compacted = record.type === 'session.compaction_complete' && data.success === true;
-    const tokens = shutdown ? data.currentTokens : data.postCompactionTokens;
-    if ((shutdown || compacted) && validTokens(tokens)) {
+    const tokens = shutdown || compacting ? data.currentTokens : data.postCompactionTokens;
+    if ((shutdown || compacting || compacted) && validTokens(tokens)) {
       if (this.telemetry && timestamp < this.telemetry.updatedAt) return;
       this.emitTelemetry({
         contextTokens: tokens,
@@ -493,7 +523,7 @@ export class JsonlSessionWatcher extends EventEmitter {
         cacheWriteTokens: 0,
         model: shutdown && typeof data.currentModel === 'string' ? data.currentModel : null,
         updatedAt: timestamp,
-        snapshotSource: shutdown ? 'copilot-shutdown' : 'copilot-compaction',
+        snapshotSource: shutdown ? 'copilot-shutdown' : compacting ? 'copilot-compaction-start' : 'copilot-compaction',
       });
     }
   }

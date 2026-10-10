@@ -52,7 +52,7 @@ export interface SessionInfo {
 }
 
 export interface SessionUsage {
-  snapshotSource?: 'copilot-checkpoint' | 'copilot-shutdown' | 'copilot-compaction';
+  snapshotSource?: 'copilot-checkpoint' | 'copilot-shutdown' | 'copilot-compaction' | 'copilot-usage' | 'copilot-compaction-start';
   /** Tokens in the latest request context. */
   contextTokens: number;
   /** Provider/model context-window limit, when known. */
