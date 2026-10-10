@@ -32,11 +32,9 @@ loadSource('src/main/ipc-handlers.ts', {
     },
     on() {},
   } },
-  './plex-ipc': { registerPlexHandlers() {} },
   './session-manager': { sessionManager: { getSessionCwd: () => gitRoot } },
   './shell-detector': {}, './settings-manager': {}, './claude-session-scanner': {},
   './copilot-session-scanner': {}, './config-loader': {}, './session-search': {},
-  './remote': {}, './remote/auth': {}, './remote/key-manager': {},
 }).registerIpcHandlers();
 ipcMain.handle('e2e:hold-diff', () => { releaseDiff = null; });
 ipcMain.handle('e2e:release-diff', () => {

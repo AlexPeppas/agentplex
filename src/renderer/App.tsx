@@ -156,10 +156,18 @@ export function App() {
           }
           let hydrated = false;
           for (let attempt = 0; attempt < 3 && !hydrated; attempt++) {
-            const snapshot = await window.agentPlex.getSessionBufferSnapshot(info.id);
-            hydrated = useAppStore.getState().hydrateBuffer(info.id, snapshot);
+            try {
+              const snapshot = await window.agentPlex.getSessionBufferSnapshot(info.id);
+              hydrated = useAppStore.getState().hydrateBuffer(info.id, snapshot);
+            } catch (error) {
+              if (useAppStore.getState().sessions[info.id]) throw error;
+              console.debug(`[reconnect] Session removed during hydration: ${info.id}`);
+              break;
+            }
           }
-          if (!hydrated) throw new Error(`Terminal replay outpaced hydration: ${info.id}`);
+          if (!hydrated && useAppStore.getState().sessions[info.id]) {
+            throw new Error(`Terminal replay outpaced hydration: ${info.id}`);
+          }
         }
       } else {
         // Fresh launch — don't load old display names (stale IDs would collide

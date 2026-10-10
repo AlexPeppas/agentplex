@@ -7,17 +7,17 @@ function fixture(t) {
     './components/panels/SettingsPanel': { getSplitPaneEnabled: () => false },
   });
   const effects = [], noop = () => {};
-  let resolveList, resolveSnapshot, receiveData;
+  let resolveList, resolveSnapshot, rejectSnapshot, receiveData;
   const info = { id: 'session', title: 'Synthetic', status: 'idle', cli: 'copilot', cwd: process.cwd(),
     startedAt: Date.now(), lastActivityAt: Date.now() };
   const api = {
     listSessions: () => new Promise(resolve => { resolveList = resolve; }),
     getDisplayNames: async () => ({}),
-    getSessionBufferSnapshot: () => new Promise(resolve => { resolveSnapshot = resolve; }),
+    getSessionBufferSnapshot: () => new Promise((resolve, reject) => { resolveSnapshot = resolve; rejectSnapshot = reject; }),
     groupsLoad: async () => ({ version: 1, groups: [] }), groupsSave: async () => {},
     onSessionData: callback => { receiveData = callback; return noop; },
   };
-  for (const name of ['onSessionCatalog', 'onSessionStatus', 'onSessionExit', 'onSessionInfoUpdate',
+  for (const name of ['onSessionStatus', 'onSessionExit', 'onSessionInfoUpdate',
     'onSubagentSpawn', 'onSubagentComplete', 'onPlanEnter', 'onPlanExit', 'onTaskCreate',
     'onTaskUpdate', 'onTaskList', 'onAppWake']) api[name] = () => noop;
   const oldWindow = global.window;
@@ -31,7 +31,7 @@ function fixture(t) {
     './store': { useAppStore: store, serializeGroups }, '@xyflow/react': { ReactFlowProvider: 'Flow' },
     './hooks/useTerminal': { scheduleRefreshAllTerminals: noop }, './types': {},
   };
-  for (const name of ['Toolbar', 'GraphCanvas', 'TerminalPanel', 'PlexChat', 'PlexWorkerChat',
+  for (const name of ['Toolbar', 'GraphCanvas', 'TerminalPanel',
     'SendDialog', 'ProjectLauncher', 'ActivityBar', 'SidePanel']) {
     overrides[`./components/${name}`] = { [name]: `Synthetic${name}` };
   }
@@ -48,6 +48,9 @@ function fixture(t) {
     list: async () => { resolveList([info]); await new Promise(resolve => setImmediate(resolve)); },
     snapshot: async (buffer, offset) => {
       resolveSnapshot({ buffer, offset }); await new Promise(resolve => setImmediate(resolve));
+    },
+    reject: async () => {
+      rejectSnapshot(new Error('Unknown session: session')); await new Promise(resolve => setImmediate(resolve));
     },
   };
 }
@@ -77,4 +80,13 @@ test('bounded replay rejects a stale snapshot that cannot cover evicted live out
   assert.equal(f.store.getState().buffersReady, false);
   assert.equal(f.store.getState().hydrateBuffer('session', { buffer: 'fresh', offset: 2 * 1024 * 1024 + 1 }), true);
   assert.equal(f.store.getState().sessionBuffers.session, 'fresh');
+});
+
+test('removing a session during snapshot hydration does not block the remaining terminal workspace', async t => {
+  const f = fixture(t);
+  await f.list();
+  f.store.getState().removeSession('session');
+  await f.reject();
+  assert.equal(f.store.getState().buffersReady, true);
+  assert.equal(f.store.getState().sessions.session, undefined);
 });

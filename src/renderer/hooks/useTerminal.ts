@@ -231,10 +231,16 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Capture and subscribe in one event-loop turn so live output cannot fall
     // between buffer replay and listener registration.
-    const buffer = useAppStore.getState().sessionBuffers[sessionId];
-    const cleanup = window.agentPlex.onSessionData(({ id, data }) => {
+    const replayState = useAppStore.getState();
+    const buffer = replayState.sessionBuffers[sessionId];
+    let outputOffset = replayState.sessionBufferOffsets[sessionId] ?? buffer?.length ?? 0;
+    const cleanup = window.agentPlex.onSessionData(({ id, data, offset }) => {
       if (id === sessionId && termRef.current) {
-        termRef.current.write(data);
+        const end = offset ?? outputOffset + data.length;
+        if (end <= outputOffset) return;
+        const delta = data.slice(Math.max(0, outputOffset - (end - data.length)));
+        outputOffset = end;
+        if (delta) termRef.current.write(delta);
       }
     });
     if (buffer) {

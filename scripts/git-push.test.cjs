@@ -43,7 +43,7 @@ test('successful and up-to-date pushes report success using the real subprocess 
   assert.equal(f.git(f.origin, 'rev-parse', 'main'), expected);
 });
 
-test('rejected pushes remain failures through helper, IPC and HTTP, preserving diagnostics and remote refs', async t => {
+test('rejected pushes remain failures through helper and IPC, preserving diagnostics and remote refs', async t => {
   const f = fixture(t);
   f.commit(f.writer, 'remote-change');
   f.git(f.writer, 'push');
@@ -53,29 +53,15 @@ test('rejected pushes remain failures through helper, IPC and HTTP, preserving d
   const handlers = new Map();
   const electron = { ipcMain: { handle: (id, handler) => handlers.set(id, handler), on() {} }, app: { getPath: () => f.root } };
   loadSource('src/main/ipc-handlers.ts', {
-    electron, './plex-ipc': { registerPlexHandlers() {} },
+    electron,
     './session-manager': { sessionManager: manager },
     './git-operations': gitOperations, './shell-detector': {}, './settings-manager': {},
     './claude-session-scanner': {}, './copilot-session-scanner': {}, './config-loader': {},
-    './session-search': {}, './remote': {}, './remote/auth': {}, './remote/key-manager': {},
+    './session-search': {},
   }).registerIpcHandlers();
-  const http = loadSource('src/main/remote/http-server.ts', {
-    electron, '../git-operations': gitOperations,
-    '../claude-session-scanner': {}, '../shell-detector': {}, '../settings-manager': {},
-    './auth': { extractBearerToken: () => 'synthetic', validateToken: () => true },
-  });
-  t.after(() => http.stopRateLimiter());
   const helperResult = await gitOperations.gitPush(f.reader);
   const ipcResult = await handlers.get(IPC.GIT_PUSH)(null, { sessionId: 'test-session' });
-  let status, httpResult;
-  await http.createRequestHandler(manager)({
-    method: 'POST', url: '/api/v1/git/test-session/push', headers: {}, socket: { remoteAddress: 'fixture' },
-  }, {
-    writeHead(value) { status = value; },
-    end(value) { httpResult = JSON.parse(value); },
-  });
-  assert.equal(status, 200);
-  for (const result of [helperResult, ipcResult, httpResult]) {
+  for (const result of [helperResult, ipcResult]) {
     assert.equal(result.success, false);
     assert.match(result.output, /rejected/);
     assert.match(result.output, /->/);

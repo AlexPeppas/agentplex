@@ -50,7 +50,8 @@ async function rendererTest(root) {
   const { ipcRenderer } = require('electron');
   const output = event => {
     state.sessionBuffers[event.id] = ((state.sessionBuffers[event.id] ?? '') + event.data).slice(-512 * 1024);
-    listeners.forEach(callback => callback(event));
+    const offset = state.sessionBufferOffsets[event.id] = (state.sessionBufferOffsets[event.id] ?? 0) + event.data.length;
+    listeners.forEach(callback => callback({ ...event, offset }));
   };
   const onNativeData = (_event, event) => output(event);
   ipcRenderer.on('test:pty-data', onNativeData);
@@ -71,7 +72,7 @@ async function rendererTest(root) {
     sessions: { demo: { id: 'demo', title: 'Demo', cli: 'copilot', status: 'idle',
       cwd: 'C:\\demo', startedAt: Date.now(), lastActivityAt: Date.now(),
       windowsPty: { backend: 'conpty', buildNumber: 26100 } } },
-    sessionBuffers: {}, buffersReady: false, displayNames: {}, openPanes: ['demo'], activePaneId: 'demo',
+    sessionBuffers: {}, sessionBufferOffsets: {}, buffersReady: false, displayNames: {}, openPanes: ['demo'], activePaneId: 'demo',
     terminalFullscreen: false, openPane() {}, closePane() {},
     toggleTerminalFullscreen() { state.terminalFullscreen = !state.terminalFullscreen; render(); },
   };
@@ -127,6 +128,7 @@ async function rendererTest(root) {
   await wait();
   assert.equal(terminals.length, 0, 'a pane opened during hydration must defer mounting');
   state.sessionBuffers.demo = 'HYDRATED_HISTORY\r\n';
+  state.sessionBufferOffsets.demo = state.sessionBuffers.demo.length;
   state.buffersReady = true;
   render();
   await waitForLayout();
@@ -134,6 +136,9 @@ async function rendererTest(root) {
   assert.ok(term);
   await new Promise(resolve => term.write('', resolve));
   assert.equal(term.buffer.active.getLine(0).translateToString(true), 'HYDRATED_HISTORY');
+  listeners.forEach(callback => callback({ id: 'demo', data: 'HYDRATED_HISTORY\r\n', offset: state.sessionBufferOffsets.demo }));
+  await new Promise(resolve => term.write('', resolve));
+  assert.equal(term.buffer.active.getLine(1).translateToString(true), '', 'late snapshot-overlapping IPC must not replay history twice');
   assert.deepEqual(term.options.windowsPty, { backend: 'conpty', buildNumber: 26100 });
   output({ id: 'demo', data: Array.from({ length: 90 }, (_, i) => `Chat line ${i}: ${'wrapped text '.repeat(10)}\r\n`).join('') });
   await wait();
@@ -351,7 +356,8 @@ async function rendererTest(root) {
 
 function runElectron() {
 const { app, BrowserWindow, ipcMain } = electron;
-app.setPath('userData', process.argv[2]);
+app.setPath('userData', process.env.AGENTPLEX_EDITOR_E2E_ROOT
+  ? path.join(process.env.AGENTPLEX_EDITOR_E2E_ROOT, 'profile') : process.argv[2]);
 app.disableHardwareAcceleration();
 let window;
 const nativePtys = new Map();

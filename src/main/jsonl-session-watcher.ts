@@ -209,8 +209,9 @@ export class JsonlSessionWatcher extends EventEmitter {
       // events appended after this point should render sub-agents/plans/tasks.
       try {
         this.offset = fs.statSync(this.jsonlPath).size;
-      } catch {
+      } catch (error) {
         // File doesn't exist yet (genuinely new session) — read from the start.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
     this.timer = setInterval(() => this.poll(), 500);
