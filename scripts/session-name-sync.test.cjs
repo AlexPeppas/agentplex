@@ -61,10 +61,12 @@ test('restore preserves custom names in the first catalog and saved state before
   manager.saveState = () => savedNames.push(manager.getDisplayNames());
   const catalogs = [];
   manager.events.on(IPC.SESSION_CATALOG, catalog => catalogs.push(catalog));
-  manager.restoreAll();
+  const restored = manager.restoreAll();
   await Promise.resolve();
   const expected = { 'session-1': 'Copilot project', 'session-2': 'Claude project' };
   assert.deepEqual(savedNames, [expected]);
   assert.equal(catalogs.length, 1);
   assert.deepEqual(catalogs[0].names, expected);
+  assert.deepEqual(manager.getDisplayNames(), expected);
+  assert.deepEqual(restored.map(session => session.displayName), Object.values(expected));
 });
