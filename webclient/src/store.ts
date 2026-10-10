@@ -7,12 +7,12 @@ import type {
   MachineCommand,
   MachineEvent,
   SessionTrace,
-  TaskStatus,
   MachineCapabilities,
   CommandResult,
 } from './relay/types';
 import { EMPTY_TRACE } from './relay/types';
 import { RelayClient } from './relay/client';
+import { isTraceChannel, isTraceEvent, reduceTrace } from '../../src/shared/session-trace';
 
 const PAIRED_DB = 'agentplex-state';
 const PAIRED_STORE = 'paired';
@@ -73,6 +73,7 @@ interface AppState {
 
   // Live trace state (plan/tasks/subagents) keyed by termKey(machineId, sessionId).
   traces: Record<string, SessionTrace>;
+  traceRevisions: Record<string, number>;
 
   // Currently focused session (machine-scoped).
   active: { machineId: string; sessionId: string } | null;
@@ -102,14 +103,38 @@ export const useStore = create<AppState>((set, get) => {
   }
 
   function handleEvent(machineId: string, event: MachineEvent) {
-    // Mutate the trace for one session via a copy-on-write updater.
-    const updateTrace = (sessionId: string, fn: (t: SessionTrace) => SessionTrace) => {
+    if (isTraceEvent(event)) {
+      const k = termKey(machineId, event.sessionId);
+      const previous = get().traces[k];
       set(s => {
-        const k = termKey(machineId, sessionId);
+        if (event.revision !== undefined && event.revision <= (s.traceRevisions[k] ?? -1)) return {};
         const current = s.traces[k] ?? EMPTY_TRACE;
-        return { traces: { ...s.traces, [k]: fn(current) } };
+        const next = event.trace ?? reduceTrace(current, event);
+        const completed = current.subagents.filter(sa => sa.status === 'completed' &&
+          !next.subagents.some(nextAgent => nextAgent.subagentId === sa.subagentId));
+        return {
+          traces: { ...s.traces, [k]: { ...next, subagents: [...next.subagents, ...completed] } },
+          traceRevisions: event.revision === undefined ? s.traceRevisions :
+            { ...s.traceRevisions, [k]: event.revision },
+        };
       });
-    };
+      if (event.type === 'subagent:complete' && previous !== get().traces[k]) {
+        const completed = get().traces[k]?.subagents.find(sa => sa.subagentId === event.subagentId);
+        if (completed) setTimeout(() => set(s => {
+          const trace = s.traces[k];
+          if (!trace?.subagents.includes(completed)) return {};
+          return { traces: { ...s.traces, [k]: {
+            ...trace, subagents: trace.subagents.filter(sa => sa !== completed),
+          } } };
+        }), 4000);
+      }
+      return;
+    }
+    if (isTraceChannel(event.type)) {
+      console.error('[remote/trace] Invalid desktop trace event:', event.type);
+      patchStatus(machineId, { traceReady: false, error: 'Invalid desktop trace event' });
+      return;
+    }
 
     switch (event.type) {
       case 'session:list':
@@ -117,6 +142,16 @@ export const useStore = create<AppState>((set, get) => {
           const ids = new Set(event.sessions.map(session => session.id));
           const belongsToMissingSession = (key: string) =>
             key.startsWith(`${machineId}:`) && !ids.has(key.slice(machineId.length + 1));
+          const traces = Object.fromEntries(Object.entries(s.traces).filter(([key]) => !belongsToMissingSession(key)));
+          const traceRevisions = Object.fromEntries(Object.entries(s.traceRevisions).filter(([key]) => !belongsToMissingSession(key)));
+          for (const session of event.sessions) {
+            const snapshot = event.traces?.[session.id];
+            if (!snapshot) continue;
+            const key = termKey(machineId, session.id);
+            if (snapshot.revision < (traceRevisions[key] ?? -1)) continue;
+            traces[key] = snapshot.trace;
+            traceRevisions[key] = snapshot.revision;
+          }
           return {
             sessions: [
             ...s.sessions.filter(sess => sess.machineId !== machineId),
@@ -125,12 +160,16 @@ export const useStore = create<AppState>((set, get) => {
             displayNames: { ...s.displayNames, [machineId]: event.names ?? s.displayNames[machineId] ?? {} },
             terminalData: Object.fromEntries(Object.entries(s.terminalData).filter(([key]) => !belongsToMissingSession(key))),
             terminalGeneration: Object.fromEntries(Object.entries(s.terminalGeneration).filter(([key]) => !belongsToMissingSession(key))),
-            traces: Object.fromEntries(Object.entries(s.traces).filter(([key]) => !belongsToMissingSession(key))),
+            traces, traceRevisions,
             active: s.active?.machineId === machineId && !ids.has(s.active.sessionId) ? null : s.active,
           };
         });
+        patchStatus(machineId, {
+          traceReady: event.sessions.every(session => Boolean(event.traces?.[session.id])),
+          error: event.traces ? null : 'Desktop trace recovery unavailable; update AgentPlex.',
+        });
         if (!get().status[machineId]?.ready) {
-          patchStatus(machineId, { ready: true, error: null });
+          patchStatus(machineId, { ready: true });
           const active = get().active;
           if (active?.machineId === machineId) get().requestBuffer(machineId, active.sessionId);
         }
@@ -219,82 +258,6 @@ export const useStore = create<AppState>((set, get) => {
         set(s => ({ displayNames: { ...s.displayNames, [machineId]: event.names } }));
         break;
 
-      // ── Live trace events (mirror of the desktop graph) ──
-      case 'subagent:spawn':
-        updateTrace(event.sessionId, t => (
-          t.subagents.some(sa => sa.subagentId === event.subagentId)
-            ? t
-            : { ...t, subagents: [...t.subagents, { subagentId: event.subagentId, description: event.description, status: 'active' }] }
-        ));
-        break;
-
-      case 'subagent:complete':
-        updateTrace(event.sessionId, t => ({
-          ...t,
-          subagents: t.subagents.map(sa =>
-            sa.subagentId === event.subagentId ? { ...sa, status: 'completed' as const } : sa,
-          ),
-        }));
-        // Fade the completed subagent out shortly after, matching the desktop.
-        setTimeout(() => {
-          set(s => {
-            const k = termKey(machineId, event.sessionId);
-            const trace = s.traces[k];
-            if (!trace) return {};
-            return { traces: { ...s.traces, [k]: { ...trace, subagents: trace.subagents.filter(sa => sa.subagentId !== event.subagentId) } } };
-          });
-        }, 4000);
-        break;
-
-      case 'plan:enter':
-        updateTrace(event.sessionId, t => ({
-          ...t,
-          mode: 'plan',
-          plans: [
-            ...t.plans.map(p => (p.status === 'active' ? { ...p, status: 'completed' as const } : p)),
-            { title: event.planTitle, status: 'active' as const },
-          ],
-        }));
-        break;
-
-      case 'plan:exit':
-        updateTrace(event.sessionId, t => ({
-          ...t,
-          mode: 'normal',
-          plans: t.plans.map(p => (p.status === 'active' ? { ...p, status: 'completed' as const } : p)),
-        }));
-        break;
-
-      case 'task:create':
-        updateTrace(event.sessionId, t => (
-          t.tasks.some(task => task.taskNumber === event.taskNumber)
-            ? t
-            : { ...t, tasks: [...t.tasks, { taskNumber: event.taskNumber, description: event.description, status: 'pending' as const }] }
-        ));
-        break;
-
-      case 'task:update':
-        updateTrace(event.sessionId, t => ({
-          ...t,
-          tasks: t.tasks.map(task =>
-            task.taskNumber === event.taskNumber
-              ? { ...task, status: (event.status as TaskStatus) }
-              : task,
-          ),
-        }));
-        break;
-
-      case 'task:list':
-        updateTrace(event.sessionId, t => ({
-          ...t,
-          tasks: event.tasks.map(task => ({
-            taskNumber: task.taskNumber,
-            description: task.description,
-            status: (task.status as TaskStatus),
-          })),
-        }));
-        break;
-
       default:
         break;
     }
@@ -305,7 +268,11 @@ export const useStore = create<AppState>((set, get) => {
     const client = new RelayClient(machine, {
       onError: (msg) => patchStatus(machine.machineId, { error: msg }),
       onStatus: (relayState, online) => {
-        patchStatus(machine.machineId, { relayState, online, ready: false });
+        patchStatus(machine.machineId, { relayState, online, ready: false, traceReady: false });
+        set(s => ({
+          traces: Object.fromEntries(Object.entries(s.traces).filter(([key]) => !key.startsWith(`${machine.machineId}:`))),
+          traceRevisions: Object.fromEntries(Object.entries(s.traceRevisions).filter(([key]) => !key.startsWith(`${machine.machineId}:`))),
+        }));
       },
       onEvent: (event) => handleEvent(machine.machineId, event),
     });
@@ -322,6 +289,7 @@ export const useStore = create<AppState>((set, get) => {
     terminalData: {},
     terminalGeneration: {},
     traces: {},
+    traceRevisions: {},
     active: null,
     clients: new Map(),
 
@@ -373,6 +341,9 @@ export const useStore = create<AppState>((set, get) => {
         const traces = Object.fromEntries(
           Object.entries(s.traces).filter(([k]) => !k.startsWith(`${machineId}:`)),
         );
+        const traceRevisions = Object.fromEntries(
+          Object.entries(s.traceRevisions).filter(([k]) => !k.startsWith(`${machineId}:`)),
+        );
         return {
           machines,
           clients,
@@ -382,6 +353,7 @@ export const useStore = create<AppState>((set, get) => {
           terminalData,
           terminalGeneration,
           traces,
+          traceRevisions,
           sessions: s.sessions.filter(sess => sess.machineId !== machineId),
           active: s.active?.machineId === machineId ? null : s.active,
         };

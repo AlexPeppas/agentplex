@@ -8,6 +8,7 @@ export type SessionNodeData = {
   session: SessionInfo;
   displayName: string;
   trace: SessionTrace;
+  traceReady: boolean;
   selected: boolean;
   onClick: () => void;
   [key: string]: unknown;
@@ -73,6 +74,7 @@ export function SessionNodeComp({ data }: NodeProps) {
       </div>
 
       {/* Plan mode badge */}
+      {!data.traceReady && <div className="mt-1 text-[10px] text-fg-muted">Trace unavailable</div>}
       {trace.mode === 'plan' && (
         <div className="flex items-center gap-1.5 mt-2 py-1 px-2 bg-accent-subtle rounded-md overflow-hidden">
           <ClipboardList size={12} className="shrink-0 text-accent" />

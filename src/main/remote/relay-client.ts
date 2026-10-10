@@ -490,6 +490,7 @@ export class RelayClient extends EventEmitter {
       case 'session:list':
         this.sendEncryptedToDevice(fromDeviceId, {
           type: 'session:list', sessions: sessionManager.list(), names: sessionManager.getDisplayNames(),
+          traces: sessionManager.getTraceSnapshots(),
         });
         break;
 
@@ -528,7 +529,7 @@ export class RelayClient extends EventEmitter {
     };
 
     on(IPC.SESSION_CATALOG, (data) => {
-      this.broadcastEncrypted({ type: 'session:list', ...data });
+      this.broadcastEncrypted({ type: 'session:list', ...data, traces: sessionManager.getTraceSnapshots() });
     });
     on(IPC.SESSION_INFO_UPDATE, (data) => {
       this.broadcastEncrypted({ type: 'session:info', ...data });
@@ -553,6 +554,8 @@ export class RelayClient extends EventEmitter {
         sessionId: data.sessionId,
         subagentId: data.subagentId,
         description: data.description,
+        revision: data.revision,
+        trace: data.trace,
       });
     });
 
@@ -561,15 +564,17 @@ export class RelayClient extends EventEmitter {
         type: 'subagent:complete',
         sessionId: data.sessionId,
         subagentId: data.subagentId,
+        revision: data.revision,
+        trace: data.trace,
       });
     });
 
     on(IPC.PLAN_ENTER, (data: any) => {
-      this.broadcastEncrypted({ type: 'plan:enter', sessionId: data.sessionId, planTitle: data.planTitle });
+      this.broadcastEncrypted({ type: 'plan:enter', sessionId: data.sessionId, planTitle: data.planTitle, revision: data.revision, trace: data.trace });
     });
 
     on(IPC.PLAN_EXIT, (data: any) => {
-      this.broadcastEncrypted({ type: 'plan:exit', sessionId: data.sessionId });
+      this.broadcastEncrypted({ type: 'plan:exit', sessionId: data.sessionId, revision: data.revision, trace: data.trace });
     });
 
     on(IPC.TASK_CREATE, (data: any) => {
@@ -578,6 +583,8 @@ export class RelayClient extends EventEmitter {
         sessionId: data.sessionId,
         taskNumber: data.taskNumber,
         description: data.description,
+        revision: data.revision,
+        trace: data.trace,
       });
     });
 
@@ -587,6 +594,8 @@ export class RelayClient extends EventEmitter {
         sessionId: data.sessionId,
         taskNumber: data.taskNumber,
         status: data.status,
+        revision: data.revision,
+        trace: data.trace,
       });
     });
 
@@ -595,6 +604,8 @@ export class RelayClient extends EventEmitter {
         type: 'task:list',
         sessionId: data.sessionId,
         tasks: data.tasks,
+        revision: data.revision,
+        trace: data.trace,
       });
     });
   }

@@ -107,6 +107,17 @@ function machineFixture(dir, relayUrl) {
   const buffers = {};
   const writes = [];
   const events = new EventEmitter();
+  const { SessionManager } = loadSource('src/main/session-manager.ts', {
+    'node-pty': {}, electron: {}, os: { ...os, homedir: () => dir },
+  });
+  const traceManager = new SessionManager();
+  traceManager.sessions = sessions;
+  traceManager.events.on(IPC.PLAN_ENTER, data => events.emit(IPC.PLAN_ENTER, data));
+  traceManager.events.on(IPC.PLAN_EXIT, data => events.emit(IPC.PLAN_EXIT, data));
+  traceManager.events.on(IPC.TASK_LIST, data => events.emit(IPC.TASK_LIST, data));
+  traceManager.events.on(IPC.TASK_UPDATE, data => events.emit(IPC.TASK_UPDATE, data));
+  traceManager.events.on(IPC.SUBAGENT_SPAWN, data => events.emit(IPC.SUBAGENT_SPAWN, data));
+  traceManager.events.on(IPC.SUBAGENT_COMPLETE, data => events.emit(IPC.SUBAGENT_COMPLETE, data));
   function catalog() {
     events.emit(IPC.SESSION_CATALOG, { sessions: [...sessions.values()], names: { ...names } });
   }
@@ -115,6 +126,8 @@ function machineFixture(dir, relayUrl) {
     list: () => [...sessions.values()],
     getDisplayNames: () => ({ ...names }),
     getBuffer: id => buffers[id] ?? '',
+    getTraceSnapshots: () => traceManager.getTraceSnapshots(),
+    emitTrace: (channel, data) => traceManager.send(channel, data),
     create: (cwd = dir, cli = 'claude') => {
       const id = `session-${sessions.size + 1}`;
       const session = { id, title: id, cwd, cli, pid: 123, status: 'idle', resumeSessionId: null };
@@ -229,6 +242,12 @@ test('paired multi-machine session control over a real relay: discovery, mutatio
   const [first, second] = paired;
   assert.equal(useStore.getState().sessions.length, 2);
   assert.equal(useStore.getState().sessions.filter(s => s.id === 'session-1').length, 2);
+  const traceKey = `${first.machineId}:session-1`;
+  desktops[0].manager.emitTrace(IPC.PLAN_ENTER, { sessionId: 'session-1', planTitle: 'Reconnect work' });
+  desktops[0].manager.emitTrace(IPC.TASK_LIST, { sessionId: 'session-1',
+    tasks: [{ taskNumber: 1, description: 'Work', status: 'in_progress' }] });
+  desktops[0].manager.emitTrace(IPC.SUBAGENT_SPAWN, { sessionId: 'session-1', subagentId: 'owned-agent', description: 'Inspect' });
+  await until(() => useStore.getState().traces[traceKey]?.subagents.length === 1, 'live traces mirrored');
   await until(() => useStore.getState().capabilities[first.machineId]?.clis.some(c => c.id === 'pwsh'), 'machine shell capabilities');
   const firstClient = useStore.getState().clients.get(first.machineId);
   const result = await firstClient.request({ type: 'session:create', cwd: firstDir, cli: 'pwsh' });
@@ -256,8 +275,15 @@ test('paired multi-machine session control over a real relay: discovery, mutatio
   await until(() => !useStore.getState().status[first.machineId].ready, 'browser offline state');
   await assert.rejects(firstClient.send({ type: 'session:write', id: 'session-1', data: 'must-not-replay' }), /disconnected|offline|changed/);
   desktops[0].buffers['session-1'] = 'fresh after reconnect';
+  desktops[0].manager.emitTrace(IPC.PLAN_EXIT, { sessionId: 'session-1' });
+  desktops[0].manager.emitTrace(IPC.TASK_UPDATE, { sessionId: 'session-1', taskNumber: 1, status: 'completed' });
+  desktops[0].manager.emitTrace(IPC.SUBAGENT_COMPLETE, { sessionId: 'session-1', subagentId: 'owned-agent' });
   await until(() => useStore.getState().status[first.machineId].ready, 'browser automatic reconnect');
   await until(() => useStore.getState().terminalData[`${first.machineId}:session-1`] === 'fresh after reconnect', 'reconnected buffer replacement');
+  await until(() => useStore.getState().status[first.machineId].traceReady, 'reconnected trace snapshot');
+  assert.equal(useStore.getState().traces[traceKey].mode, 'normal');
+  assert.equal(useStore.getState().traces[traceKey].tasks[0].status, 'completed');
+  assert.deepEqual(useStore.getState().traces[traceKey].subagents, []);
   assert.equal(desktops[0].writes.length, 3);
   // Machine socket loss must also reconnect, without reconnecting the browser.
   desktops[0].client.ws.close();

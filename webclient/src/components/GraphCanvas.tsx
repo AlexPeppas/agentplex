@@ -81,13 +81,15 @@ export default function GraphCanvas({ onSelectSession, onNewSession }: Props) {
       for (const session of mSessions) {
         const trace = traces[termKey(mid, session.id)] ?? EMPTY_TRACE;
         const subs = trace.subagents;
-        const sessionH = estSessionHeight(trace);
+        const traceReady = Boolean(status[mid]?.traceReady);
+        const sessionH = estSessionHeight(trace) + (traceReady ? 0 : 14);
         const sessionNodeId = `${mid}:${session.id}`;
 
         const data: SessionNodeData = {
           session,
           displayName: displayNames[mid]?.[session.id] ?? session.title,
           trace,
+          traceReady,
           selected: active?.machineId === mid && active?.sessionId === session.id,
           onClick: () => onSelectSession(mid, session.id),
         };

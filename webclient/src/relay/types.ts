@@ -1,4 +1,7 @@
 // Shared types mirroring the relay server's api/messages.go
+import type { SessionTraceSnapshot, SessionTraceEvent } from '../../../src/shared/session-trace';
+export { EMPTY_TRACE } from '../../../src/shared/session-trace';
+export type { SessionTrace, SubagentEntry, PlanEntry, TaskStatus, TaskEntry } from '../../../src/shared/session-trace';
 
 /** Wire protocol version stamped on outgoing commands (matches the desktop). */
 export const REMOTE_PROTOCOL_VERSION = 1;
@@ -40,6 +43,7 @@ export interface MachineStatus {
   online: boolean;
   error: string | null;
   ready?: boolean;
+  traceReady?: boolean;
 }
 
 export interface MachineCapabilities {
@@ -53,53 +57,19 @@ export type CommandResult = { type: 'command:result'; requestId?: string; error?
 // The desktop emits structured subagent/plan/task events over the same E2EE
 // channel; the web client renders them in real time for a faithful mirror.
 
-export interface SubagentEntry {
-  subagentId: string;
-  description: string;
-  status: 'active' | 'completed';
-}
-
-export interface PlanEntry {
-  title: string;
-  status: 'active' | 'completed';
-}
-
-export type TaskStatus = 'pending' | 'in_progress' | 'completed';
-
-export interface TaskEntry {
-  taskNumber: number;
-  description: string;
-  status: TaskStatus;
-}
-
-export interface SessionTrace {
-  mode: 'normal' | 'plan';
-  plans: PlanEntry[];
-  tasks: TaskEntry[];
-  subagents: SubagentEntry[];
-}
-
-export const EMPTY_TRACE: SessionTrace = { mode: 'normal', plans: [], tasks: [], subagents: [] };
-
 // Decrypted messages we receive from the machine
 export type MachineEvent =
   | { type: 'session:data';    id: string; data: string }
   | { type: 'session:status';  id: string; status: SessionStatus }
   | { type: 'session:exit';    id: string; exitCode: number }
-  | { type: 'session:list';    sessions: Omit<SessionInfo, 'machineId'>[]; names?: Record<string, string> }
+  | { type: 'session:list';    sessions: Omit<SessionInfo, 'machineId'>[]; names?: Record<string, string>; traces?: Record<string, SessionTraceSnapshot> }
   | ({ type: 'session:created' } & Omit<SessionInfo, 'machineId'>)
   | ({ type: 'session:info'; id: string } & Partial<Omit<SessionInfo, 'machineId'>>)
   | ({ type: 'machine:capabilities' } & MachineCapabilities)
   | CommandResult
   | { type: 'session:buffer';  id: string; buffer: string }
   | { type: 'displayNames';    names: Record<string, string> }
-  | { type: 'subagent:spawn';  sessionId: string; subagentId: string; description: string }
-  | { type: 'subagent:complete'; sessionId: string; subagentId: string }
-  | { type: 'plan:enter';      sessionId: string; planTitle: string }
-  | { type: 'plan:exit';       sessionId: string }
-  | { type: 'task:create';     sessionId: string; taskNumber: number; description: string }
-  | { type: 'task:update';     sessionId: string; taskNumber: number; status: string }
-  | { type: 'task:list';       sessionId: string; tasks: Array<{ taskNumber: number; description: string; status: string }> };
+  | SessionTraceEvent;
 
 // Commands we send to the machine (encrypted)
 export type MachineCommand = (

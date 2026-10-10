@@ -16,6 +16,7 @@ import { renderJsonlTranscript } from './claude-session-scanner';
 import { renderCopilotTranscript } from './copilot-session-scanner';
 import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
+import { EMPTY_TRACE, isTraceChannel, isTraceEvent, reduceTrace, type SessionTraceSnapshot } from '../shared/session-trace';
 
 const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
 
@@ -153,6 +154,8 @@ export class SessionManager {
   private pendingRestores = new Map<string, PersistedSession>();
   private stateLoaded = false;
   private stateWritable = true;
+  private traceSnapshots = new Map<string, SessionTraceSnapshot>();
+  private traceRevision = 0;
 
   /** Event bus for remote API server — emits the same events as webContents.send() */
   public readonly events = new EventEmitter();
@@ -535,6 +538,7 @@ export class SessionManager {
       return info;
     } catch(error) {
       this.sessions.delete(id);
+      this.traceSnapshots.delete(id);
       if(launchTimer) clearTimeout(launchTimer);
       try { jsonlWatcher?.stop(); }
       catch(cleanupError) { console.error('[session] Failed to stop initialization watcher:',cleanupError); }
@@ -791,6 +795,7 @@ export class SessionManager {
       session.status = SessionStatus.Killed;
       this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
       this.sessions.delete(id);
+      this.traceSnapshots.delete(id);
       this.saveState();
       this.publishCatalog();
     }
@@ -798,6 +803,12 @@ export class SessionManager {
 
   getBuffer(id: string): string {
     return this.sessions.get(id)?.buffer || '';
+  }
+
+  getTraceSnapshots(): Record<string, SessionTraceSnapshot> {
+    return Object.fromEntries(Array.from(this.sessions.keys(), id => [
+      id, this.traceSnapshots.get(id) ?? { revision: 0, trace: EMPTY_TRACE },
+    ]));
   }
 
   getBufferSnapshot(id: string): { buffer: string; offset: number } {
@@ -1389,6 +1400,20 @@ export class SessionManager {
   }
 
   private send(channel: string, data: unknown) {
+    if (isTraceChannel(channel)) {
+      if (!isRecord(data)) throw new Error(`Invalid trace event: ${channel}`);
+      const event = { ...data, type: channel };
+      if (!isTraceEvent(event)) throw new Error(`Invalid trace event: ${channel}`);
+      const previous = this.traceSnapshots.get(event.sessionId)?.trace ?? EMPTY_TRACE;
+      const next = reduceTrace(previous, event);
+      const revision = ++this.traceRevision;
+      this.traceSnapshots.set(event.sessionId, {
+        revision,
+        trace: { ...next, plans: next.plans.filter(p => p.status === 'active'),
+          subagents: next.subagents.filter(sa => sa.status === 'active') },
+      });
+      data = { ...data, revision, trace: next };
+    }
     if (this.window && !this.window.isDestroyed()) {
       this.window.webContents.send(channel, data);
     }
