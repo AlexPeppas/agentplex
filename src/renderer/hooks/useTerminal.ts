@@ -135,9 +135,10 @@ function ensureGlobalListeners() {
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string) {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const buffersReady = useAppStore(s => s.buffersReady);
 
   useEffect(() => {
-    if (!containerRef.current || !sessionId) return;
+    if (!containerRef.current || !sessionId || !buffersReady) return;
 
     ensureGlobalListeners();
 
@@ -270,5 +271,5 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       termRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sessionId]); // intentionally only depend on session change
+  }, [sessionId, buffersReady]); // intentionally exclude the stable container ref
 }

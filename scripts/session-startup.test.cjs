@@ -38,7 +38,7 @@ function fixture(t, stage) {
     './shell-detector': { getShellById: () => ({ path: 'synthetic-shell' }) },
     './settings-manager': { getDefaultShellId: () => 'synthetic-shell' },
     './claude-session-scanner': { renderJsonlTranscript: () => '' },
-    './copilot-session-scanner': { renderCopilotTranscript: () => '' },
+    './copilot-session-scanner': { renderCopilotTranscript: () => stage === 'transcript' ? 'HISTORY\n' : '' },
     './plan-task-detector': { PlanTaskDetector: class {
       constructor() { if (stage === 'plan') throw failure; }
       feed() {}
@@ -113,4 +113,16 @@ test('killing or shutting down initialized UUID sessions cancels their pending l
   t.mock.timers.tick(1000);
   assert.ok(f.terms.every(term => term.writes.length === 0));
   assert.ok(f.watchers.every(watcher => watcher.timer === null));
+});
+
+test('Copilot resume retains rendered history and live output in offset-tagged snapshots', t => {
+  const f = fixture(t, 'transcript');
+  const info = f.manager.create(f.home, 'copilot', uuid);
+  assert.deepEqual(f.manager.getBufferSnapshot(info.id), { buffer: 'HISTORY\n', offset: 8 });
+  f.terms[0].data('LIVE\n');
+  assert.deepEqual(f.manager.getBufferSnapshot(info.id), { buffer: 'HISTORY\nLIVE\n', offset: 13 });
+  assert.deepEqual(f.events.filter(e => e.channel === IPC.SESSION_DATA).map(e => e.event.offset), [8, 13]);
+  f.terms[0].data('x'.repeat(512 * 1024));
+  assert.equal(f.manager.getBuffer(info.id).length, 512 * 1024);
+  assert.equal(f.manager.getBufferSnapshot(info.id).offset, 13 + 512 * 1024);
 });

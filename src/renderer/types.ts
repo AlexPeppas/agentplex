@@ -9,8 +9,9 @@ export interface AgentPlexAPI {
   killSession: (id: string) => Promise<void>;
   listSessions: () => Promise<SessionInfo[]>;
   getSessionBuffer: (id: string) => Promise<string>;
+  getSessionBufferSnapshot: (id: string) => Promise<{ buffer: string; offset: number }>;
   getSessionCwd: (id: string) => Promise<string | null>;
-  onSessionData: (callback: (data: { id: string; data: string }) => void) => () => void;
+  onSessionData: (callback: (data: { id: string; data: string; offset: number }) => void) => () => void;
   onSessionStatus: (callback: (data: { id: string; status: SessionStatus }) => void) => () => void;
   onSessionExit: (callback: (data: { id: string; exitCode: number }) => void) => () => void;
   onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null; lastActivityAt?: number; usage?: SessionUsage | null }) => void) => () => void;

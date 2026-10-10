@@ -106,6 +106,7 @@ interface Session {
   /** Buffer length at the time HITL was detected — used to tell real output from redraws */
   waitingBufferLen: number;
   buffer: string;
+  outputOffset: number;
   jsonlWatcher: JsonlSessionWatcher | null;
   planTaskDetector: PlanTaskDetector;
   launchTimer?: ReturnType<typeof setTimeout>;
@@ -428,6 +429,7 @@ export class SessionManager {
         waitingSince: 0,
         waitingBufferLen: 0,
         buffer: '',
+        outputOffset: 0,
         jsonlWatcher,
         planTaskDetector: planDetector,
       };
@@ -439,15 +441,12 @@ export class SessionManager {
           session.lastVisibleOutput=Date.now();
           session.lastActivityAt=session.lastVisibleOutput;
         }
-        session.buffer+=data;
-        if(session.buffer.length>BUFFER_CAP) {
-          session.buffer=session.buffer.slice(-BUFFER_CAP);
-        }
+        this.appendOutput(session, data);
         // The PlanTaskDetector regex set is Claude-specific (matches "plan mode on",
         // ~/.claude/plans/<slug>.md, TodoWrite checkbox glyphs). Don't feed Copilot
         // output through it — plan/permission state for Copilot comes from events.jsonl.
         if(isClaude) planDetector.feed(data);
-        this.send(IPC.SESSION_DATA,{ id,data });
+        this.send(IPC.SESSION_DATA,{ id,data, offset: session.outputOffset });
       });
 
       term.onExit(({ exitCode }: { exitCode: number }) => {
@@ -523,7 +522,10 @@ export class SessionManager {
         resumeSessionId: session.resumeSessionId,
       };
       this.sessions.set(id,session);
-      if(transcript) this.send(IPC.SESSION_DATA,{ id,data: transcript });
+      if(transcript) {
+        this.appendOutput(session, transcript);
+        this.send(IPC.SESSION_DATA,{ id,data: transcript, offset: session.outputOffset });
+      }
       return info;
     } catch(error) {
       this.sessions.delete(id);
@@ -678,6 +680,7 @@ export class SessionManager {
       waitingSince: 0,
       waitingBufferLen: 0,
       buffer: '',
+      outputOffset: 0,
       jsonlWatcher,
       planTaskDetector: planDetector,
     };
@@ -688,12 +691,9 @@ export class SessionManager {
         session.lastVisibleOutput = Date.now();
         session.lastActivityAt = session.lastVisibleOutput;
       }
-      session.buffer += data;
-      if (session.buffer.length > BUFFER_CAP) {
-        session.buffer = session.buffer.slice(-BUFFER_CAP);
-      }
+      this.appendOutput(session, data);
       planDetector.feed(data);
-      this.send(IPC.SESSION_DATA, { id, data });
+      this.send(IPC.SESSION_DATA, { id, data, offset: session.outputOffset });
     });
 
     term.onExit(({ exitCode }: { exitCode: number }) => {
@@ -790,6 +790,17 @@ export class SessionManager {
 
   getBuffer(id: string): string {
     return this.sessions.get(id)?.buffer || '';
+  }
+
+  getBufferSnapshot(id: string): { buffer: string; offset: number } {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Unknown session: ${id}`);
+    return { buffer: session.buffer, offset: session.outputOffset };
+  }
+
+  private appendOutput(session: Session, data: string): void {
+    session.outputOffset += data.length;
+    session.buffer = (session.buffer + data).slice(-BUFFER_CAP);
   }
 
   getCwd(id: string): string | null {
