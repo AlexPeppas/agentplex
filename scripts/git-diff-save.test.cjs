@@ -62,14 +62,16 @@ function fixture(t) {
   function render() {
     index = 0; effects = [];
     tree = GitDiffPanel({ sessionId: 'test-session' });
+    const view = elements(tree).find(el => el.props.onMount && Object.hasOwn(el.props, 'modified'));
+    const diff = view?.type === DiffEditor ? view : view?.type(view.props);
     for (const effect of effects) effect();
-    const diff = elements(tree).find(el => el.type === DiffEditor);
     if (!diff) { mountedKey = undefined; return; }
-    if (mountedKey !== diff.key) {
-      mountedKey = diff.key;
+    if (mountedKey !== view.key) {
+      mountedKey = view.key;
       editorValue = diff.props.modified;
       modified = () => {};
       mountedEditor = {
+        getModel: () => null, setModel() {},
         getOriginalEditor: () => ({ updateOptions() {} }),
         getModifiedEditor: () => ({
           getValue: () => editorValue, updateOptions() {},

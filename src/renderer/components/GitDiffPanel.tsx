@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { DiffEditor, loader } from '@monaco-editor/react';
+import type { DiffEditorProps } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { RefreshCw, Save, Plus, Minus, GitCommit, ArrowUp, ArrowDown, ChevronDown, ChevronRight } from 'lucide-react';
 import type { GitChangedFile, GitFileDiffResult, GitLogEntry, GitBranchInfo } from '../../shared/ipc-channels';
@@ -27,6 +28,23 @@ const STATUS_LABELS: Record<string, string> = {
 
 interface Props {
   sessionId: string;
+}
+
+function OwnedDiffEditor(props: DiffEditorProps) {
+  const instanceRef = useRef<editor.IStandaloneDiffEditor | null>(null);
+  useEffect(() => () => {
+    const instance = instanceRef.current;
+    const models = instance?.getModel();
+    // Detach first: Monaco 0.55 rejects disposal while a diff widget owns the models.
+    instance?.setModel(null);
+    models?.original.dispose();
+    models?.modified.dispose();
+    instanceRef.current = null;
+  }, []);
+  return <DiffEditor {...props} onMount={(instance, monaco) => {
+    instanceRef.current = instance;
+    props.onMount?.(instance, monaco);
+  }} />;
 }
 
 export function GitDiffPanel({ sessionId }: Props) {
@@ -538,7 +556,7 @@ export function GitDiffPanel({ sessionId }: Props) {
             </div>
           )}
           {selectedFile && activeDiff && (
-            <DiffEditor
+            <OwnedDiffEditor
               key={`${sessionId}:${selectedFile.staged}:${selectedFile.path}`}
               original={activeDiff.original}
               modified={activeDiff.modified}
