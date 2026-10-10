@@ -4,10 +4,14 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 async function main() {
+  const script = process.argv[2] || 'git-editor-e2e.cjs';
+  if (!['git-editor-e2e.cjs', 'terminal-rendering-smoke.cjs'].includes(script)) {
+    throw new Error(`Unsupported Electron E2E script: ${script}`);
+  }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agentplex-editor-e2e-'));
   try {
     const electron = require('electron');
-    const child = spawn(electron, [path.join(__dirname, 'git-editor-e2e.cjs')], {
+    const child = spawn(electron, [path.join(__dirname, script)], {
       env: { ...process.env, AGENTPLEX_EDITOR_E2E_ROOT: root },
       stdio: 'inherit',
     });

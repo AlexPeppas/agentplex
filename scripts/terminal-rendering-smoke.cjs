@@ -1,11 +1,12 @@
-// Run with Electron, not node. Uses an isolated hidden window and synthetic
+// Run via node scripts/run-git-editor-e2e.cjs terminal-rendering-smoke.cjs.
+// Uses an isolated hidden window and synthetic
 // output only; never connects to AgentPlex or a real session.
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'agentplex-render-test-'));
-app.setPath('userData', profile);
+const root = process.env.AGENTPLEX_EDITOR_E2E_ROOT;
+if (!root || !fs.existsSync(root)) throw new Error('Run through the external Electron E2E launcher');
+app.setPath('userData', path.join(root, 'profile'));
 app.disableHardwareAcceleration();
 
 async function rendererTest(root) {
@@ -42,7 +43,7 @@ async function rendererTest(root) {
     sessions: { demo: { id: 'demo', title: 'Demo', cli: 'copilot', status: 'idle',
       cwd: 'C:\\demo', startedAt: Date.now(), lastActivityAt: Date.now(),
       windowsPty: { backend: 'conpty', buildNumber: 26100 } } },
-    sessionBuffers: {}, displayNames: {}, openPanes: ['demo'], activePaneId: 'demo',
+    sessionBuffers: {}, buffersReady: false, displayNames: {}, openPanes: ['demo'], activePaneId: 'demo',
     terminalFullscreen: false, openPane() {}, closePane() {},
     toggleTerminalFullscreen() { state.terminalFullscreen = !state.terminalFullscreen; render(); },
   };
@@ -72,8 +73,15 @@ async function rendererTest(root) {
   const wait = () => new Promise(resolve => setTimeout(resolve, 100));
   render();
   await wait();
+  assert.equal(terminals.length, 0, 'a pane opened during hydration must defer mounting');
+  state.sessionBuffers.demo = 'HYDRATED_HISTORY\r\n';
+  state.buffersReady = true;
+  render();
+  await wait();
   const term = terminals[0];
   assert.ok(term);
+  await new Promise(resolve => term.write('', resolve));
+  assert.equal(term.buffer.active.getLine(0).translateToString(true), 'HYDRATED_HISTORY');
   assert.deepEqual(term.options.windowsPty, { backend: 'conpty', buildNumber: 26100 });
   output({ id: 'demo', data: Array.from({ length: 90 }, (_, i) => `Chat line ${i}: ${'wrapped text '.repeat(10)}\r\n`).join('') });
   await wait();
@@ -144,7 +152,4 @@ app.whenReady().then(async () => {
   console.error(error);
   if (window && !window.isDestroyed()) window.destroy();
   app.exit(1);
-});
-app.on('will-quit', () => {
-  fs.rmSync(profile, { recursive: true, force: true });
 });

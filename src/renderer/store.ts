@@ -76,6 +76,8 @@ export interface AppState {
   /** When true, GraphCanvas should focus/zoom the selected node */
   shouldFocusNode: boolean;
   sessionBuffers: Record<string, string>;
+  sessionBufferOffsets: Record<string, number>;
+  buffersReady: boolean;
   displayNames: Record<string, string>;
   nodeCounter: number;
 
@@ -88,7 +90,8 @@ export interface AppState {
   selectSession: (id: string | null, focus?: boolean) => void;
   openPane: (sessionId: string) => void;
   closePane: (sessionId: string) => void;
-  appendBuffer: (id: string, data: string) => void;
+  appendBuffer: (id: string, data: string, offset?: number) => void;
+  hydrateBuffer: (id: string, snapshot: { buffer: string; offset: number }) => boolean;
 
   // Sub-agent actions
   spawnSubagent: (sessionId: string, subagentId: string, description: string) => void;
@@ -346,6 +349,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   activePaneId: null,
   shouldFocusNode: false,
   sessionBuffers: {},
+  sessionBufferOffsets: {},
+  buffersReady: false,
   displayNames: {},
   nodeCounter: 0,
   sendDialogSourceId: null,
@@ -450,6 +455,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const { [id]: _sess, ...restSessions } = state.sessions;
       const { [id]: _buf, ...restBuffers } = state.sessionBuffers;
+      const { [id]: _offset, ...restOffsets } = state.sessionBufferOffsets;
       const { [id]: _dn, ...restDisplayNames } = state.displayNames;
 
       // Find sub-agent IDs belonging to this session
@@ -498,6 +504,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         edges,
         sessions: restSessions,
         sessionBuffers: restBuffers,
+        sessionBufferOffsets: restOffsets,
         displayNames: restDisplayNames,
         subagents: restSubagents,
         openPanes: newOpenPanes,
@@ -591,8 +598,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(updates);
   },
 
-  appendBuffer: (id: string, data: string) => {
+  hydrateBuffer: (id, snapshot) => {
+    const state = get();
+    const current = state.sessionBuffers[id] || '';
+    const end = state.sessionBufferOffsets[id] || 0;
+    const delta = Math.max(0, end - snapshot.offset);
+    if (delta > current.length) return false;
+    set({
+      sessionBuffers: {
+        ...state.sessionBuffers,
+        [id]: (snapshot.buffer + (delta ? current.slice(-delta) : '')).slice(-2 * 1024 * 1024),
+      },
+      sessionBufferOffsets: { ...state.sessionBufferOffsets, [id]: Math.max(end, snapshot.offset) },
+    });
+    return true;
+  },
+
+  appendBuffer: (id: string, data: string, offset?: number) => {
     set((state) => {
+      const previousOffset = state.sessionBufferOffsets[id] || 0;
+      if (offset !== undefined) {
+        if (offset <= previousOffset) return state;
+        data = data.slice(Math.max(0, previousOffset - (offset - data.length)));
+      }
       let buf = (state.sessionBuffers[id] || '') + data;
       // Cap at ~2MB to bound memory growth while retaining enough recent output
       // for the in-memory "open sessions" search and transcript restore.
@@ -610,6 +638,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         sessionBuffers: {
           ...state.sessionBuffers,
           [id]: buf,
+        },
+        sessionBufferOffsets: {
+          ...state.sessionBufferOffsets,
+          [id]: offset ?? previousOffset + data.length,
         },
         sessions: shouldRefreshActivity
           ? {

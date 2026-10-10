@@ -150,21 +150,18 @@ export function App() {
         const savedNames = await window.agentPlex.getDisplayNames();
 
         for (const info of existing) {
-          if (knownIds.has(info.id)) continue;
-          addSession(info);
+          if (!knownIds.has(info.id)) addSession(info);
           updateStatus(info.id, info.status);
           // Apply persisted display name to node label
           if (savedNames[info.id]) {
             applySessionName(info.id, savedNames[info.id]);
           }
-          try {
-            const buffer = await window.agentPlex.getSessionBuffer(info.id);
-            if (buffer) {
-              appendBuffer(info.id, buffer);
-            }
-          } catch {
-            // Handler may not be registered if main process hasn't restarted
+          let hydrated = false;
+          for (let attempt = 0; attempt < 3 && !hydrated; attempt++) {
+            const snapshot = await window.agentPlex.getSessionBufferSnapshot(info.id);
+            hydrated = useAppStore.getState().hydrateBuffer(info.id, snapshot);
           }
+          if (!hydrated) throw new Error(`Terminal replay outpaced hydration: ${info.id}`);
         }
       } else {
         // Fresh launch — don't load old display names (stale IDs would collide
@@ -200,6 +197,8 @@ export function App() {
         }
       }
 
+      useAppStore.setState({ buffersReady: true });
+
       // Re-create persisted node groups now that all sessions exist, then allow
       // saving. Gating on groupsReadyRef prevents the save subscription from
       // overwriting groups.json with empty data during startup.
@@ -212,7 +211,7 @@ export function App() {
         groupsReadyRef.current = true;
       }
     };
-    reconnect();
+    reconnect().catch(err => console.error('[reconnect] Failed to hydrate sessions:', err));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist node groups to disk whenever group membership/label/color changes.
@@ -261,8 +260,8 @@ export function App() {
         store.applySessionName(id, name);
       }
     });
-    const cleanupData = window.agentPlex.onSessionData(({ id, data }) => {
-      appendBuffer(id, data);
+    const cleanupData = window.agentPlex.onSessionData(({ id, data, offset }) => {
+      appendBuffer(id, data, offset);
     });
 
     const cleanupStatus = window.agentPlex.onSessionStatus(({ id, status }) => {

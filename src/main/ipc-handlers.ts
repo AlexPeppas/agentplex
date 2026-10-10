@@ -82,6 +82,11 @@ export function registerIpcHandlers() {
     return sessionManager.getBuffer(id);
   });
 
+  ipcMain.handle(IPC.SESSION_GET_BUFFER_SNAPSHOT, (_event, { id }: { id: string }) => {
+    if (typeof id !== 'string') throw new Error('Session ID must be a string');
+    return sessionManager.getBufferSnapshot(id);
+  });
+
   ipcMain.handle(IPC.SESSION_GET_CWD, (_event, { id }: { id: string }) => {
     if (typeof id !== 'string') return null;
     return sessionManager.getCwd(id);

@@ -57,12 +57,16 @@ const api = {
     return ipcRenderer.invoke(IPC.SESSION_GET_BUFFER, { id });
   },
 
+  getSessionBufferSnapshot: (id: string): Promise<{ buffer: string; offset: number }> => {
+    return ipcRenderer.invoke(IPC.SESSION_GET_BUFFER_SNAPSHOT, { id });
+  },
+
   getSessionCwd: (id: string): Promise<string | null> => {
     return ipcRenderer.invoke(IPC.SESSION_GET_CWD, { id });
   },
 
-  onSessionData: (callback: (data: { id: string; data: string }) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: { id: string; data: string }) => {
+  onSessionData: (callback: (data: { id: string; data: string; offset: number }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { id: string; data: string; offset: number }) => {
       callback(payload);
     };
     ipcRenderer.on(IPC.SESSION_DATA, handler);
