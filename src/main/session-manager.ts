@@ -829,10 +829,13 @@ export class SessionManager {
     return this.sessions.get(id)?.cwd ?? null;
   }
 
-  /** Return the JSONL conversation file path for a Claude session, or null. */
+  /** Return the provider conversation file path, or null for an untracked session. */
   getJsonlPath(id: string): string | null {
     const session = this.sessions.get(id);
     if (!session?.resumeSessionId || !session.cwd) return null;
+    if (session.cli === 'copilot' || session.cli === 'copilot-resume') {
+      return path.join(homedir(), '.copilot', 'session-state', session.resumeSessionId, 'events.jsonl');
+    }
     if (session.cli !== 'claude' && session.cli !== 'claude-resume') return null;
     const home = homedir();
     const encodedPath = encodeProjectPath(session.cwd);

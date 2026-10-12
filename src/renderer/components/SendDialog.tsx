@@ -18,6 +18,9 @@ export function SendDialog() {
   const [summarize, setSummarize] = useState(true);
   const [sending, setSending] = useState(false);
   const [contextPreview, setContextPreview] = useState('');
+  const [sendError, setSendError] = useState('');
+  const sendingRef = useRef(false);
+  const mountedRef = useRef(true);
   const instructionRef = useRef<HTMLTextAreaElement>(null);
 
   // All live (non-killed) sessions except the source
@@ -30,6 +33,8 @@ export function SendDialog() {
     : sourceId;
 
   const allSelected = targetSessions.length > 0 && targetSessions.every((s) => selectedTargets.has(s.id));
+  const sourceCli = sourceId ? sessions[sourceId]?.cli : undefined;
+  const copilotSummary = sourceCli === 'copilot' || sourceCli === 'copilot-resume';
 
   // Build a preview from the terminal buffer (just for display — the actual
   // summarization reads the full JSONL on the main process side)
@@ -59,6 +64,8 @@ export function SendDialog() {
 
   useEffect(() => {
     instructionRef.current?.focus();
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
   }, []);
 
   const toggleTarget = useCallback((id: string) => {
@@ -82,23 +89,30 @@ export function SendDialog() {
   }, [allSelected, targetSessions]);
 
   const handleSend = useCallback(async () => {
-    if (selectedTargets.size === 0 || !instruction.trim() || sending || !sourceId) return;
+    if (selectedTargets.size === 0 || !instruction.trim() || sendingRef.current || !sourceId) return;
+    setSendError('');
 
     let contextBlock = contextPreview;
 
     if (summarize) {
       setSending(true);
+      sendingRef.current = true;
       try {
         // Main process reads the full JSONL conversation and summarizes it
         const result = await window.agentPlex.summarizeContext(sourceId, sourceLabel || 'session');
-        if (result.summary) {
-          contextBlock = result.summary;
-        }
-        // On error, fall back to terminal preview silently
-      } catch {
-        // fall back to terminal preview
+        if (!mountedRef.current) return;
+        if (result.error || !result.summary) throw new Error(result.error || 'No summary returned');
+        contextBlock = result.summary;
+      } catch (error) {
+        if (!mountedRef.current) return;
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[send] Summarization failed:', message);
+        setSendError(`${message} Retry, or uncheck summarization to send the terminal preview.`);
+        return;
+      } finally {
+        setSending(false);
+        sendingRef.current = false;
       }
-      setSending(false);
     }
 
     const message = [
@@ -130,7 +144,7 @@ export function SendDialog() {
 
     setInstruction('');
     closeSendDialog();
-  }, [selectedTargets, instruction, sourceId, sourceLabel, contextPreview, summarize, sending, closeSendDialog, flashMessageEdge]);
+  }, [selectedTargets, instruction, sourceId, sourceLabel, contextPreview, summarize, closeSendDialog, flashMessageEdge]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -233,9 +247,11 @@ export function SendDialog() {
               checked={summarize}
               onChange={(e) => setSummarize(e.target.checked)}
             />
-            <span>Summarize with Haiku</span>
+            <span>{copilotSummary ? 'Summarize with GitHub Copilot' : 'Summarize with Haiku'}</span>
           </label>
+          {copilotSummary && <p className="text-[10px] text-fg-muted mt-1">Uses an enabled low-cost Copilot model and GitHub authentication; no Anthropic API key needed.</p>}
         </div>
+        {sendError && <p role="alert" className="text-xs mt-2 text-error">{sendError}</p>}
 
         <div className="flex justify-end gap-2 mt-3.5">
           <button className="py-1.5 px-3.5 bg-transparent border border-border-strong rounded-md text-fg text-[13px] cursor-pointer transition-colors hover:bg-border" onClick={closeSendDialog}>

@@ -69,7 +69,7 @@ pnpm is pinned via `packageManager` in package.json. If you have [corepack](http
 - **Multi-session management** — run multiple Claude/Codex/Copilot CLI sessions side by side
 - **Graph canvas** — drag, arrange, and connect session nodes on a visual canvas
 - **HITL notifications** — get notified when a CLI session requires human input
-- **Cross-session messaging** — send messages between sessions with optional Haiku-powered summarization
+- **Cross-session messaging** — send messages between sessions with optional GitHub Copilot or Haiku summarization
 - **Sub-agent tracking** — visualize spawned sub-agents via JSONL transcript tailing
 - **Plan & task visualization** — see plans and task lists rendered in the graph
 - **Session resume** — resume previous Claude and Copilot sessions from the same launcher UX
@@ -87,7 +87,9 @@ pnpm is pinned via `packageManager` in package.json. If you have [corepack](http
 
 ### Cross-session summarization (optional)
 
-To enable AI-powered context summarization when sending messages between sessions, set your Anthropic API key using `AGENTPLEX_API_KEY` (not `ANTHROPIC_API_KEY`, which would conflict with Claude CLI's auth).
+When the source session is Copilot, summarization uses an enabled low-cost model from your GitHub Copilot account through an isolated inference-only SDK proxy. Authenticate with `gh auth login`, or supply `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`. Copilot CLI must be installed. No Anthropic API key or HTTP proxy listener is required; Copilot account usage charges apply.
+
+For other source CLIs, enable Haiku summarization by setting your Anthropic API key using `AGENTPLEX_API_KEY` (not `ANTHROPIC_API_KEY`, which would conflict with Claude CLI's auth).
 
 **Set it persistently (recommended):**
 
@@ -104,7 +106,7 @@ AGENTPLEX_API_KEY=sk-ant-... pnpm start                          # macOS/Linux
 $env:AGENTPLEX_API_KEY="sk-ant-..."; pnpm start                  # Windows (PowerShell)
 ```
 
-Without this, cross-session messaging still works — it sends raw context instead of a summary.
+Without summarization credentials, cross-session messaging still works: uncheck summarization to send raw terminal context. Summary failures are shown in the send dialog and do not silently broadcast raw context. Summaries use the provider's persisted conversation, falling back to the terminal buffer when no conversation is available.
 
 ## Usage
 

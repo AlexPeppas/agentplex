@@ -3,6 +3,7 @@ import path from 'node:path';
 import { sessionManager } from './session-manager';
 import { registerIpcHandlers } from './ipc-handlers';
 import { detectShells } from './shell-detector';
+import { stopCopilotSummaries } from './copilot-summary-proxy';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -261,4 +262,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+let stoppingSummaries = false;
+app.on('before-quit', (event) => {
+  if (stoppingSummaries) return;
+  event.preventDefault();
+  stoppingSummaries = true;
+  stopCopilotSummaries()
+    .catch(error => console.error('[summarize] Failed to stop Copilot proxy:', error))
+    .finally(() => app.quit());
 });
