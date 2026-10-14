@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
-import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
+import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups, FileItem, FileContentResult } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -303,6 +303,62 @@ const api = {
 
   templatesSave: (templates: WorkspaceTemplate[]): Promise<void> => {
     return ipcRenderer.invoke(IPC.TEMPLATES_SAVE, templates);
+  },
+
+  listFiles: (sessionId: string, subPath?: string): Promise<FileItem[]> => {
+    return ipcRenderer.invoke(IPC.FILES_LIST, { sessionId, subPath });
+  },
+
+  readFile: (sessionId: string, filePath: string): Promise<FileContentResult> => {
+    return ipcRenderer.invoke(IPC.FILES_READ, { sessionId, filePath });
+  },
+
+  saveFile: (sessionId: string, filePath: string, content: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.FILES_SAVE, { sessionId, filePath, content });
+  },
+
+  createFile: (sessionId: string, filePath: string, isDirectory: boolean): Promise<void> => {
+    return ipcRenderer.invoke(IPC.FILES_CREATE, { sessionId, filePath, isDirectory });
+  },
+
+  deleteFile: (sessionId: string, filePath: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.FILES_DELETE, { sessionId, filePath });
+  },
+
+  openSessionTerminal: (sessionId: string, cols?: number, rows?: number): Promise<{ pid: number }> => {
+    return ipcRenderer.invoke(IPC.SESSION_TERMINAL_OPEN, { sessionId, cols, rows });
+  },
+
+  writeSessionTerminal: (sessionId: string, data: string): void => {
+    ipcRenderer.send(IPC.SESSION_TERMINAL_WRITE, { sessionId, data });
+  },
+
+  resizeSessionTerminal: (sessionId: string, cols: number, rows: number): void => {
+    ipcRenderer.send(IPC.SESSION_TERMINAL_RESIZE, { sessionId, cols, rows });
+  },
+
+  getSessionTerminalBuffer: (sessionId: string): Promise<string> => {
+    return ipcRenderer.invoke(IPC.SESSION_TERMINAL_GET_BUFFER, { sessionId });
+  },
+
+  killSessionTerminal: (sessionId: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.SESSION_TERMINAL_KILL, { sessionId });
+  },
+
+  onSessionTerminalData: (callback: (data: { sessionId: string; data: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { sessionId: string; data: string }) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.SESSION_TERMINAL_DATA, handler);
+    return () => ipcRenderer.removeListener(IPC.SESSION_TERMINAL_DATA, handler);
+  },
+
+  onSessionTerminalExit: (callback: (data: { sessionId: string; exitCode: number }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { sessionId: string; exitCode: number }) => {
+      callback(payload);
+    };
+    ipcRenderer.on(IPC.SESSION_TERMINAL_EXIT, handler);
+    return () => ipcRenderer.removeListener(IPC.SESSION_TERMINAL_EXIT, handler);
   },
 };
 

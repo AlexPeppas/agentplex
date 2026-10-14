@@ -1,5 +1,5 @@
 import { useRef, lazy, Suspense, useEffect, useCallback, useState } from 'react';
-import { X, GitBranch, Terminal, Maximize2, Minimize2, FolderOpen } from 'lucide-react';
+import { X, GitBranch, Terminal, Maximize2, Minimize2, FolderOpen, FolderTree } from 'lucide-react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useAppStore } from '../store';
 import { defineAgentPlexTheme } from '../monaco-theme';
@@ -7,6 +7,7 @@ import type { CliTool } from '../../shared/ipc-channels';
 import { SessionStatus } from '../../shared/ipc-channels';
 import { StatusIndicator } from './StatusIndicator';
 import { ContextMeter, SessionAge } from './SessionMetrics';
+import { SessionTerminalView } from './SessionTerminalView';
 import claudeLogo from '../../../assets/claude-logo.svg';
 import codexDark from '../../../assets/codex-dark.svg';
 import codexLight from '../../../assets/codex-light.svg';
@@ -32,6 +33,11 @@ const GitDiffPanel = lazy(() =>
   import('./GitDiffPanel').then((m) => ({ default: m.GitDiffPanel }))
 );
 
+// Lazy-load FilesPanel
+const FilesPanel = lazy(() =>
+  import('./FilesPanel').then((m) => ({ default: m.FilesPanel }))
+);
+
 // Initialize Monaco theme once
 let themeInitialized = false;
 
@@ -47,16 +53,31 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
   const closePane = useAppStore((s) => s.closePane);
   const terminalFullscreen = useAppStore((s) => s.terminalFullscreen);
   const toggleTerminalFullscreen = useAppStore((s) => s.toggleTerminalFullscreen);
-  const [terminalTab, setTerminalTab] = useState<'session' | 'git'>('session');
+  const [terminalTab, setTerminalTabState] = useState<'session' | 'files' | 'git' | 'terminal'>(() => {
+    try {
+      return (sessionStorage.getItem(`agentplex:tab:${sessionId}`) as any) || 'session';
+    } catch {
+      return 'session';
+    }
+  });
+
+  const setTerminalTab = useCallback((tab: 'session' | 'files' | 'git' | 'terminal') => {
+    setTerminalTabState(tab);
+    try {
+      sessionStorage.setItem(`agentplex:tab:${sessionId}`, tab);
+    } catch {
+      // ignore
+    }
+  }, [sessionId]);
   const [branchName, setBranchName] = useState<string | null>(null);
   const isActive = activePaneId === sessionId;
   const sessionStatus = session?.status;
 
   useTerminal(containerRef, sessionId);
 
-  // Initialize Monaco theme on first git tab open
+  // Initialize Monaco theme on first files or git tab open
   useEffect(() => {
-    if (terminalTab === 'git' && !themeInitialized) {
+    if ((terminalTab === 'git' || terminalTab === 'files') && !themeInitialized) {
       themeInitialized = true;
       defineAgentPlexTheme();
     }
@@ -93,13 +114,13 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
       onClick={handleActivate}
     >
       {/* Pane header */}
-      <div className={`flex shrink-0 items-center justify-between py-0 px-1 bg-[#262420] border-b ${isActive ? 'border-[#d18a7a]' : 'border-[#3e3830]'}`}>
+      <div className={`flex shrink-0 items-center justify-between py-0 px-1 bg-surface border-b ${isActive ? 'border-accent' : 'border-border'}`}>
         <div className="flex items-center gap-0.5">
           <button
             className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
               terminalTab === 'session'
-                ? 'text-[#ece4d8] border-[#d18a7a]'
-                : 'text-[#9a8a70] border-transparent hover:text-[#ece4d8]'
+                ? 'text-fg border-accent'
+                : 'text-fg-muted border-transparent hover:text-fg'
             }`}
             onClick={() => setTerminalTab('session')}
           >
@@ -108,26 +129,48 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
           </button>
           <button
             className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
+              terminalTab === 'files'
+                ? 'text-fg border-accent'
+                : 'text-fg-muted border-transparent hover:text-fg'
+            }`}
+            onClick={() => setTerminalTab('files')}
+          >
+            <FolderTree size={12} />
+            Files
+          </button>
+          <button
+            className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
               terminalTab === 'git'
-                ? 'text-[#ece4d8] border-[#d18a7a]'
-                : 'text-[#9a8a70] border-transparent hover:text-[#ece4d8]'
+                ? 'text-fg border-accent'
+                : 'text-fg-muted border-transparent hover:text-fg'
             }`}
             onClick={() => setTerminalTab('git')}
           >
             <GitBranch size={12} />
             Git
           </button>
+          <button
+            className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
+              terminalTab === 'terminal'
+                ? 'text-fg border-accent'
+                : 'text-fg-muted border-transparent hover:text-fg'
+            }`}
+            onClick={() => setTerminalTab('terminal')}
+          >
+            <Terminal size={12} />
+            Terminal
+          </button>
         </div>
         <div className="flex items-center gap-1 pr-1">
           <button
-            className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
+            className="bg-transparent border-none text-fg-muted text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-elevated hover:text-fg"
             onClick={toggleTerminalFullscreen}
             title={terminalFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
             {terminalFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
           <button
-            className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
+            className="bg-transparent border-none text-fg-muted text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-elevated hover:text-fg"
             onClick={handleClose}
             title="Close pane"
           >
@@ -164,7 +207,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
-      {/* Terminal body */}
+      {/* Agent Terminal body */}
       <div
         className="terminal-body flex-1 min-h-0 min-w-0 p-1 overflow-hidden"
         style={{ display: terminalTab === 'session' ? undefined : 'none' }}
@@ -172,18 +215,40 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
         <div ref={containerRef} className="h-full w-full overflow-hidden" />
       </div>
 
+      {/* Files panel */}
+      {terminalTab === 'files' && (
+        <div className="flex-1 overflow-hidden">
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full text-xs text-fg-muted">
+                Loading files...
+              </div>
+            }
+          >
+            <FilesPanel sessionId={sessionId} />
+          </Suspense>
+        </div>
+      )}
+
       {/* Git diff panel */}
       {terminalTab === 'git' && (
         <div className="flex-1 overflow-hidden">
           <Suspense
             fallback={
-              <div className="flex items-center justify-center h-full text-sm text-[#6a5e50]">
+              <div className="flex items-center justify-center h-full text-xs text-fg-muted">
                 Loading editor...
               </div>
             }
           >
             <GitDiffPanel sessionId={sessionId} />
           </Suspense>
+        </div>
+      )}
+
+      {/* Session root terminal shell */}
+      {terminalTab === 'terminal' && (
+        <div className="flex-1 overflow-hidden">
+          <SessionTerminalView sessionId={sessionId} isVisible={true} />
         </div>
       )}
     </div>
@@ -196,11 +261,11 @@ export function TerminalPanel() {
   if (openPanes.length === 0) return null;
 
   return (
-    <div className="flex h-full bg-[#1e1c18]">
+    <div className="flex h-full bg-inset nowheel nopan nodrag nokey">
       {openPanes.map((sessionId, idx) => (
         <div key={sessionId} className="flex flex-1 min-w-0 h-full">
           {idx > 0 && (
-            <div className="flex-[0_0_1px] bg-[#3e3830]" />
+            <div className="flex-[0_0_1px] bg-border" />
           )}
           <TerminalPane sessionId={sessionId} />
         </div>

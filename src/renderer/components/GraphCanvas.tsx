@@ -128,6 +128,7 @@ export function GraphCanvas() {
         nodeTypes={nodeTypes}
         fitView
         panOnDrag={!drawingMode}
+        panActivationKeyCode={null}
         zoomOnScroll={!drawingMode}
         zoomOnPinch={!drawingMode}
         zoomOnDoubleClick={!drawingMode}
