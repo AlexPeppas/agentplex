@@ -9,6 +9,7 @@ export function TemplatesPanel() {
   const [saveName, setSaveName] = useState('');
   const [saving, setSaving] = useState(false);
   const [launching, setLaunching] = useState<string | null>(null);
+  const launchingRef = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const editRef = useRef<HTMLInputElement>(null);
@@ -32,23 +33,13 @@ export function TemplatesPanel() {
     setSaving(true);
 
     try {
-      // Read persisted state.json to get per-CLI resume session IDs (Claude UUIDs, Copilot UUIDs).
-      const persisted = await window.agentPlex.getPersistedState();
-      // Build a lookup: displayName → resumeSessionId
-      const uuidByName = new Map<string, string>();
-      for (const [, ps] of Object.entries(persisted.sessions)) {
-        if (ps.resumeSessionId) {
-          uuidByName.set(ps.displayName, ps.resumeSessionId);
-        }
-      }
-
       const templateSessions: WorkspaceTemplateSession[] = liveSessions.map((s) => {
         const sessionName = displayNames[s.id] || s.title;
         return {
           name: sessionName,
           cwd: s.cwd,
           cli: s.cli,
-          sessionId: uuidByName.get(sessionName) || undefined,
+          sessionId: s.resumeSessionId || undefined,
         };
       });
 
@@ -70,27 +61,26 @@ export function TemplatesPanel() {
   }, [saveName, liveSessions, displayNames, templates]);
 
   const handleLaunch = useCallback(async (template: WorkspaceTemplate) => {
+    if (launchingRef.current) return;
+    launchingRef.current = true;
     setLaunching(template.id);
 
-    // Build set of already-active session UUIDs and display names to skip duplicates
     const currentSessions = useAppStore.getState().sessions;
-    const currentNames = useAppStore.getState().displayNames;
-    const activeNames = new Set<string>();
     const activeUuids = new Set<string>();
     for (const s of Object.values(currentSessions)) {
       if (s.status === SessionStatus.Killed) continue;
-      activeNames.add(currentNames[s.id] || s.title);
-      if (s.resumeSessionId) activeUuids.add(s.resumeSessionId);
+      if (s.resumeSessionId) activeUuids.add(JSON.stringify([s.cli, s.resumeSessionId]));
     }
 
     let skipped = 0;
     for (const s of template.sessions) {
-      // Skip if this session is already active (match by UUID or display name)
-      if (s.sessionId && activeUuids.has(s.sessionId)) { skipped++; continue; }
-      if (activeNames.has(s.name)) { skipped++; continue; }
+      const identity = s.sessionId ? JSON.stringify([s.cli, s.sessionId]) : undefined;
+      if (identity && activeUuids.has(identity)) { skipped++; continue; }
 
       try {
         const info = await window.agentPlex.createSession(s.cwd, s.cli, s.sessionId);
+        if (identity) activeUuids.add(identity);
+        if (info.resumeSessionId) activeUuids.add(JSON.stringify([info.cli, info.resumeSessionId]));
         addSession(info);
         useAppStore.getState().renameSession(info.id, s.name);
       } catch (err) {
@@ -101,6 +91,7 @@ export function TemplatesPanel() {
       console.log(`[template] Skipped ${skipped} already-active session(s)`);
     }
     setLaunching(null);
+    launchingRef.current = false;
   }, [addSession]);
 
   const handleDelete = useCallback(async (templateId: string) => {

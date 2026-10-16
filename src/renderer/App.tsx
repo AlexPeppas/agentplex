@@ -226,16 +226,18 @@ export function App() {
     let lastSignature = '';
     let lastNodes = useAppStore.getState().nodes;
     let lastSessions = useAppStore.getState().sessions;
+    let lastUnresolvedGroups = useAppStore.getState().unresolvedGroups;
 
     const unsubscribe = useAppStore.subscribe((state) => {
       if (!groupsReadyRef.current) return;
       // Skip the work for the frequent buffer/status updates that don't touch
       // node or session structure.
-      if (state.nodes === lastNodes && state.sessions === lastSessions) return;
+      if (state.nodes === lastNodes && state.sessions === lastSessions && state.unresolvedGroups === lastUnresolvedGroups) return;
       lastNodes = state.nodes;
       lastSessions = state.sessions;
+      lastUnresolvedGroups = state.unresolvedGroups;
 
-      const data = serializeGroups(state.nodes, state.sessions);
+      const data = serializeGroups(state.nodes, state.sessions, state.unresolvedGroups);
       const signature = JSON.stringify(data);
       if (signature === lastSignature) return;
       lastSignature = signature;

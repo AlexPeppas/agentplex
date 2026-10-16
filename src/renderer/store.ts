@@ -7,7 +7,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
 } from '@xyflow/react';
-import { SessionStatus, type SessionInfo, type CliTool, type PersistedGroups } from '../shared/ipc-channels';
+import { SessionStatus, type SessionInfo, type CliTool, type PersistedGroup, type PersistedGroups } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 import { getSplitPaneEnabled } from './components/panels/SettingsPanel';
 
@@ -66,6 +66,7 @@ export interface AppState {
   nodes: Node[];
   edges: Edge[];
   sessions: Record<string, SessionInfo>;
+  unresolvedGroups: Record<string, PersistedGroup>;
   subagents: Record<string, SubagentEntry>;
   /** @deprecated Use activePaneId instead. Kept for backward compat — returns activePaneId. */
   selectedSessionId: string | null;
@@ -286,25 +287,37 @@ function sortGroupsFirst(nodes: Node[]): Node[] {
 /** Serialize current groups into the persisted shape (membership keyed by both the
  *  live node id and the stable resume UUID). Deterministically ordered so callers can
  *  diff the JSON to skip redundant disk writes. */
-export function serializeGroups(nodes: Node[], sessions: Record<string, SessionInfo>): PersistedGroups {
+export function serializeGroups(
+  nodes: Node[],
+  sessions: Record<string, SessionInfo>,
+  unresolvedGroups: Record<string, PersistedGroup> = {},
+): PersistedGroups {
   const groups = nodes.filter((n) => n.type === 'groupNode');
   const groupById = new Map(groups.map((g) => [g.id, g]));
-  const out = groups.map((g) => {
+  const out: PersistedGroup[] = groups.map((g) => {
     const members = nodes
       .filter((n) => n.parentId === g.id && n.type === 'sessionNode')
-      .map((n) => {
+      .map<PersistedGroup['members'][number]>((n) => {
         // Child positions are relative to the group; store the absolute position
         // so the cluster can be restored to the same spot on a fresh launch.
         const parent = groupById.get(g.id);
         const position = parent
           ? { x: parent.position.x + n.position.x, y: parent.position.y + n.position.y }
           : n.position;
-        return { sessionId: n.id, resumeSessionId: sessions[n.id]?.resumeSessionId ?? null, position };
+        const session = sessions[n.id];
+        return {
+          sessionId: n.id, resumeSessionId: session?.resumeSessionId ?? null,
+          cli: session?.cli, startedAt: session?.startedAt, position,
+        };
       })
+      .concat(unresolvedGroups[g.id]?.members ?? [])
       .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
     const data = g.data as GroupNodeData;
     return { label: data.label, color: data.color, manualSize: data.manualSize, members };
   });
+  for (const [id, group] of Object.entries(unresolvedGroups)) {
+    if (!groupById.has(id)) out.push(group);
+  }
   out.sort((a, b) => (a.label + a.color).localeCompare(b.label + b.color));
   return { groups: out.filter((g) => g.members.length > 0) };
 }
@@ -343,6 +356,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   nodes: [],
   edges: [],
   sessions: {},
+  unresolvedGroups: {},
   subagents: {},
   selectedSessionId: null,
   openPanes: [],
@@ -891,7 +905,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   onNodesChange: (changes) => {
-    set({ nodes: applyNodeChanges(changes, get().nodes) });
+    const unresolvedGroups = { ...get().unresolvedGroups };
+    for (const change of changes) {
+      if (change.type === 'remove') delete unresolvedGroups[change.id];
+    }
+    set({ nodes: applyNodeChanges(changes, get().nodes), unresolvedGroups });
   },
 
   onEdgesChange: (changes) => {
@@ -976,6 +994,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   resizeGroup: (groupId: string, size: number, opts?: { recenter?: boolean }) => {
     const clamped = Math.max(GROUP_MIN_MANUAL_SIZE, size);
     set((state) => ({
+      unresolvedGroups: state.unresolvedGroups[groupId]
+        ? { ...state.unresolvedGroups, [groupId]: { ...state.unresolvedGroups[groupId], manualSize: clamped } }
+        : state.unresolvedGroups,
       nodes: state.nodes.map((n) => {
         if (n.id !== groupId) return n;
         const cur = getNodeSize(n);
@@ -994,6 +1015,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   renameGroup: (groupId: string, name: string) => {
     set((state) => ({
+      unresolvedGroups: state.unresolvedGroups[groupId]
+        ? { ...state.unresolvedGroups, [groupId]: { ...state.unresolvedGroups[groupId], label: name } }
+        : state.unresolvedGroups,
       nodes: state.nodes.map((n) =>
         n.id === groupId ? { ...n, data: { ...n.data, label: name } } : n
       ),
@@ -1011,37 +1035,46 @@ export const useAppStore = create<AppState>((set, get) => ({
     for (const [id, info] of Object.entries(state.sessions)) {
       const rid = info.resumeSessionId;
       if (!rid) continue;
-      resumeCounts.set(rid, (resumeCounts.get(rid) ?? 0) + 1);
-      resumeToId.set(rid, id);
+      for (const cli of [undefined, info.cli]) {
+        const key = JSON.stringify([cli, rid]);
+        resumeCounts.set(key, (resumeCounts.get(key) ?? 0) + 1);
+        resumeToId.set(key, id);
+      }
     }
     const presentSessionIds = new Set(
       state.nodes.filter((n) => n.type === 'sessionNode' && !n.parentId).map((n) => n.id)
     );
     const claimed = new Set<string>();
+    const unresolvedGroups: Record<string, PersistedGroup> = {};
 
     for (const group of persisted.groups) {
       const memberIds: string[] = [];
+      const unresolvedMembers: PersistedGroup['members'] = [];
       const savedPositions = new Map<string, { x: number; y: number }>();
       for (const m of group.members) {
-        // Resume UUIDs are stable across process restarts, while transient
-        // session-N ids are reused in whichever order sessions restore. Prefer
-        // the UUID so a reordered restore cannot attach the wrong session to a
-        // group, then fall back to the live id for non-resumable shell sessions
-        // and renderer-only reloads.
         let resolved: string | undefined;
-        if (m.resumeSessionId && resumeCounts.get(m.resumeSessionId) === 1) {
-          const candidate = resumeToId.get(m.resumeSessionId);
+        const key = JSON.stringify([m.cli, m.resumeSessionId]);
+        if (m.resumeSessionId && resumeCounts.get(key) === 1) {
+          const candidate = resumeToId.get(key);
           if (candidate && presentSessionIds.has(candidate)) resolved = candidate;
-        } else if (presentSessionIds.has(m.sessionId)) {
+        } else if (!m.resumeSessionId && m.startedAt !== undefined
+          && state.sessions[m.sessionId]?.startedAt === m.startedAt
+          && (!m.cli || state.sessions[m.sessionId]?.cli === m.cli)
+          && presentSessionIds.has(m.sessionId)) {
           resolved = m.sessionId;
         }
         if (resolved && !claimed.has(resolved)) {
           claimed.add(resolved);
           memberIds.push(resolved);
           if (m.position) savedPositions.set(resolved, m.position);
+        } else {
+          unresolvedMembers.push(m);
         }
       }
-      if (memberIds.length === 0) continue;
+      if (memberIds.length === 0) {
+        unresolvedGroups[`unresolved-${Object.keys(unresolvedGroups).length}`] = { ...group, members: unresolvedMembers };
+        continue;
+      }
 
       // Restore each member to its saved absolute position BEFORE grouping so the
       // auto-fit group circle lands at its previous location (and members don't
@@ -1057,6 +1090,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       get().createGroupWithMembers(memberIds, { label: group.label, color: group.color });
+      const createdGroup = get().nodes[0];
+      if (unresolvedMembers.length > 0) {
+        unresolvedGroups[createdGroup.id] = { ...group, members: unresolvedMembers };
+      }
       if (typeof group.manualSize === 'number') {
         // createGroupWithMembers prepends the new group, so it's nodes[0].
         const created = get().nodes[0];
@@ -1070,6 +1107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
     }
+    set({ unresolvedGroups });
   },
 
   applySessionName: (sessionId: string, name: string) => {

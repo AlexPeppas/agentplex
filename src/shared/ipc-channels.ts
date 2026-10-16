@@ -218,6 +218,9 @@ export interface PersistedGroupMember {
   sessionId: string;
   /** Stable per-CLI resume UUID (matches after a full restart where ids change). */
   resumeSessionId: string | null;
+  cli?: CliTool;
+  /** Proves a transient id still denotes the same PTY after a renderer reload. */
+  startedAt?: number;
   /** Absolute canvas position at save time, so the group circle and its members
    *  are restored to their previous locations instead of a fresh grid layout. */
   position?: { x: number; y: number };
