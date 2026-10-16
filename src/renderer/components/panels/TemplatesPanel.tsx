@@ -3,6 +3,7 @@ import { useRef } from 'react';
 import { Save, Play, Trash2, FolderOpen, Pencil } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { SessionStatus, type WorkspaceTemplate, type WorkspaceTemplateSession } from '../../../shared/ipc-channels';
+import { conversationIdentity } from '../../../shared/conversation-identity';
 
 export function TemplatesPanel() {
   const [templates, setTemplates] = useState<WorkspaceTemplate[]>([]);
@@ -69,18 +70,18 @@ export function TemplatesPanel() {
     const activeUuids = new Set<string>();
     for (const s of Object.values(currentSessions)) {
       if (s.status === SessionStatus.Killed) continue;
-      if (s.resumeSessionId) activeUuids.add(JSON.stringify([s.cli, s.resumeSessionId]));
+      if (s.resumeSessionId) activeUuids.add(conversationIdentity(s.cli, s.resumeSessionId));
     }
 
     let skipped = 0;
     for (const s of template.sessions) {
-      const identity = s.sessionId ? JSON.stringify([s.cli, s.sessionId]) : undefined;
+      const identity = s.sessionId ? conversationIdentity(s.cli, s.sessionId) : undefined;
       if (identity && activeUuids.has(identity)) { skipped++; continue; }
 
       try {
         const info = await window.agentPlex.createSession(s.cwd, s.cli, s.sessionId);
         if (identity) activeUuids.add(identity);
-        if (info.resumeSessionId) activeUuids.add(JSON.stringify([info.cli, info.resumeSessionId]));
+        if (info.resumeSessionId) activeUuids.add(conversationIdentity(info.cli, info.resumeSessionId));
         addSession(info);
         useAppStore.getState().renameSession(info.id, s.name);
       } catch (err) {

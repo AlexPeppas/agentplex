@@ -65,6 +65,7 @@ test('template launch deduplicates provider UUIDs, not names, including pending 
     const entries = [
       { cli: 'copilot', sessionId: 'uuid-a' }, { cli: 'copilot', sessionId: 'uuid-b' },
       { cli: 'copilot', sessionId: 'uuid-b' }, { cli: 'claude', sessionId: 'uuid-a' },
+      { cli: 'copilot-resume', sessionId: 'uuid-a' }, { cli: 'claude-resume', sessionId: 'uuid-a' },
       { cli: 'shell' }, { cli: 'shell' },
     ].map(s => ({ name: 'Same name', cwd: process.cwd(), ...s }));
     const click = templatePanel(state, [{ id: 'tpl', name: 'Workspace', createdAt: new Date().toISOString(), sessions: entries }]);
@@ -111,7 +112,7 @@ test('unique group UUIDs remap by provider, while unresolved members survive the
     store.getState().addSession(session('new', 'saved'));
     store.getState().addSession(session('other-provider', 'saved', 'claude'));
     store.getState().restoreGroups({ groups: [{ label: 'Saved', color: '#abcdef', members: [
-      { sessionId: 'old', resumeSessionId: 'saved', cli: 'copilot', position: { x: 45, y: 67 } },
+      { sessionId: 'old', resumeSessionId: 'saved', cli: 'copilot-resume', position: { x: 45, y: 67 } },
       { sessionId: 'missing', resumeSessionId: 'later', cli: 'copilot' },
     ] }] });
     const node = store.getState().nodes.find(n => n.id === 'new');

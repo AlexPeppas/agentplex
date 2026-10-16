@@ -10,6 +10,7 @@ import {
 import { SessionStatus, type SessionInfo, type CliTool, type PersistedGroup, type PersistedGroups } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 import { getSplitPaneEnabled } from './components/panels/SettingsPanel';
+import { conversationIdentity } from '../shared/conversation-identity';
 
 function getAccentColor(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#d18a7a';
@@ -1036,7 +1037,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const rid = info.resumeSessionId;
       if (!rid) continue;
       for (const cli of [undefined, info.cli]) {
-        const key = JSON.stringify([cli, rid]);
+        const key = conversationIdentity(cli, rid);
         resumeCounts.set(key, (resumeCounts.get(key) ?? 0) + 1);
         resumeToId.set(key, id);
       }
@@ -1053,13 +1054,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       const savedPositions = new Map<string, { x: number; y: number }>();
       for (const m of group.members) {
         let resolved: string | undefined;
-        const key = JSON.stringify([m.cli, m.resumeSessionId]);
+        const key = conversationIdentity(m.cli, m.resumeSessionId);
         if (m.resumeSessionId && resumeCounts.get(key) === 1) {
           const candidate = resumeToId.get(key);
           if (candidate && presentSessionIds.has(candidate)) resolved = candidate;
         } else if (!m.resumeSessionId && m.startedAt !== undefined
           && state.sessions[m.sessionId]?.startedAt === m.startedAt
-          && (!m.cli || state.sessions[m.sessionId]?.cli === m.cli)
+          && (!m.cli || conversationIdentity(state.sessions[m.sessionId]?.cli, null) === conversationIdentity(m.cli, null))
           && presentSessionIds.has(m.sessionId)) {
           resolved = m.sessionId;
         }
