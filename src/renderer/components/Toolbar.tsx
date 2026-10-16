@@ -45,6 +45,7 @@ export function Toolbar() {
   const discoverRef = useRef<HTMLDivElement>(null);
   const [shells, setShells] = useState<DetectedShell[]>([]);
   const [defaultShellId, setDefaultShellId] = useState<string | null>(null);
+  const [shellSettingsError, setShellSettingsError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; shellId: string } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
@@ -52,7 +53,10 @@ export function Toolbar() {
 
   useEffect(() => {
     window.agentPlex.getShells().then(setShells);
-    window.agentPlex.getDefaultShell().then(setDefaultShellId);
+    window.agentPlex.getDefaultShell().then(setDefaultShellId).catch((error) => {
+      console.error('[settings] Failed to read default shell:', error);
+      setShellSettingsError('Could not read settings.json.');
+    });
   }, []);
 
 
@@ -92,9 +96,15 @@ export function Toolbar() {
   }, []);
 
   const handleSetDefault = useCallback(async (shellId: string) => {
-    await window.agentPlex.setDefaultShell(shellId);
-    setDefaultShellId(shellId);
-    setContextMenu(null);
+    try {
+      await window.agentPlex.setDefaultShell(shellId);
+      setDefaultShellId(shellId);
+      setShellSettingsError(null);
+      setContextMenu(null);
+    } catch (error) {
+      console.error('[settings] Failed to update default shell:', error);
+      setShellSettingsError('Could not update default shell. Check settings.json and try again.');
+    }
   }, []);
 
   useEffect(() => {
@@ -184,6 +194,11 @@ export function Toolbar() {
           <img className="w-full h-full" src={logoSvg} alt="AgentPlex" />
         </div>
         <span className="text-sm font-semibold text-accent tracking-wide flex-1">AgentPlex</span>
+        {shellSettingsError && (
+          <span role="alert" className="text-xs text-error truncate max-w-64" title={shellSettingsError}>
+            {shellSettingsError}
+          </span>
+        )}
       </div>
       <div className="[-webkit-app-region:no-drag] flex items-center gap-2.5">
         <div className="relative" ref={discoverRef}>

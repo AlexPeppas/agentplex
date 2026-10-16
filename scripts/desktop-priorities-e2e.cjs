@@ -73,7 +73,8 @@ async function rendererTest(repositoryRoot) {
   };
   const settle = () => new Promise(resolve => setTimeout(resolve, 50));
   const clickText = text => {
-    const node = [...host.querySelectorAll('div,button')].find(node => node.textContent === text);
+    const node = [...host.querySelectorAll('button')].find(node => node.textContent.trim() === text)
+      ?? [...host.querySelectorAll('div')].find(node => node.textContent === text && node.closest('.cursor-pointer'));
     assert.ok(node, `missing clickable text: ${text}`);
     (node.tagName === 'BUTTON' ? node : node.closest('.cursor-pointer')).click();
   };
@@ -169,11 +170,41 @@ async function rendererTest(repositoryRoot) {
   assert.equal(creates[2].uuid, 'template-b');
   createGate.resolve();
   await wait(() => Object.values(useAppStore.getState().sessions).some(s => s.resumeSessionId === 'template-b'), 'missing conversation resumed');
+  let failShellWrite = true;
+  Object.assign(window.agentPlex, {
+    platform: 'win32',
+    getShells: async () => [{ id: 'old-shell', label: 'Old shell' }, { id: 'new-shell', label: 'New shell' }],
+    getDefaultShell: async () => 'old-shell',
+    setDefaultShell: async () => { if (failShellWrite) throw new Error('Synthetic settings write failure'); },
+  });
+  const assets = Object.fromEntries(['logo', 'claude-logo', 'codex-dark', 'codex-light', 'githubcopilot-dark', 'githubcopilot-light'].map(name => [
+    `../../../assets/${name}.svg`, { __esModule: true, default: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>' },
+  ]));
+  const { Toolbar } = loadSource('src/renderer/components/Toolbar.tsx', { '../store': { useAppStore }, ...assets });
+  reactRoot.render(React.createElement(Toolbar));
+  await wait(() => host.textContent.includes('New Session'), 'toolbar mounts');
+  clickText('New Session');
+  const shellButton = name => [...host.querySelectorAll('button')].find(button => button.textContent.trim() === name);
+  await wait(() => shellButton('Old shell')?.querySelector('svg'), 'saved default shell selected');
+  shellButton('New shell').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+  await wait(() => host.textContent.includes('Set as default'), 'default shell context menu');
+  clickText('Set as default');
+  await wait(() => host.querySelector('[role="alert"]'), 'settings write failure visible');
+  assert.ok(shellButton('Old shell').querySelector('svg'), 'failed write preserves the displayed default');
+  assert.equal(shellButton('New shell').querySelector('svg'), null);
+  failShellWrite = false;
+  clickText('Set as default');
+  await wait(() => shellButton('New shell')?.querySelector('svg') && !host.querySelector('[role="alert"]'), 'retry saves and updates the displayed default');
+  reactRoot.render(React.createElement('div'));
+  await settle();
+  window.agentPlex.getDefaultShell = async () => { throw new Error('Synthetic settings read failure'); };
+  reactRoot.render(React.createElement(Toolbar));
+  await wait(() => host.querySelector('[role="alert"]')?.textContent.includes('Could not read settings.json'), 'startup settings read failure visible');
   reactRoot.unmount();
   assert.ok(cancellations.includes('projects') && cancellations.includes('sessions'));
   return { staleProviderAndProjectResponsesIgnored: true, exactConversationResumed: true,
     queryClearAndUnmountSafe: true, visibleHistoryFailures: true, duplicateNamesPreserveTemplateUuids: true,
-    duplicateTemplateClicksBlocked: true };
+    duplicateTemplateClicksBlocked: true, settingsReadAndWriteFailuresVisible: true, failedShellChangesPreserveSelection: true };
 }
 
 let window;
