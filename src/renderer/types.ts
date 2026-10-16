@@ -1,4 +1,5 @@
 import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
+import type { HistoryRequestKind } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   platform: string;
@@ -31,6 +32,7 @@ export interface AgentPlexAPI {
   scanProjects: (cli?: 'claude' | 'copilot') => Promise<DiscoveredProject[]>;
   scanSessions: (encodedPath: string, cli?: 'claude' | 'copilot') => Promise<DiscoveredSession[]>;
   searchSessions: (query: string) => Promise<SessionSearchResult[]>;
+  cancelHistoryRequests: (kind: HistoryRequestKind) => void;
   getPinnedProjects: () => Promise<PinnedProject[]>;
   updatePinnedProjects: (pins: PinnedProject[]) => Promise<void>;
   resolveProjectPath: (encodedPath: string) => Promise<string | null>;

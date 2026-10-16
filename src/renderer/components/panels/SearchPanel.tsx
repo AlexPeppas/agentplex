@@ -47,16 +47,19 @@ export function SearchPanel() {
   // ── Debounced disk-history search across ALL sessions (Phase 1) ─────────────
   const [history, setHistory] = useState<SessionSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const reqId = useRef(0);
 
   useEffect(() => {
+    const id = ++reqId.current;
     const q = query.trim();
+    setHistory([]);
+    setSearchError(null);
     if (q.length < 2) {
       setHistory([]);
       setSearching(false);
       return;
     }
-    const id = ++reqId.current;
     setSearching(true);
     const handle = setTimeout(async () => {
       try {
@@ -64,13 +67,18 @@ export function SearchPanel() {
         // Ignore stale responses from earlier keystrokes.
         if (reqId.current === id) setHistory(results);
       } catch (err) {
+        if (reqId.current !== id) return;
         console.error('History search failed:', err);
-        if (reqId.current === id) setHistory([]);
+        setSearchError('History search failed. Please try again or narrow your query.');
       } finally {
         if (reqId.current === id) setSearching(false);
       }
     }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(handle);
+    return () => {
+      reqId.current = id + 1;
+      clearTimeout(handle);
+      window.agentPlex.cancelHistoryRequests('search');
+    };
   }, [query]);
 
   const handleHistoryClick = async (r: SessionSearchResult) => {
@@ -83,7 +91,7 @@ export function SearchPanel() {
   };
 
   const hasQuery = query.length >= 2;
-  const noResults = hasQuery && !searching && openResults.length === 0 && history.length === 0;
+  const noResults = hasQuery && !searching && !searchError && openResults.length === 0 && history.length === 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -97,6 +105,7 @@ export function SearchPanel() {
         />
       </div>
       <div className="flex-1 overflow-y-auto">
+        {searchError && <div role="alert" className="p-4 text-xs text-error">{searchError}</div>}
         {noResults && (
           <div className="p-4 text-center text-fg-muted text-xs">No results</div>
         )}

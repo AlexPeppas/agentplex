@@ -58,6 +58,7 @@ export function App() {
   const terminalFullscreen = useAppStore((s) => s.terminalFullscreen);
   const sendDialogSourceId = useAppStore((s) => s.sendDialogSourceId);
   const launcherOpen = useAppStore((s) => s.launcherOpen);
+  const launcherIdentity = useAppStore((s) => `${s.launcherMode}:${s.launcherCli}`);
   const addSession = useAppStore((s) => s.addSession);
   const appendBuffer = useAppStore((s) => s.appendBuffer);
   const updateStatus = useAppStore((s) => s.updateStatus);
@@ -382,7 +383,7 @@ export function App() {
         </div>
       </div>
       {sendDialogSourceId && <SendDialog />}
-      {launcherOpen && <ProjectLauncher />}
+      {launcherOpen && <ProjectLauncher key={launcherIdentity} />}
     </div>
   );
 }

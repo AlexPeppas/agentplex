@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { homedir } from 'os';
 import type { DiscoveredProject, DiscoveredSession, PinnedProject } from '../shared/ipc-channels';
+import { readHistoryLines } from './history-reader';
 
 const CONFIG_PATH = path.join(homedir(), '.agentplex', 'config.json');
 const CLAUDE_PROJECTS_DIR = path.join(homedir(), '.claude', 'projects');
@@ -17,7 +18,7 @@ const MSG_PREVIEW_LEN = 120;
  * Extract the real cwd from any JSONL file in a project directory.
  * Called lazily — only when the user actually clicks a project.
  */
-export async function resolveProjectPath(encodedPath: string): Promise<string | null> {
+export async function resolveProjectPath(encodedPath: string, signal?: AbortSignal): Promise<string | null> {
   const projectDir = path.join(CLAUDE_PROJECTS_DIR, encodedPath);
   try {
     const files = (await fs.promises.readdir(projectDir)).filter((f) => f.endsWith('.jsonl'));
@@ -25,24 +26,25 @@ export async function resolveProjectPath(encodedPath: string): Promise<string | 
 
     // Try files until we find one with a cwd field (some sessions are tiny stubs)
     for (const file of files.slice(0, 10)) {
+      signal?.throwIfAborted();
       try {
         const filePath = path.join(projectDir, file);
-        const handle = await fs.promises.open(filePath, 'r');
-        const buf = Buffer.alloc(HEAD_BYTES);
-        const { bytesRead } = await handle.read(buf, 0, HEAD_BYTES, 0);
-        await handle.close();
-
-        const text = buf.slice(0, bytesRead).toString('utf-8');
-        for (const line of text.split('\n')) {
+        for await (const line of readHistoryLines(filePath, HEAD_BYTES, false, signal)) {
           if (!line.trim()) continue;
           try {
             const obj = JSON.parse(line);
             if (obj.cwd && typeof obj.cwd === 'string') return obj.cwd;
           } catch { /* skip */ }
         }
-      } catch { /* skip file */ }
+      } catch (error) {
+        signal?.throwIfAborted();
+        console.warn('[launcher] Cannot read project metadata:', path.join(projectDir, file), error);
+      }
     }
-  } catch { /* skip */ }
+  } catch (error) {
+    signal?.throwIfAborted();
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
   return null;
 }
 
@@ -75,7 +77,8 @@ export function updatePinnedProjects(pins: PinnedProject[]): void {
 /**
  * Scan ~/.claude/projects/ and return discovered projects.
  */
-export async function scanProjects(): Promise<DiscoveredProject[]> {
+export async function scanProjects(signal?: AbortSignal): Promise<DiscoveredProject[]> {
+  signal?.throwIfAborted();
   const pins = getPinnedProjects();
   const pinnedPaths = new Set(pins.map((p) => p.path));
   const results: DiscoveredProject[] = [];
@@ -83,16 +86,18 @@ export async function scanProjects(): Promise<DiscoveredProject[]> {
   let entries: string[] = [];
   try {
     entries = await fs.promises.readdir(CLAUDE_PROJECTS_DIR);
-  } catch {
-    // Directory doesn't exist
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
 
   for (const entry of entries) {
+    signal?.throwIfAborted();
     const fullDir = path.join(CLAUDE_PROJECTS_DIR, entry);
     try {
       const stat = await fs.promises.stat(fullDir);
       if (!stat.isDirectory()) continue;
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       continue;
     }
 
@@ -102,14 +107,21 @@ export async function scanProjects(): Promise<DiscoveredProject[]> {
     try {
       const files = await fs.promises.readdir(fullDir);
       for (const f of files) {
+        signal?.throwIfAborted();
         if (!f.endsWith('.jsonl')) continue;
         sessionCount++;
         try {
           const s = await fs.promises.stat(path.join(fullDir, f));
           if (s.mtimeMs > latestMtime) latestMtime = s.mtimeMs;
-        } catch { /* skip */ }
+        } catch (error) {
+          signal?.throwIfAborted();
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
       }
-    } catch { /* skip */ }
+    } catch (error) {
+      signal?.throwIfAborted();
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
 
     if (sessionCount === 0) continue;
 
@@ -153,54 +165,41 @@ export async function scanProjects(): Promise<DiscoveredProject[]> {
 /**
  * Extract metadata from the first bytes of a JSONL file.
  */
-function parseJsonlHead(filePath: string): {
+async function parseJsonlHead(filePath: string, signal?: AbortSignal): Promise<{
   customTitle: string | null;
   firstUserMessage: string | null;
   gitBranch: string | null;
   firstTimestamp: string | null;
   cwd: string | null;
-} {
+}> {
   let customTitle: string | null = null;
   let firstUserMessage: string | null = null;
   let gitBranch: string | null = null;
   let firstTimestamp: string | null = null;
   let cwd: string | null = null;
 
-  try {
-    const fd = fs.openSync(filePath, 'r');
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const bytesRead = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
-    fs.closeSync(fd);
-
-    const text = buf.slice(0, bytesRead).toString('utf-8');
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const obj = JSON.parse(line);
-
-        if (obj.type === 'custom-title' && obj.customTitle && !customTitle) {
-          customTitle = obj.customTitle;
-        }
-
-        if (obj.cwd && !cwd) cwd = obj.cwd;
-
-        if (obj.type === 'user' && obj.message?.content && !firstUserMessage) {
-          const content = typeof obj.message.content === 'string'
-            ? obj.message.content
-            : JSON.stringify(obj.message.content);
-          firstUserMessage = content.length > MSG_PREVIEW_LEN
-            ? content.slice(0, MSG_PREVIEW_LEN) + '...'
-            : content;
-          if (obj.gitBranch && !gitBranch) gitBranch = obj.gitBranch;
-          if (obj.timestamp && !firstTimestamp) firstTimestamp = obj.timestamp;
-        }
-
+  for await (const line of readHistoryLines(filePath, HEAD_BYTES, false, signal)) {
+    if (!line.trim()) continue;
+    try {
+      const obj = JSON.parse(line);
+      if (obj.type === 'custom-title' && obj.customTitle && !customTitle) {
+        customTitle = obj.customTitle;
+      }
+      if (obj.cwd && !cwd) cwd = obj.cwd;
+      if (obj.type === 'user' && obj.message?.content && !firstUserMessage) {
+        const content = typeof obj.message.content === 'string'
+          ? obj.message.content
+          : JSON.stringify(obj.message.content);
+        firstUserMessage = content.length > MSG_PREVIEW_LEN
+          ? content.slice(0, MSG_PREVIEW_LEN) + '...'
+          : content;
         if (obj.gitBranch && !gitBranch) gitBranch = obj.gitBranch;
-
-        if (customTitle && firstUserMessage && gitBranch && cwd) break;
-      } catch { /* skip */ }
-    }
-  } catch { /* skip */ }
+        if (obj.timestamp && !firstTimestamp) firstTimestamp = obj.timestamp;
+      }
+      if (obj.gitBranch && !gitBranch) gitBranch = obj.gitBranch;
+      if (customTitle && firstUserMessage && gitBranch && cwd) break;
+    } catch { /* skip malformed records */ }
+  }
 
   return { customTitle, firstUserMessage, gitBranch, firstTimestamp, cwd };
 }
@@ -208,46 +207,39 @@ function parseJsonlHead(filePath: string): {
 /**
  * Get the last timestamp from a JSONL file by reading the tail.
  */
-function getLastTimestamp(filePath: string): string | null {
-  try {
-    const stat = fs.statSync(filePath);
-    const tailSize = Math.min(4096, stat.size);
-    const fd = fs.openSync(filePath, 'r');
-    const buf = Buffer.alloc(tailSize);
-    fs.readSync(fd, buf, 0, tailSize, Math.max(0, stat.size - tailSize));
-    fs.closeSync(fd);
-
-    const text = buf.toString('utf-8');
-    const lines = text.split('\n').filter((l) => l.trim());
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        const obj = JSON.parse(lines[i]);
-        if (obj.timestamp) return obj.timestamp;
-      } catch { /* skip */ }
-    }
-  } catch { /* skip */ }
-  return null;
+async function getLastTimestamp(filePath: string, signal?: AbortSignal): Promise<string | null> {
+  let timestamp: string | null = null;
+  for await (const line of readHistoryLines(filePath, 4096, true, signal)) {
+    try {
+      const obj = JSON.parse(line);
+      if (typeof obj.timestamp === 'string') timestamp = obj.timestamp;
+    } catch { /* skip malformed records */ }
+  }
+  return timestamp;
 }
 
 /**
  * Scan sessions for a specific project.
  */
-export async function scanSessionsForProject(encodedPath: string): Promise<DiscoveredSession[]> {
+export async function scanSessionsForProject(encodedPath: string, signal?: AbortSignal): Promise<DiscoveredSession[]> {
+  signal?.throwIfAborted();
   const projectDir = path.join(CLAUDE_PROJECTS_DIR, encodedPath);
 
   let files: string[];
   try {
     files = (await fs.promises.readdir(projectDir)).filter((f) => f.endsWith('.jsonl'));
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return [];
   }
 
   // Resolve the real project path once — used as fallback when a session has no cwd
-  const resolvedPath = await resolveProjectPath(encodedPath);
+  const resolvedPath = await resolveProjectPath(encodedPath, signal);
 
   // Sort by mtime descending, cap at MAX_SESSIONS
   const withMtime: { file: string; mtime: number }[] = [];
   for (const f of files) {
+    signal?.throwIfAborted();
     try {
       const s = await fs.promises.stat(path.join(projectDir, f));
       withMtime.push({ file: f, mtime: s.mtimeMs });
@@ -263,8 +255,8 @@ export async function scanSessionsForProject(encodedPath: string): Promise<Disco
   for (const { file } of topFiles) {
     const sessionId = file.replace('.jsonl', '');
     const filePath = path.join(projectDir, file);
-    const head = parseJsonlHead(filePath);
-    const lastTimestamp = getLastTimestamp(filePath) || head.firstTimestamp;
+    const head = await parseJsonlHead(filePath, signal);
+    const lastTimestamp = await getLastTimestamp(filePath, signal) || head.firstTimestamp;
 
     sessions.push({
       sessionId,

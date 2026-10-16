@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
 import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
+import type { HistoryRequestKind } from '../shared/ipc-channels';
 
 const api = {
   platform: process.platform,
@@ -163,6 +164,10 @@ const api = {
 
   searchSessions: (query: string): Promise<SessionSearchResult[]> => {
     return ipcRenderer.invoke(IPC.SESSION_SEARCH, { query });
+  },
+
+  cancelHistoryRequests: (kind: HistoryRequestKind): void => {
+    ipcRenderer.send(IPC.HISTORY_CANCEL, { kind });
   },
 
   getPinnedProjects: (): Promise<PinnedProject[]> => {

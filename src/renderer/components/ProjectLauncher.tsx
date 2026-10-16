@@ -28,21 +28,34 @@ export function ProjectLauncher() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const sessionsForProject = useRef<DiscoveredProject | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Load projects on mount
   useEffect(() => {
+    let active = true;
+    setProjects([]);
+    setSelectedProject(null);
+    setLoadError(null);
     setLoading(true);
     const scanCli = launcherCli === 'copilot' ? 'copilot' : 'claude';
     window.agentPlex.scanProjects(scanCli).then((p) => {
+      if (!active) return;
       console.log('[launcher] got projects:', JSON.stringify(p?.length));
       setProjects(Array.isArray(p) ? p : []);
       setLoading(false);
     }).catch((err) => {
+      if (!active) return;
       console.error('[launcher] scanProjects failed:', err);
+      setLoadError('Could not load projects. Please reopen the launcher to retry.');
       setLoading(false);
     });
+    return () => {
+      active = false;
+      window.agentPlex.cancelHistoryRequests('projects');
+    };
   }, [launcherCli]);
 
   // Focus search input
@@ -52,16 +65,32 @@ export function ProjectLauncher() {
 
   // Load sessions when project selected in resume mode
   useEffect(() => {
+    let active = true;
+    sessionsForProject.current = null;
+    setSessions([]);
+    setLoadError(null);
     if (launcherMode !== 'resume' || !selectedProject?.encodedPath) {
-      setSessions([]);
+      setSessionsLoading(false);
       return;
     }
     setSessionsLoading(true);
     const scanCli = launcherCli === 'copilot' ? 'copilot' : 'claude';
     window.agentPlex.scanSessions(selectedProject.encodedPath, scanCli).then((s) => {
+      if (!active) return;
+      sessionsForProject.current = selectedProject;
       setSessions(s);
       setSessionsLoading(false);
-    }).catch(() => setSessionsLoading(false));
+    }).catch((err) => {
+      if (!active) return;
+      console.error('[launcher] scanSessions failed:', err);
+      setLoadError('Could not load sessions. Please select the project again to retry.');
+      setSessionsLoading(false);
+    });
+    return () => {
+      active = false;
+      sessionsForProject.current = null;
+      window.agentPlex.cancelHistoryRequests('sessions');
+    };
   }, [selectedProject, launcherMode, launcherCli]);
 
   // Escape to close
@@ -94,11 +123,15 @@ export function ProjectLauncher() {
         console.error('Failed to create session:', err);
       }
     } else {
+      sessionsForProject.current = null;
+      setSessions([]);
+      setSessionsLoading(true);
       setSelectedProject(project);
     }
   }, [launcherMode, launcherCli, closeLauncher, addSession]);
 
   const handleSessionClick = useCallback(async (session: DiscoveredSession) => {
+    if (sessionsForProject.current !== selectedProject) return;
     closeLauncher();
     try {
       const resumeCli = launcherCli === 'copilot' ? 'copilot' : 'claude';
@@ -107,7 +140,7 @@ export function ProjectLauncher() {
     } catch (err) {
       console.error('Failed to resume session:', err);
     }
-  }, [closeLauncher, addSession, launcherCli]);
+  }, [closeLauncher, addSession, launcherCli, selectedProject]);
 
   const handleBrowse = useCallback(async () => {
     const cwd = await window.agentPlex.pickDirectory();
@@ -211,6 +244,7 @@ export function ProjectLauncher() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 pb-2">
+          {loadError && <div role="alert" className="py-3 px-2 text-[13px] text-error">{loadError}</div>}
           {!showSessions ? (
             <div>
               {loading && <div className="py-5 px-2 text-[13px] text-fg-muted text-center">Scanning projects...</div>}
@@ -243,7 +277,7 @@ export function ProjectLauncher() {
                 </>
               )}
 
-              {!loading && filteredProjects.length === 0 && (
+              {!loading && !loadError && filteredProjects.length === 0 && (
                 <div className="py-5 px-2 text-[13px] text-fg-muted text-center">
                   No projects found. Paste a path above or click the folder icon to browse.
                 </div>
@@ -257,7 +291,7 @@ export function ProjectLauncher() {
 
               {sessionsLoading && <div className="py-5 px-2 text-[13px] text-fg-muted text-center">Loading sessions...</div>}
 
-              {!sessionsLoading && filteredSessions.length === 0 && (
+              {!sessionsLoading && !loadError && filteredSessions.length === 0 && (
                 <div className="py-5 px-2 text-[13px] text-fg-muted text-center">No sessions found</div>
               )}
 

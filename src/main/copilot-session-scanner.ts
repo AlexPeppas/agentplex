@@ -3,6 +3,7 @@ import * as path from 'path';
 import { homedir } from 'os';
 import type { DiscoveredProject, DiscoveredSession } from '../shared/ipc-channels';
 import { getPinnedProjects } from './claude-session-scanner';
+import { readHistoryLines } from './history-reader';
 
 const COPILOT_STATE_DIR = path.join(homedir(), '.copilot', 'session-state');
 const MAX_SESSIONS = 50;
@@ -119,29 +120,27 @@ export function renderCopilotTranscript(eventsPath: string): string {
   return [separator, header, separator, '', ...lines, separator, footer, separator, ''].join('\r\n');
 }
 
-export function readWorkspaceCwd(workspaceYamlPath: string): string | null {
-  try {
-    const content = fs.readFileSync(workspaceYamlPath, 'utf-8');
-    const match = content.match(/^cwd:\s*(.+)$/m);
-    if (!match) return null;
+export async function readWorkspaceCwd(workspaceYamlPath: string, signal?: AbortSignal): Promise<string | null> {
+  for await (const line of readHistoryLines(workspaceYamlPath, 8192, false, signal)) {
+    const match = line.match(/^cwd:\s*(.+)$/);
+    if (!match) continue;
     let cwd = match[1].trim();
     if ((cwd.startsWith('"') && cwd.endsWith('"')) || (cwd.startsWith("'") && cwd.endsWith("'"))) {
       cwd = cwd.slice(1, -1);
     }
     return cwd || null;
-  } catch {
-    return null;
   }
+  return null;
 }
 
-function parseEventsMetadata(eventsPath: string): {
+async function parseEventsMetadata(eventsPath: string, signal?: AbortSignal): Promise<{
   customTitle: string | null;
   firstUserMessage: string | null;
   gitBranch: string | null;
   firstTimestamp: string | null;
   lastTimestamp: string | null;
   cwd: string | null;
-} {
+}> {
   let customTitle: string | null = null;
   let firstUserMessage: string | null = null;
   let gitBranch: string | null = null;
@@ -149,9 +148,9 @@ function parseEventsMetadata(eventsPath: string): {
   let lastTimestamp: string | null = null;
   let cwd: string | null = null;
 
-  try {
-    const raw = fs.readFileSync(eventsPath, 'utf-8');
-    for (const line of raw.split('\n')) {
+  // Metadata lives near session start; activity timestamps also need the tail.
+  for (const tail of [false, true]) {
+    for await (const line of readHistoryLines(eventsPath, 64 * 1024, tail, signal)) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
@@ -179,13 +178,14 @@ function parseEventsMetadata(eventsPath: string): {
         }
       } catch { /* skip malformed lines */ }
     }
-  } catch { /* ignore */ }
+  }
 
   return { customTitle, firstUserMessage, gitBranch, firstTimestamp, lastTimestamp, cwd };
 }
 
 /** Scan ~/.copilot/session-state and group sessions by workspace cwd. */
-export async function scanProjects(): Promise<DiscoveredProject[]> {
+export async function scanProjects(signal?: AbortSignal): Promise<DiscoveredProject[]> {
+  signal?.throwIfAborted();
   const pins = getPinnedProjects();
   const pinnedPaths = new Set(pins.map((p) => p.path));
   const byProject = new Map<string, { sessionCount: number; latestMtimeMs: number }>();
@@ -193,28 +193,33 @@ export async function scanProjects(): Promise<DiscoveredProject[]> {
   let entries: string[];
   try {
     entries = await fs.promises.readdir(COPILOT_STATE_DIR);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     entries = [];
   }
 
   for (const entry of entries) {
+    signal?.throwIfAborted();
     const dir = path.join(COPILOT_STATE_DIR, entry);
     try {
       const stat = await fs.promises.stat(dir);
       if (!stat.isDirectory()) continue;
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       continue;
     }
 
     const workspaceYaml = path.join(dir, 'workspace.yaml');
-    const cwd = readWorkspaceCwd(workspaceYaml);
+    const cwd = await readWorkspaceCwd(workspaceYaml, signal);
     if (!cwd) continue;
 
     const eventsPath = path.join(dir, 'events.jsonl');
     let mtimeMs = 0;
     try {
       mtimeMs = (await fs.promises.stat(eventsPath)).mtimeMs;
-    } catch { /* keep zero */ }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
 
     const prev = byProject.get(cwd);
     if (prev) {
@@ -257,32 +262,46 @@ export async function scanProjects(): Promise<DiscoveredProject[]> {
 }
 
 /** Scan Copilot sessions for a specific workspace path (projectPath from scanProjects). */
-export async function scanSessionsForProject(projectPath: string): Promise<DiscoveredSession[]> {
+export async function scanSessionsForProject(projectPath: string, signal?: AbortSignal): Promise<DiscoveredSession[]> {
+  signal?.throwIfAborted();
   let entries: string[];
   try {
     entries = await fs.promises.readdir(COPILOT_STATE_DIR);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return [];
   }
 
-  const sessions: DiscoveredSession[] = [];
+  const candidates: { entry: string; cwd: string; eventsPath: string; mtimeMs: number }[] = [];
 
   for (const entry of entries) {
+    signal?.throwIfAborted();
     const dir = path.join(COPILOT_STATE_DIR, entry);
     try {
       const stat = await fs.promises.stat(dir);
       if (!stat.isDirectory()) continue;
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       continue;
     }
 
     const workspaceYaml = path.join(dir, 'workspace.yaml');
-    const cwd = readWorkspaceCwd(workspaceYaml);
+    const cwd = await readWorkspaceCwd(workspaceYaml, signal);
     if (!cwd || path.resolve(cwd) !== path.resolve(projectPath)) continue;
 
     const eventsPath = path.join(dir, 'events.jsonl');
-    const meta = parseEventsMetadata(eventsPath);
+    try {
+      const stat = await fs.promises.stat(eventsPath);
+      candidates.push({ entry, cwd, eventsPath, mtimeMs: stat.mtimeMs });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
 
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const sessions: DiscoveredSession[] = [];
+  for (const { entry, cwd, eventsPath } of candidates.slice(0, MAX_SESSIONS)) {
+    const meta = await parseEventsMetadata(eventsPath, signal);
     sessions.push({
       sessionId: entry,
       projectPath: cwd,

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { homedir } from 'os';
 import type { SessionSearchResult } from '../shared/ipc-channels';
 import { readWorkspaceCwd } from './copilot-session-scanner';
+import { readHistoryLines } from './history-reader';
 
 const COPILOT_STATE_DIR = path.join(homedir(), '.copilot', 'session-state');
 const CLAUDE_PROJECTS_DIR = path.join(homedir(), '.claude', 'projects');
@@ -40,51 +41,57 @@ interface ExtractedMessage {
 async function statMtime(p: string): Promise<number> {
   try {
     return (await fs.promises.stat(p)).mtimeMs;
-  } catch {
+  } catch (error) {
+    if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
     return 0;
   }
 }
 
 /** Gather candidate Copilot session files (one events.jsonl per session dir). */
-async function gatherCopilotCandidates(): Promise<Candidate[]> {
+async function gatherCopilotCandidates(signal?: AbortSignal): Promise<Candidate[]> {
   let entries: string[];
   try {
     entries = await fs.promises.readdir(COPILOT_STATE_DIR);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return [];
   }
   const candidates: Candidate[] = [];
   for (const entry of entries) {
+    signal?.throwIfAborted();
     const dir = path.join(COPILOT_STATE_DIR, entry);
     const eventsPath = path.join(dir, 'events.jsonl');
     const mtimeMs = await statMtime(eventsPath);
     if (mtimeMs === 0) continue;
-    const projectPath = readWorkspaceCwd(path.join(dir, 'workspace.yaml'));
-    candidates.push({ cli: 'copilot', filePath: eventsPath, sessionId: entry, projectPath, mtimeMs });
+    candidates.push({ cli: 'copilot', filePath: eventsPath, sessionId: entry, projectPath: null, mtimeMs });
   }
   return candidates;
 }
 
 /** Gather candidate Claude session files (one jsonl per session, grouped by project dir). */
-async function gatherClaudeCandidates(): Promise<Candidate[]> {
+async function gatherClaudeCandidates(signal?: AbortSignal): Promise<Candidate[]> {
   let projectDirs: string[];
   try {
     projectDirs = await fs.promises.readdir(CLAUDE_PROJECTS_DIR);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return [];
   }
   const candidates: Candidate[] = [];
   for (const projectDir of projectDirs) {
+    signal?.throwIfAborted();
     const dir = path.join(CLAUDE_PROJECTS_DIR, projectDir);
     let files: string[];
     try {
       const stat = await fs.promises.stat(dir);
       if (!stat.isDirectory()) continue;
       files = (await fs.promises.readdir(dir)).filter((f) => f.endsWith('.jsonl'));
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       continue;
     }
     for (const file of files) {
+      signal?.throwIfAborted();
       const filePath = path.join(dir, file);
       const mtimeMs = await statMtime(filePath);
       if (mtimeMs === 0) continue;
@@ -98,28 +105,6 @@ async function gatherClaudeCandidates(): Promise<Candidate[]> {
     }
   }
   return candidates;
-}
-
-/** Read a JSONL file as text, capping at the trailing MAX_FILE_BYTES for huge files. */
-function readCappedText(filePath: string): string | null {
-  try {
-    const stat = fs.statSync(filePath);
-    if (stat.size <= MAX_FILE_BYTES) {
-      return fs.readFileSync(filePath, 'utf-8');
-    }
-    const offset = stat.size - MAX_FILE_BYTES;
-    const fd = fs.openSync(filePath, 'r');
-    const buf = Buffer.alloc(MAX_FILE_BYTES);
-    fs.readSync(fd, buf, 0, MAX_FILE_BYTES, offset);
-    fs.closeSync(fd);
-    let text = buf.toString('utf-8');
-    // Drop the first (likely partial) line.
-    const nl = text.indexOf('\n');
-    if (nl !== -1) text = text.slice(nl + 1);
-    return text;
-  } catch {
-    return null;
-  }
 }
 
 /** Parse one JSONL line into a searchable message, per-CLI. Returns null to skip. */
@@ -189,14 +174,15 @@ function projectNameOf(projectPath: string): string {
  * the newest sessions first and stops once result caps are hit. On-demand
  * (callers should debounce); no persistent index in Phase 1.
  */
-export async function searchSessions(query: string): Promise<SessionSearchResult[]> {
+export async function searchSessions(query: string, signal?: AbortSignal): Promise<SessionSearchResult[]> {
+  signal?.throwIfAborted();
   const trimmed = query.trim();
   if (trimmed.length < MIN_QUERY_LEN) return [];
   const lowerQuery = trimmed.toLowerCase();
 
   const [copilot, claude] = await Promise.all([
-    gatherCopilotCandidates(),
-    gatherClaudeCandidates(),
+    gatherCopilotCandidates(signal),
+    gatherClaudeCandidates(signal),
   ]);
 
   const candidates = [...copilot, ...claude]
@@ -206,14 +192,15 @@ export async function searchSessions(query: string): Promise<SessionSearchResult
   const results: SessionSearchResult[] = [];
 
   for (const cand of candidates) {
+    signal?.throwIfAborted();
     if (results.length >= MAX_RESULTS) break;
-    const text = readCappedText(cand.filePath);
-    if (!text) continue;
 
-    let projectPath = cand.projectPath;
+    let projectPath = cand.cli === 'copilot'
+      ? await readWorkspaceCwd(path.join(path.dirname(cand.filePath), 'workspace.yaml'), signal)
+      : cand.projectPath;
     let perSession = 0;
 
-    for (const rawLine of text.split('\n')) {
+    for await (const rawLine of readHistoryLines(cand.filePath, MAX_FILE_BYTES, true, signal)) {
       const line = rawLine.trim();
       if (!line) continue;
       const msg = extractMessage(cand.cli, line);

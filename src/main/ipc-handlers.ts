@@ -20,6 +20,7 @@ import {
   scanSessionsForProject as scanCopilotSessionsForProject,
 } from './copilot-session-scanner';
 import { searchSessions } from './session-search';
+import type { HistoryRequestKind } from '../shared/ipc-channels';
 import { summarizeWithCopilot } from './copilot-summary-proxy';
 import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, stageAll, unstageAll, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
 
@@ -36,6 +37,34 @@ function isValidCli(id: string): boolean {
 const MAX_CONTEXT_LENGTH = 100_000;
 
 export function registerIpcHandlers() {
+  const pendingHistory = new Map<string, AbortController>();
+  async function runHistory<T>(
+    event: Electron.IpcMainInvokeEvent,
+    kind: HistoryRequestKind,
+    operation: (signal: AbortSignal) => Promise<T[]>,
+  ): Promise<T[]> {
+    const key = `${event.sender.id}:${kind}`;
+    pendingHistory.get(key)?.abort();
+    const controller = new AbortController();
+    pendingHistory.set(key, controller);
+    const cancel = () => controller.abort();
+    event.sender.once('destroyed', cancel);
+    try {
+      return await operation(AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]));
+    } catch (error) {
+      if (controller.signal.aborted) return [];
+      console.error(`[history] ${kind} failed:`, error);
+      throw error;
+    } finally {
+      controller.abort();
+      event.sender.removeListener('destroyed', cancel);
+      if (pendingHistory.get(key) === controller) pendingHistory.delete(key);
+    }
+  }
+  ipcMain.on(IPC.HISTORY_CANCEL, (event, { kind }: { kind: HistoryRequestKind }) => {
+    pendingHistory.get(`${event.sender.id}:${kind}`)?.abort();
+  });
+
   ipcMain.handle(IPC.SESSION_CREATE, (_event, { cwd, cli, resumeSessionId }: { cwd?: string; cli?: string; resumeSessionId?: string } = {}) => {
     const safeCli: CliTool = (cli && isValidCli(cli) ? cli : 'claude') as CliTool;
     return sessionManager.create(cwd, safeCli, resumeSessionId);
@@ -234,8 +263,8 @@ ${safeContext}
     return sessionManager.restoreAll();
   });
 
-  ipcMain.handle(IPC.DISCOVER_EXTERNAL, () => {
-    return sessionManager.discoverExternal();
+  ipcMain.handle(IPC.DISCOVER_EXTERNAL, (event) => {
+    return runHistory(event, 'external', signal => sessionManager.discoverExternal(signal));
   });
 
   ipcMain.handle(IPC.ADOPT_EXTERNAL, (_event, { sessionUuid, cwd, cli }: { sessionUuid: string; cwd: string; cli?: 'claude' | 'copilot' }) => {
@@ -255,26 +284,23 @@ ${safeContext}
     light: { titleBar: '#ebe5da', symbol: '#3a3428', bg: '#f5f0e8' },
   };
 
-  ipcMain.handle(IPC.LAUNCHER_SCAN_PROJECTS, async (_event, { cli }: { cli?: 'claude' | 'copilot' } = {}) => {
+  ipcMain.handle(IPC.LAUNCHER_SCAN_PROJECTS, async (event, { cli }: { cli?: 'claude' | 'copilot' } = {}) => {
     const safeCli = cli === 'copilot' ? 'copilot' : 'claude';
     console.log('[launcher] scanProjects called for', safeCli);
-    try {
+    return runHistory(event, 'projects', async signal => {
       const result = safeCli === 'copilot'
-        ? await scanCopilotProjects()
-        : await scanClaudeProjects();
+        ? await scanCopilotProjects(signal)
+        : await scanClaudeProjects(signal);
       console.log('[launcher] scanProjects done:', result.length, 'projects');
       return result;
-    } catch (err) {
-      console.error('[launcher] scanProjects error:', err);
-      return [];
-    }
+    });
   });
 
-  ipcMain.handle(IPC.LAUNCHER_SCAN_SESSIONS, async (_event, { encodedPath, cli }: { encodedPath: string; cli?: 'claude' | 'copilot' }) => {
+  ipcMain.handle(IPC.LAUNCHER_SCAN_SESSIONS, async (event, { encodedPath, cli }: { encodedPath: string; cli?: 'claude' | 'copilot' }) => {
     if (typeof encodedPath !== 'string') return [];
-    return cli === 'copilot'
-      ? scanCopilotSessionsForProject(encodedPath)
-      : scanClaudeSessionsForProject(encodedPath);
+    return runHistory(event, 'sessions', signal => cli === 'copilot'
+      ? scanCopilotSessionsForProject(encodedPath, signal)
+      : scanClaudeSessionsForProject(encodedPath, signal));
   });
 
   ipcMain.handle(IPC.LAUNCHER_GET_PINS, () => {
@@ -291,14 +317,9 @@ ${safeContext}
     return resolveProjectPath(encodedPath);
   });
 
-  ipcMain.handle(IPC.SESSION_SEARCH, async (_event, { query }: { query: string }) => {
+  ipcMain.handle(IPC.SESSION_SEARCH, async (event, { query }: { query: string }) => {
     if (typeof query !== 'string') return [];
-    try {
-      return await searchSessions(query);
-    } catch (err) {
-      console.error('[search] searchSessions error:', err);
-      return [];
-    }
+    return runHistory(event, 'search', signal => searchSessions(query, signal));
   });
 
   ipcMain.on(IPC.THEME_CHANGE, (_event, { theme }: { theme: string }) => {

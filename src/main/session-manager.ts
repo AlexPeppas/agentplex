@@ -15,6 +15,7 @@ import { renderJsonlTranscript } from './claude-session-scanner';
 import { renderCopilotTranscript } from './copilot-session-scanner';
 import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
+import { readHistoryLines } from './history-reader';
 
 const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
 
@@ -1074,7 +1075,8 @@ export class SessionManager {
   /**
    * Scan for external sessions (Claude + Copilot) that are not already managed.
    */
-  discoverExternal(): ExternalSession[] {
+  async discoverExternal(signal?: AbortSignal): Promise<ExternalSession[]> {
+    signal?.throwIfAborted();
     const home = process.env.HOME || process.env.USERPROFILE || '';
     const persisted = this.loadState();
 
@@ -1101,6 +1103,7 @@ export class SessionManager {
     } catch { /* ignore */ }
 
     for (const file of claudeFiles) {
+      signal?.throwIfAborted();
       try {
         const filePath = path.join(claudeSessionsDir, file);
         const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
@@ -1144,31 +1147,24 @@ export class SessionManager {
     const copilotStateDir = path.join(home, '.copilot', 'session-state');
     let copilotDirs: string[] = [];
     try {
-      copilotDirs = fs.readdirSync(copilotStateDir).filter((d) => UUID_RE.test(d));
+      copilotDirs = (await fs.promises.readdir(copilotStateDir)).filter((d) => UUID_RE.test(d));
     } catch { /* ignore */ }
 
     for (const dir of copilotDirs) {
+      signal?.throwIfAborted();
       if (managedCopilotUuids.has(dir)) continue;
       const eventsPath = path.join(copilotStateDir, dir, 'events.jsonl');
       if (!fs.existsSync(eventsPath)) continue;
 
       try {
-        const stat = fs.statSync(eventsPath);
-        const tailSize = Math.min(64 * 1024, stat.size);
-        const fd = fs.openSync(eventsPath, 'r');
-        const buf = Buffer.alloc(tailSize);
-        fs.readSync(fd, buf, 0, tailSize, Math.max(0, stat.size - tailSize));
-        fs.closeSync(fd);
-
-        const tail = buf.toString('utf-8');
+        const stat = await fs.promises.stat(eventsPath);
         let lastEventType = '';
-        for (const line of tail.split('\n').reverse()) {
+        for await (const line of readHistoryLines(eventsPath, 64 * 1024, true, signal)) {
           if (!line.trim()) continue;
           try {
             const obj = JSON.parse(line);
             if (obj.type) {
               lastEventType = String(obj.type);
-              break;
             }
           } catch { /* skip */ }
         }
@@ -1176,11 +1172,10 @@ export class SessionManager {
         // If session already shut down, skip from "external running" list.
         if (lastEventType === 'session.shutdown') continue;
 
-        const all = fs.readFileSync(eventsPath, 'utf-8');
         let cwd = '';
         let startedAt = stat.mtimeMs;
         let name: string | undefined;
-        for (const line of all.split('\n')) {
+        for await (const line of readHistoryLines(eventsPath, 64 * 1024, false, signal)) {
           if (!line.trim()) continue;
           try {
             const obj = JSON.parse(line);
@@ -1202,7 +1197,11 @@ export class SessionManager {
 
         if (!cwd || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) continue;
         results.push({ cli: 'copilot', sessionId: dir, cwd, startedAt, name });
-      } catch {
+      } catch (error) {
+        signal?.throwIfAborted();
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          console.warn('[discover] Cannot read Copilot session metadata:', eventsPath, error);
+        }
         continue;
       }
     }

@@ -125,6 +125,8 @@ export interface PinnedProject {
   label?: string;
 }
 
+export type HistoryRequestKind = 'search' | 'projects' | 'sessions' | 'external';
+
 /** A single match from the on-disk session-history search (Phase 1). */
 export interface SessionSearchResult {
   cli: 'claude' | 'copilot';
@@ -288,6 +290,7 @@ export const IPC = {
   LAUNCHER_SCAN_PROJECTS: 'launcher:scanProjects',
   LAUNCHER_SCAN_SESSIONS: 'launcher:scanSessions',
   SESSION_SEARCH: 'session:search',
+  HISTORY_CANCEL: 'history:cancel',
   LAUNCHER_GET_PINS: 'launcher:getPins',
   LAUNCHER_UPDATE_PINS: 'launcher:updatePins',
   LAUNCHER_RESOLVE_PATH: 'launcher:resolvePath',
