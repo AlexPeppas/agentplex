@@ -4,6 +4,7 @@ import { sessionManager } from './session-manager';
 import { registerIpcHandlers } from './ipc-handlers';
 import { detectShells } from './shell-detector';
 import { stopCopilotSummaries } from './copilot-summary-proxy';
+import { claimApplicationInstance } from './application-instance';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -14,12 +15,25 @@ app.commandLine.appendSwitch('remote-debugging-port', '0');
 app.commandLine.appendSwitch('remote-allow-origins', '');
 
 // Handle Squirrel install/update/uninstall events immediately — skip app startup
+let squirrelStartup = false;
 if (process.platform === 'win32') {
   const cmd = process.argv[1];
   if (cmd === '--squirrel-install' || cmd === '--squirrel-updated' || cmd === '--squirrel-uninstall' || cmd === '--squirrel-obsolete') {
+    squirrelStartup = true;
     app.quit();
   }
 }
+
+const ownsApplication = !squirrelStartup && claimApplicationInstance(app, () => {
+  const win = BrowserWindow.getAllWindows().find(window => !window.isDestroyed());
+  if (!win) {
+    createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
 
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err.stack || err.message);
@@ -218,6 +232,7 @@ function recoverWindows(reason: 'resume' | 'unlock-screen') {
 }
 
 app.whenReady().then(() => {
+  if (!ownsApplication) return;
   // Stable Windows taskbar identity so the shell associates the window with our
   // app (and our icon) rather than the generic Electron host process.
   if (process.platform === 'win32') {
@@ -258,6 +273,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  if (!ownsApplication) return;
   sessionManager.stop();
   if (process.platform !== 'darwin') {
     app.quit();
@@ -266,6 +282,7 @@ app.on('window-all-closed', () => {
 
 let stoppingSummaries = false;
 app.on('before-quit', (event) => {
+  if (!ownsApplication) return;
   if (stoppingSummaries) return;
   event.preventDefault();
   stoppingSummaries = true;
