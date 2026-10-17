@@ -381,6 +381,8 @@ export class JsonlSessionWatcher extends EventEmitter {
       // Preserve an incomplete record across the startup offset, just as poll()
       // preserves partial records across subsequent reads.
       this.partialLine = lines.pop() || '';
+      let workspaceRecord: unknown;
+      let shutdownRecord: unknown;
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -390,12 +392,20 @@ export class JsonlSessionWatcher extends EventEmitter {
           if (this.format === 'claude') this.processClaudeTelemetry(record);
           else {
             this.processCopilotTelemetry(record);
-            if (this.hydrateLifecycle) this.copilotLifecycle.accept(record);
+            if (this.hydrateLifecycle) {
+              this.copilotLifecycle.accept(record);
+              if (!record.agentId && (record.type === 'session.start' || record.type === 'session.resume')) {
+                workspaceRecord = record;
+                shutdownRecord = undefined;
+              } else if (!record.agentId && record.type === 'session.shutdown') shutdownRecord = record;
+            }
           }
         } catch {
           // Ignore malformed or partially-written tail records.
         }
       }
+      if (workspaceRecord) this.emit('record', workspaceRecord);
+      if (shutdownRecord) this.emit('record', shutdownRecord);
     } catch {
       // The provider log may not exist yet for a new session.
     } finally {

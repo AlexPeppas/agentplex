@@ -12,6 +12,13 @@ export class CopilotSessionDiscovery {
   private startedAt = 0;
   private activity = new Set<string>();
   private watcher: fs.FSWatcher | null = null;
+  private resumeAfter = new Map<string, number>();
+  private failures = new Map<string, string>();
+
+  ignore(uuid: string): void {
+    this.seen.add(uuid);
+    this.resumeAfter.set(uuid, Date.now());
+  }
 
   constructor(
     private root: string,
@@ -64,42 +71,52 @@ export class CopilotSessionDiscovery {
         entries = [];
       }
       for (const entry of entries) {
-        signal.throwIfAborted();
-        if (!entry.isDirectory() || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(entry.name)
-          || (this.seen.has(entry.name) && !this.activity.has(entry.name))) continue;
-        const dir = path.join(this.root, entry.name);
-        if (this.isManaged(entry.name)) {
-          this.seen.add(entry.name);
-          this.activity.delete(entry.name);
-          continue;
-        }
-        if (this.baseline && (await fs.promises.stat(dir)).birthtimeMs < this.startedAt) {
-          this.seen.add(entry.name);
-          continue;
-        }
-        const resuming = this.seen.has(entry.name);
-        this.activity.delete(entry.name);
-        let cwd = await readWorkspaceCwd(path.join(dir, 'workspace.yaml'), signal);
-        let started = false;
-        for await (const line of readHistoryLines(path.join(dir, 'events.jsonl'), 64 * 1024, resuming, signal)) {
-          let record;
-          try { record = JSON.parse(line); } catch { continue; }
-          if (resuming ? record?.type !== 'session.resume' || Date.parse(record.timestamp) < this.startedAt
-            || !Number.isFinite(Date.parse(record.timestamp)) : record?.type !== 'session.start') continue;
-          started = true;
-          if (typeof record.data?.context?.cwd === 'string') cwd = record.data.context.cwd;
-          break;
-        }
-        if (!cwd || !started) continue;
         try {
-          if (!(await fs.promises.stat(cwd)).isDirectory()) continue;
+          signal.throwIfAborted();
+          if (!entry.isDirectory() || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(entry.name)
+            || (this.seen.has(entry.name) && !this.activity.has(entry.name))) continue;
+          const dir = path.join(this.root, entry.name);
+          if (this.isManaged(entry.name)) {
+            this.seen.add(entry.name);
+            this.activity.delete(entry.name);
+            continue;
+          }
+          if (this.baseline && (await fs.promises.stat(dir)).birthtimeMs < this.startedAt) {
+            this.seen.add(entry.name);
+            continue;
+          }
+          const resuming = this.seen.has(entry.name);
+          this.activity.delete(entry.name);
+          let cwd = await readWorkspaceCwd(path.join(dir, 'workspace.yaml'), signal);
+          let started = false;
+          for await (const line of readHistoryLines(path.join(dir, 'events.jsonl'), 64 * 1024, resuming, signal)) {
+            let record;
+            try { record = JSON.parse(line); } catch { continue; }
+            if (resuming ? record?.type !== 'session.resume' || Date.parse(record.timestamp) <= (this.resumeAfter.get(entry.name) ?? this.startedAt)
+              || !Number.isFinite(Date.parse(record.timestamp)) : record?.type !== 'session.start') continue;
+            started = true;
+            if (!cwd && typeof record.data?.context?.cwd === 'string') cwd = record.data.context.cwd;
+            break;
+          }
+          if (!cwd || !started) continue;
+          try {
+            if (!(await fs.promises.stat(cwd)).isDirectory()) continue;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+            throw error;
+          }
+          signal.throwIfAborted();
+          if (!this.isManaged(entry.name)) this.discovered(entry.name, cwd);
+          this.seen.add(entry.name);
+          this.resumeAfter.set(entry.name, Date.now());
+          this.failures.delete(entry.name);
         } catch (error) {
+          signal.throwIfAborted();
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
-          throw error;
+          const message = error instanceof Error ? error.message : String(error);
+          if (this.failures.get(entry.name) !== message) console.error('[discovery] Cannot inspect Copilot session:', entry.name, error);
+          this.failures.set(entry.name, message);
         }
-        signal.throwIfAborted();
-        if (!this.isManaged(entry.name)) this.discovered(entry.name, cwd);
-        this.seen.add(entry.name);
       }
       this.baseline = false;
     } catch (error) {

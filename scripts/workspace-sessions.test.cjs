@@ -62,18 +62,24 @@ test('existing directories are discovered only after a fresh provider resume, no
   discovery.controller = new AbortController();
   discovery.startedAt = Date.now() + 50;
   await discovery.poll();
+  discovery.startedAt = Date.now() - 1;
   fs.appendFileSync(old, record('assistant.message', { content: 'edited historical data' }));
   discovery.activity.add(uuid(1));
   await discovery.poll();
   assert.deepEqual(found, []);
-  fs.appendFileSync(old, JSON.stringify({ type: 'session.resume', timestamp: new Date(discovery.startedAt + 100).toISOString(),
+  fs.appendFileSync(old, JSON.stringify({ type: 'session.resume', timestamp: new Date().toISOString(),
     data: { context: { cwd: f.home } } }) + '\n');
   discovery.activity.add(uuid(1));
   await discovery.poll();
   assert.deepEqual(found, [[uuid(1), f.home]]);
+  discovery.ignore(uuid(1));
+  fs.appendFileSync(old, record('assistant.message', { content: 'still active after detaching' }));
+  discovery.activity.add(uuid(1));
+  await discovery.poll();
+  assert.equal(found.length, 1, 'past resumes cannot resurrect a detached monitor');
 });
 
-test('monitored CLIs replay and tail exactly once, preserve UTF-8, follow workspaces and never own processes or restore state', t => {
+test('monitored CLIs replay and tail exactly once, preserve UTF-8, follow workspaces and never own processes or restore state', async t => {
   const f = fixture(t);
   const events = [];
   const file = f.make(1, record('session.start', { context: { cwd: f.home } })
@@ -83,6 +89,7 @@ test('monitored CLIs replay and tail exactly once, preserve UTF-8, follow worksp
   manager.setWindow({ isDestroyed: () => false, webContents: { send: (channel, data) => events.push({ channel, data }) } });
   f.disposers.push(() => manager.stop());
   manager.monitorCopilotSession(uuid(1), f.home);
+  await Promise.resolve();
   const info = manager.list()[0];
   assert.equal(info.readOnly, true);
   assert.equal(info.windowsPty, undefined);
@@ -116,4 +123,43 @@ test('monitored CLIs replay and tail exactly once, preserve UTF-8, follow worksp
   assert.equal(watcher.timer, null);
   manager.kill(info.id);
   assert.deepEqual(manager.list(), []);
+});
+
+test('initial monitor hydration uses the latest workspace and does not revive a CLI that already shut down', async t => {
+  const f = fixture(t);
+  const mounted = path.join(f.home, 'mounted');
+  fs.mkdirSync(mounted);
+  f.make(1, record('session.start', { context: { cwd: f.home } })
+    + record('session.shutdown', {}) + record('session.resume', { context: { cwd: mounted } })
+    + record('assistant.message', { content: 'last result' }) + record('session.shutdown', {}));
+  const { SessionManager } = loadSource('src/main/session-manager.ts', f.overrides);
+  const manager = new SessionManager();
+  f.disposers.push(() => manager.stop());
+  manager.monitorCopilotSession(uuid(1), f.home);
+  await Promise.resolve();
+  const info = manager.list()[0];
+  assert.equal(info.cwd, mounted);
+  assert.equal(info.status, 'killed');
+  assert.match(manager.getBuffer(info.id), /last result/);
+  assert.equal(manager.sessions.get(info.id).jsonlWatcher.timer, null);
+});
+
+test('one inaccessible session cannot block other discoveries or repeatedly flood the log', async t => {
+  const f = fixture(t);
+  f.make(1); f.make(2);
+  const errors = t.mock.method(console, 'error', () => {});
+  const { CopilotSessionDiscovery } = loadSource('src/main/copilot-session-discovery.ts', {
+    ...f.overrides, './copilot-session-scanner': { readWorkspaceCwd: async file => {
+      if (file.includes(uuid(1))) throw Object.assign(new Error('denied metadata'), { code: 'EACCES' });
+      return null;
+    } },
+  });
+  const found = [];
+  const discovery = new CopilotSessionDiscovery(f.root, () => false, id => found.push(id));
+  f.disposers.push(() => discovery.stop());
+  discovery.controller = new AbortController();
+  discovery.baseline = false;
+  await discovery.poll(); await discovery.poll();
+  assert.deepEqual(found, [uuid(2)]);
+  assert.equal(errors.mock.callCount(), 1);
 });

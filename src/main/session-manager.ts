@@ -251,7 +251,7 @@ export class SessionManager {
     this.statusInterval = setInterval(() => this.checkStatuses(), 500);
     this.discovery = new CopilotSessionDiscovery(
       path.join(homedir(), '.copilot', 'session-state'),
-      uuid => [...this.sessions.values()].some(session => session.resumeSessionId === uuid
+      uuid => [...this.sessions.values()].some(session => session.status !== SessionStatus.Killed && session.resumeSessionId === uuid
         && (session.cli === 'copilot' || session.cli === 'copilot-resume')),
       (uuid, cwd) => this.monitorCopilotSession(uuid, cwd),
     );
@@ -822,6 +822,7 @@ export class SessionManager {
   kill(id: string) {
     const session = this.sessions.get(id);
     if (session) {
+      if (session.readOnly && session.resumeSessionId) this.discovery?.ignore(session.resumeSessionId);
       if (session.launchTimer) clearTimeout(session.launchTimer);
       if (session.jsonlWatcher) session.jsonlWatcher.stop();
       try {
@@ -928,6 +929,7 @@ export class SessionManager {
         this.send(IPC.SESSION_DATA, { id: sessionId, data: text, offset: session.outputOffset });
       }
       if (record.type === 'session.shutdown') {
+        if (session.resumeSessionId) this.discovery?.ignore(session.resumeSessionId);
         this.updateStatus(session, SessionStatus.Killed);
         watcher.stop();
       }
