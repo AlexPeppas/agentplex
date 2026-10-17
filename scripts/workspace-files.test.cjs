@@ -7,6 +7,7 @@ const { pathToFileURL } = require('node:url');
 const { loadSource } = require('./test-support.cjs');
 const { listWorkspaceDirectory, readWorkspaceFile } = loadSource('src/main/workspace-files.ts');
 const { findArtifactReferences, resolveArtifactLink } = loadSource('src/shared/artifact-links.ts');
+const { terminalArtifactReferences } = loadSource('src/shared/artifact-links.ts');
 
 function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentplex-files-'));
@@ -65,6 +66,16 @@ test('previews reject unsupported, binary, invalid UTF-8, directory and oversize
   await assert.rejects(readWorkspaceFile(root, 'directory.md'), /regular file/);
 });
 
+test('HTML preserves native layout but removes executable elements, refreshes and navigation attributes', async t => {
+  const { root } = fixture(t);
+  fs.writeFileSync(path.join(root, 'report.html'), '<style>h1{color:blue}</style><h1>Report</h1>'
+    + '<script>evil()</script><iframe src="https://example.invalid"></iframe><meta http-equiv="refresh" content="0;url=https://example.invalid">'
+    + '<a href="https://example.invalid" onclick="evil()">Read</a><svg><a xlink:href="https://example.invalid">SVG</a></svg>');
+  const file = await readWorkspaceFile(root, 'report.html');
+  assert.match(file.content, /<style>h1\{color:blue\}<\/style><h1>Report<\/h1>/);
+  assert.doesNotMatch(file.content, /script|iframe|meta|href|onclick|evil\(/i);
+});
+
 test('terminal references include Markdown, quoted Windows paths, file URLs and source locations without web URLs', () => {
   const text = '[report](reports/report data.md) `config.json:12:3` "C:\\My Files\\index.html" file:///C:/repo/data.json#L7 https://example.org/page.html';
   const links = findArtifactReferences(text);
@@ -73,4 +84,19 @@ test('terminal references include Markdown, quoted Windows paths, file URLs and 
   ]);
   for (const link of links) assert.equal(text.slice(link.start, link.end), link.reference);
   assert.equal(resolveArtifactLink('C:\\repo\\reports\\summary.md', '../data.json'), 'file:///C:/repo/data.json');
+});
+
+test('real xterm links span wrapped rows and retain correct cells after Unicode text', async t => {
+  const { Terminal } = require('@xterm/xterm');
+  const term = new Terminal({ cols: 24, rows: 8 });
+  t.after(() => term.dispose());
+  const reference = 'C:\\workspace folder\\generated\\report.json';
+  await new Promise(resolve => term.write('\u4e2d\ud83d\ude80 `' + reference + '`', resolve));
+  const links = terminalArtifactReferences(term.buffer.active, term.cols, 1);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].reference, reference);
+  assert.deepEqual(links[0].range.start, { x: 6, y: 1 });
+  assert.ok(links[0].range.end.y > 1);
+  const continuation = terminalArtifactReferences(term.buffer.active, term.cols, 2);
+  assert.deepEqual(continuation, links);
 });

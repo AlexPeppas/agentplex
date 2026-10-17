@@ -6,6 +6,7 @@ import { defineAgentPlexTheme } from '../monaco-theme';
 import type { CliTool } from '../../shared/ipc-channels';
 import { SessionStatus } from '../../shared/ipc-channels';
 import { StatusIndicator } from './StatusIndicator';
+import { WorkspaceExplorer } from './WorkspaceExplorer';
 import { ContextMeter, SessionAge } from './SessionMetrics';
 import claudeLogo from '../../../assets/claude-logo.svg';
 import codexDark from '../../../assets/codex-dark.svg';
@@ -31,6 +32,7 @@ function CliIcon({ cli, size = 12 }: { cli?: CliTool; size?: number }) {
 const GitDiffPanel = lazy(() =>
   import('./GitDiffPanel').then((m) => ({ default: m.GitDiffPanel }))
 );
+const ArtifactPreview = lazy(() => import('./ArtifactPreview').then(module => ({ default: module.ArtifactPreview })));
 
 // Initialize Monaco theme once
 let themeInitialized = false;
@@ -47,12 +49,18 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
   const closePane = useAppStore((s) => s.closePane);
   const terminalFullscreen = useAppStore((s) => s.terminalFullscreen);
   const toggleTerminalFullscreen = useAppStore((s) => s.toggleTerminalFullscreen);
-  const [terminalTab, setTerminalTab] = useState<'session' | 'git'>('session');
+  const [terminalTab, setTerminalTab] = useState('session');
+  const [files, setFiles] = useState<string[]>([]);
+  const [showFiles, setShowFiles] = useState(true);
   const [branchName, setBranchName] = useState<string | null>(null);
   const isActive = activePaneId === sessionId;
   const sessionStatus = session?.status;
 
-  useTerminal(containerRef, sessionId);
+  const openFile = useCallback((reference: string) => {
+    setFiles(previous => previous.includes(reference) ? previous : [...previous, reference]);
+    setTerminalTab(`file:${reference}`);
+  }, []);
+  useTerminal(containerRef, sessionId, openFile);
 
   // Initialize Monaco theme on first git tab open
   useEffect(() => {
@@ -89,12 +97,12 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
 
   return (
     <div
-      className={`flex flex-col flex-1 min-w-0 min-h-0 h-full ${isActive ? '' : 'opacity-80'}`}
+      className={`terminal-pane flex flex-col flex-1 min-w-0 min-h-0 h-full ${isActive ? '' : 'opacity-80'}`}
       onClick={handleActivate}
     >
       {/* Pane header */}
       <div className={`flex shrink-0 items-center justify-between py-0 px-1 bg-[#262420] border-b ${isActive ? 'border-[#d18a7a]' : 'border-[#3e3830]'}`}>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto">
           <button
             className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
               terminalTab === 'session'
@@ -117,8 +125,20 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
             <GitBranch size={12} />
             Git
           </button>
+          {files.map(reference => (
+            <div key={reference} className={`flex items-center shrink-0 text-xs border-b-2 ${terminalTab === `file:${reference}` ? 'border-accent text-fg' : 'border-transparent text-fg-muted'}`}>
+              <button className="px-2 py-1.5 max-w-[160px] truncate" title={reference} onClick={() => setTerminalTab(`file:${reference}`)}>
+                {reference.split(/[\\/]/).pop()}
+              </button>
+              <button aria-label={`Close ${reference}`} className="p-1" onClick={() => {
+                setFiles(previous => previous.filter(file => file !== reference));
+                if (terminalTab === `file:${reference}`) setTerminalTab('session');
+              }}><X size={11} /></button>
+            </div>
+          ))}
         </div>
         <div className="flex items-center gap-1 pr-1">
+          <button title="Toggle workspace files (pane must be at least 520px wide)" aria-label="Toggle workspace files" aria-pressed={showFiles} className="p-1 text-fg-muted" onClick={() => setShowFiles(!showFiles)}><FolderOpen size={14} /></button>
           <button
             className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
             onClick={toggleTerminalFullscreen}
@@ -165,6 +185,9 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
+      <div className="flex flex-1 min-h-0 min-w-0">
+      {showFiles && session && <WorkspaceExplorer sessionId={sessionId} cwd={session.cwd} onOpenFile={openFile} />}
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
       {/* Terminal body */}
       <div
         className="terminal-body flex-1 min-h-0 min-w-0 p-1 overflow-hidden"
@@ -187,6 +210,13 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
           </Suspense>
         </div>
       )}
+      {files.map(reference => <div key={reference} className="flex-1 min-h-0 overflow-hidden" style={{ display: terminalTab === `file:${reference}` ? undefined : 'none' }}>
+        <Suspense fallback={<div className="p-4 text-fg-muted">Loading preview...</div>}>
+          <ArtifactPreview sessionId={sessionId} cwd={session?.cwd || ''} reference={reference} onOpenFile={openFile} />
+        </Suspense>
+      </div>)}
+      </div>
+      </div>
     </div>
   );
 }

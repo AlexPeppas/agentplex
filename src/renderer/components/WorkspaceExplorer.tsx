@@ -53,7 +53,7 @@ function Directory({ sessionId, cwd, directory, label, onOpenFile, root = false 
 
 export function WorkspaceExplorer(props: Props) {
   return (
-    <aside aria-label="Workspace files" className="shrink-0 border-r border-border bg-surface text-fg text-xs p-2 overflow-auto"
+    <aside aria-label="Workspace files" className="workspace-explorer shrink-0 border-r border-border bg-surface text-fg text-xs p-2 overflow-auto"
       style={{ width: 220, minWidth: 140, maxWidth: '45%', resize: 'horizontal' }}>
       <div className="font-semibold text-fg-muted mb-1">WORKSPACE</div>
       <Directory key={`${props.sessionId}:${props.cwd}`} {...props} directory="" label={props.cwd.split(/[\\/]/).filter(Boolean).pop() || props.cwd} root />

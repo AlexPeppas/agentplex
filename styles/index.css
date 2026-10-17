@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+.terminal-pane { container: terminal-pane / inline-size; }
+.workspace-explorer { display: none; }
+@container terminal-pane (min-width: 520px) {
+  .workspace-explorer { display: block; }
+}
+
+.artifact-markdown :is(h1, h2, h3, h4) { font-weight: 600; margin: 1em 0 .5em; }
+.artifact-markdown h1 { font-size: 1.6em; }
+.artifact-markdown h2 { font-size: 1.3em; }
+.artifact-markdown :is(p, ul, ol, pre, blockquote, table) { margin: .7em 0; }
+.artifact-markdown ul { list-style: disc; padding-left: 1.5em; }
+.artifact-markdown ol { list-style: decimal; padding-left: 1.5em; }
+.artifact-markdown pre { overflow: auto; padding: .75em; background: var(--bg-inset); }
+.artifact-markdown code { font-family: monospace; }
+.artifact-markdown :is(th, td) { padding: .4em .7em; border: 1px solid var(--border); }
+.artifact-markdown blockquote { border-left: 3px solid var(--border); padding-left: 1em; }
+
 /* ═══════════════════════════════════════════════════════════
    Tailwind theme tokens (reference CSS custom properties)
    ═══════════════════════════════════════════════════════════ */

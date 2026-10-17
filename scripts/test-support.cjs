@@ -7,7 +7,7 @@ const ts = require('typescript');
 function loadSource(relativePath, overrides = {}) {
   const filename = path.resolve(__dirname, '..', relativePath);
   const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
   }).outputText;
   const module = { exports: {} };
   const localRequire = name => {

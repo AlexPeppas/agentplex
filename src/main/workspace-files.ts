@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import sanitizeHtml from 'sanitize-html';
 import type { WorkspaceDirectory, WorkspaceFile } from '../shared/ipc-channels';
 
 const MAX_ENTRIES = 500;
@@ -80,6 +81,19 @@ export async function readWorkspaceFile(root: string, reference: string, artifac
     let content: string;
     try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
     catch { throw new Error('File is not valid UTF-8 text'); }
+    if (kind === 'html') content = sanitizeHtml(content, {
+      allowedTags: false, allowedAttributes: false, allowVulnerableTags: true,
+      allowedSchemesByTag: { img: ['data', 'http', 'https'] },
+      exclusiveFilter: frame => ['script', 'iframe', 'frame', 'object', 'embed', 'base', 'meta'].includes(frame.tag),
+      transformTags: {
+        '*': (tagName, attribs) => {
+          for (const attribute of Object.keys(attribs)) {
+            if (attribute.startsWith('on') || ['href', 'xlink:href', 'action', 'formaction', 'autofocus'].includes(attribute)) delete attribs[attribute];
+          }
+          return { tagName, attribs };
+        },
+      },
+    });
     return { path: resolved, name: path.basename(resolved), kind, content };
   } finally {
     await handle.close();

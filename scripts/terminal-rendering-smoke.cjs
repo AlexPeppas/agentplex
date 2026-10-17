@@ -40,6 +40,9 @@ async function rendererTest(root) {
     .h-full { height: 100%; } .w-full { width: 100%; }
     .overflow-hidden { overflow: hidden; } .p-1 { padding: 4px; }
     .min-h-9 { min-height: 36px; } button { height: 30px; }
+    .terminal-pane { container: terminal-pane / inline-size; }
+    .workspace-explorer { display: none; }
+    @container terminal-pane (min-width: 520px) { .workspace-explorer { display: block; } }
   `;
   document.head.append(style);
   const terminals = [];
@@ -67,6 +70,7 @@ async function rendererTest(root) {
       nativePtys.get(id)?.write(data);
     },
     gitBranchInfo: async () => null,
+    listWorkspaceDirectory: async () => ({ entries: [], truncated: false }),
   };
   const state = {
     sessions: { demo: { id: 'demo', title: 'Demo', cli: 'copilot', status: 'idle',

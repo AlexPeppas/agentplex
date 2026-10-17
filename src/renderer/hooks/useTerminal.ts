@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { useAppStore } from '../store';
 import { createTerminalResizeController } from '../terminal-resize';
+import { terminalArtifactReferences } from '../../shared/artifact-links';
 
 // Terminal always uses dark palette so text stays readable in both themes
 const TERMINAL_THEME = {
@@ -132,7 +133,9 @@ function ensureGlobalListeners() {
   window.addEventListener('resize', scheduleRefreshAllTerminals);
 }
 
-export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string) {
+export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string, onOpenFile?: (reference: string) => void) {
+  const openFileRef = useRef(onOpenFile);
+  useEffect(() => { openFileRef.current = onOpenFile; }, [onOpenFile]);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const buffersReady = useAppStore(s => s.buffersReady);
@@ -151,12 +154,31 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       cursorBlink: true,
       convertEol: true,
       windowsPty: useAppStore.getState().sessions[sessionId]?.windowsPty,
+      linkHandler: {
+        allowNonHttpProtocols: true,
+        activate: (_event, uri) => {
+          if (/^https?:/i.test(uri)) {
+            window.agentPlex.openExternal(uri).catch(error => console.error('[terminal] Cannot open link:', error));
+          } else if (/^file:/i.test(uri) || !/^[a-z][a-z\d+.-]*:/i.test(uri) || /^[a-z]:[\\/]/i.test(uri)) {
+            openFileRef.current?.(uri);
+          } else console.warn('[terminal] Unsupported link protocol:', uri);
+        },
+      },
     });
 
     const fitAddon = new FitAddon();
     fitAddonRef.current = fitAddon;
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
+    term.registerLinkProvider({
+      provideLinks: (line, callback) => {
+        callback(terminalArtifactReferences(term.buffer.active, term.cols, line).map(link => ({
+          range: link.range,
+          text: link.reference,
+          activate: () => openFileRef.current?.(link.reference),
+        })));
+      },
+    });
 
     termRef.current = term;
 

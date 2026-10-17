@@ -5,6 +5,7 @@ import { registerIpcHandlers } from './ipc-handlers';
 import { detectShells } from './shell-detector';
 import { stopCopilotSummaries } from './copilot-summary-proxy';
 import { claimApplicationInstance } from './application-instance';
+import { installPreviewNavigation } from './preview-navigation';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -97,6 +98,7 @@ function createWindow() {
   });
 
   // Show window as soon as the renderer is ready — avoids white flash
+  installPreviewNavigation(mainWindow.webContents);
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('[main] Renderer process gone:', details.reason);
