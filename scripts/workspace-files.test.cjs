@@ -27,7 +27,7 @@ test('workspace tree is lazy, sorted, bounded and never follows escaping junctio
   assert.equal(result.entries[0].name, 'nested');
   assert.equal(result.entries.find(entry => entry.name === 'escape').blocked, true);
   await assert.rejects(listWorkspaceDirectory(root, 'escape'), /outside/);
-  await assert.rejects(readWorkspaceFile(root, 'escape\\secret.json'), /outside/);
+  await assert.rejects(readWorkspaceFile(root, path.join('escape', 'secret.json')), /outside/);
   await assert.rejects(listWorkspaceDirectory(root, '..'), /outside/);
   await assert.rejects(readWorkspaceFile(root, path.join(outside, 'secret.json')), /outside/);
   for (let index = 0; index < 501; index++) fs.writeFileSync(path.join(root, `entry-${index}.md`), '');
