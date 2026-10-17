@@ -7,7 +7,7 @@ function fixture(t) {
     './components/panels/SettingsPanel': { getSplitPaneEnabled: () => false },
   });
   const effects = [], noop = () => {};
-  let resolveList, resolveSnapshot, rejectSnapshot, receiveData;
+  let resolveList, resolveSnapshot, rejectSnapshot, receiveData, receiveCreated;
   const info = { id: 'session', title: 'Synthetic', status: 'idle', cli: 'copilot', cwd: process.cwd(),
     startedAt: Date.now(), lastActivityAt: Date.now() };
   const api = {
@@ -16,6 +16,7 @@ function fixture(t) {
     getSessionBufferSnapshot: () => new Promise((resolve, reject) => { resolveSnapshot = resolve; rejectSnapshot = reject; }),
     groupsLoad: async () => ({ version: 1, groups: [] }), groupsSave: async () => {},
     onSessionData: callback => { receiveData = callback; return noop; },
+    onSessionCreated: callback => { receiveCreated = callback; return noop; },
   };
   for (const name of ['onSessionStatus', 'onSessionExit', 'onSessionInfoUpdate',
     'onSubagentSpawn', 'onSubagentComplete', 'onPlanEnter', 'onPlanExit', 'onTaskCreate',
@@ -44,7 +45,8 @@ function fixture(t) {
   });
   return {
     store: useAppStore, info,
-    output: (data, offset) => receiveData({ id: info.id, data, offset }),
+    created: session => receiveCreated(session),
+    output: (data, offset, id = info.id) => receiveData({ id, data, offset }),
     list: async () => { resolveList([info]); await new Promise(resolve => setImmediate(resolve)); },
     snapshot: async (buffer, offset) => {
       resolveSnapshot({ buffer, offset }); await new Promise(resolve => setImmediate(resolve));
@@ -54,6 +56,18 @@ function fixture(t) {
     },
   };
 }
+
+test('discovered CLIs create normal nodes once and retain output delivered before list hydration', async t => {
+  const f = fixture(t);
+  const child = { ...f.info, id: 'child', readOnly: true };
+  f.created(child);
+  f.output('live', 4, child.id);
+  f.created(child);
+  assert.equal(f.store.getState().nodes.filter(node => node.id === 'child').length, 1);
+  assert.equal(f.store.getState().nodes.find(node => node.id === 'child').type, 'sessionNode');
+  assert.equal(f.store.getState().sessions.child.readOnly, true);
+  assert.equal(f.store.getState().sessionBuffers.child, 'live');
+});
 
 for (const timing of ['before-list', 'after-capture', 'quiet']) {
   test(`desktop reconnect reconciles ${timing} output exactly once before terminals can mount`, async t => {

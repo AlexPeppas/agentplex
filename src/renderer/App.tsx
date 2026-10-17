@@ -328,7 +328,7 @@ export function App() {
       cleanupTaskUpdate();
       cleanupTaskList();
     };
-  }, [appendBuffer, updateStatus, updateSessionInfo, spawnSubagent, completeSubagent, enterPlan, exitPlan, createTask, updateTask, reconcileTasks]);
+  }, [addSession, appendBuffer, updateStatus, updateSessionInfo, spawnSubagent, completeSubagent, enterPlan, exitPlan, createTask, updateTask, reconcileTasks]);
 
   useEffect(() => {
     const cleanupWake = window.agentPlex.onAppWake(() => {

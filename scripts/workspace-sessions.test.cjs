@@ -11,7 +11,8 @@ function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentplex-child-cli-'));
   const root = path.join(home, '.copilot', 'session-state');
   fs.mkdirSync(root, { recursive: true });
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const disposers = [];
+  t.after(() => { for (const dispose of disposers) dispose(); fs.rmSync(home, { recursive: true, force: true }); });
   const overrides = {
     os: { ...os, homedir: () => home }, electron: {},
     './settings-manager': { getDefaultShellId: () => null },
@@ -24,7 +25,7 @@ function fixture(t) {
     fs.writeFileSync(path.join(dir, 'events.jsonl'), data);
     return path.join(dir, 'events.jsonl');
   };
-  return { home, root, overrides, CopilotSessionDiscovery, make };
+  return { home, root, overrides, CopilotSessionDiscovery, make, disposers };
 }
 
 test('discovery skips historical and managed sessions, retries incomplete new CLIs and stops cleanly', async t => {
@@ -32,6 +33,7 @@ test('discovery skips historical and managed sessions, retries incomplete new CL
   f.make(1);
   const found = [];
   const discovery = new f.CopilotSessionDiscovery(f.root, id => id === uuid(2), (...args) => found.push(args));
+  f.disposers.push(() => discovery.stop());
   // Drive the real asynchronous poll deterministically without a timer.
   discovery.controller = new AbortController();
   discovery.startedAt = Date.now() + 100;
@@ -51,6 +53,26 @@ test('discovery skips historical and managed sessions, retries incomplete new CL
   assert.equal(found.length, 1);
 });
 
+test('existing directories are discovered only after a fresh provider resume, not background file activity', async t => {
+  const f = fixture(t);
+  const old = f.make(1);
+  const found = [];
+  const discovery = new f.CopilotSessionDiscovery(f.root, () => false, (...args) => found.push(args));
+  f.disposers.push(() => discovery.stop());
+  discovery.controller = new AbortController();
+  discovery.startedAt = Date.now() + 50;
+  await discovery.poll();
+  fs.appendFileSync(old, record('assistant.message', { content: 'edited historical data' }));
+  discovery.activity.add(uuid(1));
+  await discovery.poll();
+  assert.deepEqual(found, []);
+  fs.appendFileSync(old, JSON.stringify({ type: 'session.resume', timestamp: new Date(discovery.startedAt + 100).toISOString(),
+    data: { context: { cwd: f.home } } }) + '\n');
+  discovery.activity.add(uuid(1));
+  await discovery.poll();
+  assert.deepEqual(found, [[uuid(1), f.home]]);
+});
+
 test('monitored CLIs replay and tail exactly once, preserve UTF-8, follow workspaces and never own processes or restore state', t => {
   const f = fixture(t);
   const events = [];
@@ -59,7 +81,7 @@ test('monitored CLIs replay and tail exactly once, preserve UTF-8, follow worksp
   const { SessionManager } = loadSource('src/main/session-manager.ts', f.overrides);
   const manager = new SessionManager();
   manager.setWindow({ isDestroyed: () => false, webContents: { send: (channel, data) => events.push({ channel, data }) } });
-  t.after(() => manager.stop());
+  f.disposers.push(() => manager.stop());
   manager.monitorCopilotSession(uuid(1), f.home);
   const info = manager.list()[0];
   assert.equal(info.readOnly, true);
