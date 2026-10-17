@@ -173,6 +173,9 @@ function extractSqlTuples(text: string): string[] {
 }
 
 export class JsonlSessionWatcher extends EventEmitter {
+  private liveDecoder = new StringDecoder('utf8');
+
+  get snapshotOffset(): number { return this.offset; }
   /** Claude uses mtime as a fallback; Copilot exposes structured lifecycleStatus. */
   jsonlPath: string;
   private format: WatcherFormat;
@@ -258,6 +261,7 @@ export class JsonlSessionWatcher extends EventEmitter {
         // resume in the middle of a JSON record.
         this.offset = 0;
         this.partialLine = '';
+        this.liveDecoder = new StringDecoder('utf8');
         this.pendingTodoSql.clear();
         this.copilotTasksById.clear();
         this.nextCopilotTaskNumber = 1;
@@ -267,12 +271,12 @@ export class JsonlSessionWatcher extends EventEmitter {
       }
       if (stat.size === this.offset) return;
 
-      const bytesToRead = stat.size - this.offset;
+      const bytesToRead = Math.min(stat.size - this.offset, 256 * 1024);
       const buf = Buffer.alloc(bytesToRead);
-      fs.readSync(fd, buf, 0, bytesToRead, this.offset);
-      this.offset = stat.size;
+      const bytesRead = fs.readSync(fd, buf, 0, bytesToRead, this.offset);
+      this.offset += bytesRead;
 
-      const chunk = this.partialLine + buf.toString('utf-8');
+      const chunk = this.partialLine + this.liveDecoder.write(buf.subarray(0, bytesRead));
       const lines = chunk.split('\n');
 
       // Last element is either empty (line ended with \n) or a partial line
@@ -302,6 +306,7 @@ export class JsonlSessionWatcher extends EventEmitter {
     if (!record || typeof record !== 'object') return;
     if (this.format === 'claude') this.processClaudeRecord(record);
     else this.processCopilotRecord(record);
+    this.emit('record', record);
   }
 
   private hydrateCopilotTasks(snapshotEnd: number): void {
@@ -366,7 +371,7 @@ export class JsonlSessionWatcher extends EventEmitter {
       const start = Math.max(0, end - maxBytes);
       const buf = Buffer.alloc(end - start);
       fs.readSync(fd, buf, 0, buf.length, start);
-      let text = buf.toString('utf-8');
+      let text = this.liveDecoder.write(buf);
       if (start > 0) {
         const firstNewline = text.indexOf('\n');
         if (firstNewline < 0) return;

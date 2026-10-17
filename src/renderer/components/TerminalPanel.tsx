@@ -146,6 +146,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
           </span>
           <div className="h-4 w-px bg-border shrink-0" />
           <ContextMeter usage={session.usage} supported={session.telemetrySupported} />
+          {session.readOnly && <span className="text-[10px] text-fg-muted shrink-0" title="This CLI owns its original terminal. AgentPlex only monitors its log.">Live log - read only</span>}
           <div className="h-4 w-px bg-border shrink-0" />
           <SessionAge startedAt={session.startedAt} lastActivityAt={session.lastActivityAt} />
           {branchName && (

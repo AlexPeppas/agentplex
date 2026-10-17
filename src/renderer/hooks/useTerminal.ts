@@ -144,6 +144,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Create terminal
     const term = new Terminal({
+      disableStdin: useAppStore.getState().sessions[sessionId]?.readOnly === true,
       theme: TERMINAL_THEME,
       fontSize: terminalFontSize,
       fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
@@ -226,7 +227,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Forward keystrokes to pty
     term.onData((data) => {
-      window.agentPlex.writeSession(sessionId, data);
+      if (!useAppStore.getState().sessions[sessionId]?.readOnly) window.agentPlex.writeSession(sessionId, data);
     });
 
     // Capture and subscribe in one event-loop turn so live output cannot fall

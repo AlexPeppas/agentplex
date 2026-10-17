@@ -553,7 +553,9 @@ export function ExplorerPanel() {
         <div className="fixed inset-0 bg-backdrop flex items-center justify-center z-[1000]" onClick={() => setConfirmDeleteId(null)}>
           <div className="bg-elevated border border-border-strong rounded-xl p-4 w-[280px] shadow-[0_8px_32px_var(--shadow-heavy)]" onClick={(e) => e.stopPropagation()}>
             <span className="block text-sm font-semibold text-fg mb-1">Delete session?</span>
-            <span className="block text-xs text-fg-muted mb-4">This will kill the process and remove the session from the graph.</span>
+            <span className="block text-xs text-fg-muted mb-4">{sessions[confirmDeleteId]?.readOnly
+              ? 'This stops monitoring and removes the node. The external CLI will keep running.'
+              : 'This will kill the process and remove the session from the graph.'}</span>
             <div className="flex gap-2 justify-end">
               <button
                 className="py-1.5 px-3 bg-border text-fg border-none rounded-md text-xs font-medium cursor-pointer transition-colors hover:bg-border-strong"

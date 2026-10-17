@@ -12,7 +12,8 @@ import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath, type WatcherFormat } from './jsonl-session-watcher';
 import { renderJsonlTranscript } from './claude-session-scanner';
-import { renderCopilotTranscript } from './copilot-session-scanner';
+import { renderCopilotTranscript, renderCopilotRecord } from './copilot-session-scanner';
+import { CopilotSessionDiscovery } from './copilot-session-discovery';
 import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
 import { readHistoryLines } from './history-reader';
@@ -95,7 +96,8 @@ interface Session {
   cwd: string;
   /** Per-CLI session ID used to resume (Claude UUID, Copilot UUID, …) */
   resumeSessionId: string | null;
-  pty: pty.IPty;
+  pty: pty.IPty | null;
+  readOnly?: boolean;
   status: SessionStatus;
   startedAt: number;
   lastActivityAt: number;
@@ -153,6 +155,7 @@ export class SessionManager {
   private pendingRestores = new Map<string, PersistedSession>();
   private stateLoaded = false;
   private stateWritable = true;
+  private discovery: CopilotSessionDiscovery | null = null;
 
   setWindow(win: BrowserWindow) {
     this.window = win;
@@ -205,6 +208,7 @@ export class SessionManager {
     }
     const state: PersistedState = { sessions: Object.fromEntries(this.pendingRestores) };
     for (const session of this.sessions.values()) {
+      if (session.readOnly) continue;
       state.sessions[session.id] = {
         displayName: session.displayName,
         cwd: session.cwd,
@@ -245,6 +249,40 @@ export class SessionManager {
 
   start() {
     this.statusInterval = setInterval(() => this.checkStatuses(), 500);
+    this.discovery = new CopilotSessionDiscovery(
+      path.join(homedir(), '.copilot', 'session-state'),
+      uuid => [...this.sessions.values()].some(session => session.resumeSessionId === uuid
+        && (session.cli === 'copilot' || session.cli === 'copilot-resume')),
+      (uuid, cwd) => this.monitorCopilotSession(uuid, cwd),
+    );
+    this.discovery.start();
+  }
+
+  private monitorCopilotSession(uuid: string, cwd: string): void {
+    const id = this.allocateSessionId();
+    const now = Date.now();
+    const title = `Copilot ${uuid.slice(0, 8)} - ${path.basename(cwd)}`;
+    const watcher = this.createJsonlWatcher(path.join(homedir(), '.copilot', 'session-state', uuid, 'events.jsonl'),
+      id, 'copilot', true, true);
+    const session: Session = {
+      id, title, displayName: title, cli: 'copilot', cwd, resumeSessionId: uuid, pty: null, readOnly: true,
+      status: SessionStatus.Idle, startedAt: now, lastActivityAt: now, usage: null, lastOutput: now,
+      lastVisibleOutput: now, waitingSince: 0, waitingOutputOffset: 0, buffer: '', outputOffset: 0,
+      jsonlWatcher: watcher, planTaskDetector: new PlanTaskDetector(() => {}),
+    };
+    this.sessions.set(id, session);
+    this.send(IPC.SESSION_CREATED, this.list().find(info => info.id === id));
+    try {
+      watcher.start();
+      const transcript = renderCopilotTranscript(watcher.jsonlPath, watcher.snapshotOffset, 'monitor');
+      const data = '\r\n[Monitoring an independently launched Copilot CLI - read only]\r\n' + transcript;
+      this.appendOutput(session, data);
+      this.send(IPC.SESSION_DATA, { id, data, offset: session.outputOffset });
+    } catch (error) {
+      watcher.stop();
+      this.updateStatus(session, SessionStatus.Killed);
+      console.error('[discovery] Cannot monitor Copilot session:', uuid, error);
+    }
   }
 
   /**
@@ -540,6 +578,7 @@ export class SessionManager {
   }
 
   stop() {
+    this.discovery?.stop();
     // Flush state to disk before shutting down
     this.saveState();
     if (this.statusInterval) {
@@ -550,7 +589,7 @@ export class SessionManager {
       if (session.launchTimer) clearTimeout(session.launchTimer);
       if (session.jsonlWatcher) session.jsonlWatcher.stop();
       try {
-        session.pty.kill();
+        session.pty?.kill();
       } catch {
         // already dead
       }
@@ -559,6 +598,10 @@ export class SessionManager {
   }
 
   create(cwd?: string, cli: CliTool = 'claude', resumeSessionId?: string): SessionInfo {
+    if (resumeSessionId && [...this.sessions.values()].some(session => session.readOnly
+      && session.resumeSessionId === resumeSessionId && session.status !== SessionStatus.Killed)) {
+      throw new Error('This CLI is already running outside AgentPlex. Stop it before resuming another copy.');
+    }
     // Direct resume by UUID — delegate to createWithUuid which knows the per-CLI shape.
     // forceResume=true (Claude path) because the session was picked from the scanner or
     // a template, so we know the JSONL exists — avoids a path-encoding mismatch that
@@ -752,9 +795,13 @@ export class SessionManager {
 
   write(id: string, data: string) {
     const session = this.sessions.get(id);
+    if (session?.readOnly) {
+      console.warn('[session] Cannot write to a monitored CLI:', id);
+      return;
+    }
     if (session && session.status !== SessionStatus.Killed) {
       try {
-        session.pty.write(data);
+        session.pty?.write(data);
       } catch {
         // pty may have died between status check and write
       }
@@ -765,7 +812,7 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (session && session.status !== SessionStatus.Killed) {
       try {
-        session.pty.resize(cols, rows);
+        session.pty?.resize(cols, rows);
       } catch {
         // ignore resize errors
       }
@@ -778,7 +825,7 @@ export class SessionManager {
       if (session.launchTimer) clearTimeout(session.launchTimer);
       if (session.jsonlWatcher) session.jsonlWatcher.stop();
       try {
-        session.pty.kill();
+        session.pty?.kill();
       } catch {
         // already dead
       }
@@ -813,14 +860,15 @@ export class SessionManager {
       id: s.id,
       title: s.title,
       status: s.status,
-      pid: s.pty.pid,
+      pid: s.pty?.pid ?? 0,
+      readOnly: s.readOnly,
       cwd: s.cwd,
       cli: s.cli,
       startedAt: s.startedAt,
       lastActivityAt: s.lastActivityAt,
       usage: s.usage,
       telemetrySupported: true,
-      windowsPty: getWindowsPty(),
+      windowsPty: s.readOnly ? undefined : getWindowsPty(),
       resumeSessionId: s.resumeSessionId,
     }));
   }
@@ -854,6 +902,36 @@ export class SessionManager {
 
   private createJsonlWatcher(jsonlPath: string, sessionId: string, format: WatcherFormat = 'claude', skipExisting = false, hydrateLifecycle = false): JsonlSessionWatcher {
     const watcher = new JsonlSessionWatcher(jsonlPath, format, skipExisting, hydrateLifecycle);
+    watcher.on('record', (record: unknown) => {
+      const session = this.sessions.get(sessionId);
+      if (!session || !isRecord(record)) return;
+      const data = isRecord(record.data) ? record.data : {};
+      const context = isRecord(data.context) ? data.context : {};
+      const cwd = format === 'claude' ? record.cwd
+        : record.type === 'session.start' || record.type === 'session.resume' ? context.cwd : undefined;
+      if (typeof cwd === 'string' && cwd !== session.cwd && path.isAbsolute(cwd)) {
+        try {
+          if (fs.statSync(cwd).isDirectory()) {
+            session.cwd = cwd;
+            this.send(IPC.SESSION_INFO_UPDATE, { id: sessionId, cwd });
+          }
+        } catch (error) {
+          console.warn('[session] Cannot resolve provider workspace:', cwd, error);
+        }
+      }
+      if (!session.readOnly) return;
+      const rendered = renderCopilotRecord(record);
+      if (rendered) {
+        const text = rendered + '\r\n';
+        session.lastActivityAt = Date.now();
+        this.appendOutput(session, text);
+        this.send(IPC.SESSION_DATA, { id: sessionId, data: text, offset: session.outputOffset });
+      }
+      if (record.type === 'session.shutdown') {
+        this.updateStatus(session, SessionStatus.Killed);
+        watcher.stop();
+      }
+    });
 
     watcher.on('agent-spawn', (event: { toolUseId: string; description: string; subagentType: string }) => {
       this.send(IPC.SUBAGENT_SPAWN, {

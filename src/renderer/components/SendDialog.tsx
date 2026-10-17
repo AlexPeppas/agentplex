@@ -25,7 +25,7 @@ export function SendDialog() {
 
   // All live (non-killed) sessions except the source
   const targetSessions = Object.values(sessions).filter(
-    (s) => s.id !== sourceId && s.status !== SessionStatus.Killed
+    (s) => s.id !== sourceId && s.status !== SessionStatus.Killed && !s.readOnly
   );
 
   const sourceLabel = sourceId

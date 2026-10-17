@@ -2,6 +2,7 @@ import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SessionStatus, 
 import type { HistoryRequestKind } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
+  onSessionCreated: (callback: (info: SessionInfo) => void) => () => void;
   platform: string;
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string) => Promise<SessionInfo>;
   pickDirectory: () => Promise<string | null>;

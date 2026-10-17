@@ -35,12 +35,13 @@ const TRANSCRIPT_MAX_BYTES = 512 * 1024; // 512KB
  * Returns the rendered string (with \r\n line endings for the PTY) or an
  * empty string if the file cannot be read or has no renderable messages.
  */
-export function renderCopilotTranscript(eventsPath: string): string {
+export function renderCopilotTranscript(eventsPath: string, snapshotEnd?: number, mode: 'resume' | 'monitor' = 'resume'): string {
   let text: string;
   try {
     const stat = fs.statSync(eventsPath);
-    const bytesToRead = Math.min(stat.size, TRANSCRIPT_MAX_BYTES);
-    const offset = Math.max(0, stat.size - bytesToRead);
+    const end = Math.min(stat.size, snapshotEnd ?? stat.size);
+    const bytesToRead = Math.min(end, TRANSCRIPT_MAX_BYTES);
+    const offset = Math.max(0, end - bytesToRead);
     const fd = fs.openSync(eventsPath, 'r');
     const buf = Buffer.alloc(bytesToRead);
     fs.readSync(fd, buf, 0, bytesToRead, offset);
@@ -68,29 +69,44 @@ export function renderCopilotTranscript(eventsPath: string): string {
       continue;
     }
 
-    const type = record.type as string | undefined;
+    const rendered = renderCopilotRecord(record);
+    if (rendered) lines.push(rendered);
+  }
+
+  if (lines.length === 0) return '';
+  const separator = `${DIM}${YELLOW}${'─'.repeat(60)}${RESET}`;
+  const header = `${DIM}${YELLOW}  Session transcript (from events.jsonl)${RESET}`;
+  const footer = `${DIM}${YELLOW}  ${mode === 'monitor' ? 'Live transcript - read only' : 'Resuming session…'}${RESET}`;
+  return [separator, header, separator, '', ...lines, separator, footer, separator, ''].join('\r\n');
+}
+
+export function renderCopilotRecord(record: unknown): string {
+    if (!record || typeof record !== 'object' || !('type' in record) || !('data' in record)) return '';
+    const type = record.type;
     const data = record.data;
-    if (!type || !data || typeof data !== 'object') continue;
+    if (!type || !data || typeof data !== 'object') return '';
+    const lines: string[] = [];
 
     if (type === 'user.message') {
       // data.content is the original user text; data.transformedContent has system-reminder
       // wrappers we don't want shown back to the user.
-      const content = data.content;
+      const content = 'content' in data ? data.content : undefined;
       if (typeof content === 'string' && content.trim()) {
         lines.push(`${BOLD}${GREEN}> You${RESET}`);
         lines.push(content);
         lines.push('');
       }
     } else if (type === 'assistant.message') {
-      const content = data.content;
+      const content = 'content' in data ? data.content : undefined;
       if (typeof content === 'string' && content.trim()) {
         lines.push(`${BOLD}${CYAN}Copilot${RESET}`);
         lines.push(content);
         lines.push('');
       }
     } else if (type === 'tool.execution_start') {
-      const toolName = typeof data.toolName === 'string' ? data.toolName : 'tool';
-      const args = (data.arguments && typeof data.arguments === 'object') ? data.arguments : {};
+      const toolName = 'toolName' in data && typeof data.toolName === 'string' ? data.toolName : 'tool';
+      const args: Record<string, unknown> = 'arguments' in data && data.arguments && typeof data.arguments === 'object'
+        ? data.arguments as Record<string, unknown> : {};
       // Sub-agent calls use toolName='task' with agent_type + description.
       // Other tools commonly carry one of: command, pattern, file_path, query, description.
       let label = toolName;
@@ -109,15 +125,7 @@ export function renderCopilotTranscript(eventsPath: string): string {
     }
     // Skip session.*, system.*, hooks, turns, permissions, subagent.started
     // (already covered by tool.execution_start), tool.execution_complete, etc.
-  }
-
-  if (lines.length === 0) return '';
-
-  const separator = `${DIM}${YELLOW}${'─'.repeat(60)}${RESET}`;
-  const header = `${DIM}${YELLOW}  Session transcript (from events.jsonl)${RESET}`;
-  const footer = `${DIM}${YELLOW}  Resuming session…${RESET}`;
-
-  return [separator, header, separator, '', ...lines, separator, footer, separator, ''].join('\r\n');
+    return lines.join('\r\n');
 }
 
 export async function readWorkspaceCwd(workspaceYamlPath: string, signal?: AbortSignal): Promise<string | null> {

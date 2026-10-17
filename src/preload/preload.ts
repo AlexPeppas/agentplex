@@ -30,6 +30,12 @@ const api = {
     return ipcRenderer.invoke(IPC.SESSION_LIST);
   },
 
+  onSessionCreated: (callback: (info: SessionInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: SessionInfo) => callback(info);
+    ipcRenderer.on(IPC.SESSION_CREATED, handler);
+    return () => ipcRenderer.removeListener(IPC.SESSION_CREATED, handler);
+  },
+
   getSessionBuffer: (id: string): Promise<string> => {
     return ipcRenderer.invoke(IPC.SESSION_GET_BUFFER, { id });
   },

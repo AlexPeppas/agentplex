@@ -258,6 +258,7 @@ export function App() {
 
   // Subscribe to IPC events
   useEffect(() => {
+    const cleanupCreated = window.agentPlex.onSessionCreated(addSession);
     const cleanupData = window.agentPlex.onSessionData(({ id, data, offset }) => {
       appendBuffer(id, data, offset);
     });
@@ -314,6 +315,7 @@ export function App() {
     });
 
     return () => {
+      cleanupCreated();
       cleanupData();
       cleanupStatus();
       cleanupExit();

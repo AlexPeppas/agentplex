@@ -31,6 +31,8 @@ export enum SessionStatus {
 }
 
 export interface SessionInfo {
+  /** A CLI discovered through its log, not an AgentPlex-owned PTY. */
+  readOnly?: boolean;
   /** Host PTY compatibility for terminal resize and scrollback behavior. */
   windowsPty?: { backend: 'conpty' | 'winpty'; buildNumber: number };
   id: string;
@@ -259,6 +261,7 @@ export interface WorkspaceTemplate {
 
 export const IPC = {
   SESSION_CREATE: 'session:create',
+  SESSION_CREATED: 'session:created',
   SESSION_WRITE: 'session:write',
   SESSION_RESIZE: 'session:resize',
   SESSION_KILL: 'session:kill',
