@@ -38,10 +38,11 @@ test('secondary startup quits without registering ownership callbacks', () => {
 
 test('secondary main startup cannot initialize sessions or flush another instance state on quit', async () => {
   const handlers = new Map();
+  const switches = [];
   let quits = 0, starts = 0, stops = 0;
   loadSource('src/main/main.ts', {
     electron: { app: {
-      commandLine: { appendSwitch() {} }, setName() {}, setPath() {}, getPath: () => process.cwd(),
+      commandLine: { appendSwitch: name => switches.push(name) }, setName() {}, setPath() {}, getPath: () => process.cwd(),
       requestSingleInstanceLock: () => false, quit: () => quits++,
       whenReady: async () => {}, on: (name, fn) => handlers.set(name, fn),
     } },
@@ -56,4 +57,6 @@ test('secondary main startup cannot initialize sessions or flush another instanc
   assert.equal(quits, 1);
   assert.equal(starts, 0);
   assert.equal(stops, 0);
+  assert.ok(!switches.includes('remote-debugging-port'), 'startup must not enable a remote DevTools listener');
+  assert.ok(!switches.includes('remote-allow-origins'), 'startup must not relax remote debugging origins');
 });
