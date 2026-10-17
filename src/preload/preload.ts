@@ -2,8 +2,14 @@ import { contextBridge, ipcRenderer, clipboard } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
 import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
 import type { HistoryRequestKind } from '../shared/ipc-channels';
+import type { WorkspaceDirectory, WorkspaceFile } from '../shared/ipc-channels';
 
 const api = {
+  listWorkspaceDirectory: (sessionId: string, directory = ''): Promise<WorkspaceDirectory> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_LIST, { sessionId, directory }),
+  readWorkspaceFile: (sessionId: string, reference: string): Promise<WorkspaceFile> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_READ, { sessionId, reference }),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.OPEN_EXTERNAL, { url }),
   platform: process.platform,
 
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string): Promise<SessionInfo> => {

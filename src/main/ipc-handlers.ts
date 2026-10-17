@@ -23,6 +23,7 @@ import { searchSessions } from './session-search';
 import type { HistoryRequestKind } from '../shared/ipc-channels';
 import { summarizeWithCopilot } from './copilot-summary-proxy';
 import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, stageAll, unstageAll, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
+import { listWorkspaceDirectory, readWorkspaceFile } from './workspace-files';
 
 const VALID_CLI_IDS = new Set<string>([
   ...CLI_TOOLS.map((t) => t.id),
@@ -37,6 +38,30 @@ function isValidCli(id: string): boolean {
 const MAX_CONTEXT_LENGTH = 100_000;
 
 export function registerIpcHandlers() {
+  function workspace(sessionId: string): string {
+    if (typeof sessionId !== 'string') throw new Error('Session ID must be a string');
+    const cwd = sessionManager.getSessionCwd(sessionId);
+    if (!cwd) throw new Error('Session has no workspace');
+    return cwd;
+  }
+  ipcMain.handle(IPC.WORKSPACE_LIST, (_event, { sessionId, directory = '' }: { sessionId: string; directory?: string }) => {
+    if (typeof directory !== 'string') throw new Error('Directory must be a string');
+    return listWorkspaceDirectory(workspace(sessionId), directory);
+  });
+  ipcMain.handle(IPC.WORKSPACE_READ, (_event, { sessionId, reference }: { sessionId: string; reference: string }) => {
+    if (typeof reference !== 'string') throw new Error('File reference must be a string');
+    const cwd = workspace(sessionId);
+    const session = sessionManager.list().find(info => info.id === sessionId);
+    const jsonl = sessionManager.getJsonlPath(sessionId);
+    const artifacts = jsonl && session?.cli === 'copilot' ? path.join(path.dirname(jsonl), 'files') : undefined;
+    return readWorkspaceFile(cwd, reference, artifacts);
+  });
+  ipcMain.handle(IPC.OPEN_EXTERNAL, (_event, { url }: { url: string }) => {
+    if (typeof url !== 'string') throw new Error('URL must be a string');
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('Only HTTP(S) links may open externally');
+    return shell.openExternal(parsed.href);
+  });
   const pendingHistory = new Map<string, AbortController>();
   async function runHistory<T>(
     event: Electron.IpcMainInvokeEvent,

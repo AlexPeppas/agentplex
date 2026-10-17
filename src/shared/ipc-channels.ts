@@ -259,7 +259,22 @@ export interface WorkspaceTemplate {
   createdAt: string;
 }
 
+export interface WorkspaceDirectory {
+  entries: { name: string; path: string; directory: boolean; blocked: boolean }[];
+  truncated: boolean;
+}
+
+export interface WorkspaceFile {
+  path: string;
+  name: string;
+  kind: 'json' | 'markdown' | 'html';
+  content: string;
+}
+
 export const IPC = {
+  WORKSPACE_LIST: 'workspace:list',
+  WORKSPACE_READ: 'workspace:read',
+  OPEN_EXTERNAL: 'app:openExternal',
   SESSION_CREATE: 'session:create',
   SESSION_CREATED: 'session:created',
   SESSION_WRITE: 'session:write',

@@ -1,7 +1,11 @@
 import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
 import type { HistoryRequestKind } from '../shared/ipc-channels';
+import type { WorkspaceDirectory, WorkspaceFile } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
+  listWorkspaceDirectory: (sessionId: string, directory?: string) => Promise<WorkspaceDirectory>;
+  readWorkspaceFile: (sessionId: string, reference: string) => Promise<WorkspaceFile>;
+  openExternal: (url: string) => Promise<void>;
   onSessionCreated: (callback: (info: SessionInfo) => void) => () => void;
   platform: string;
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string) => Promise<SessionInfo>;
