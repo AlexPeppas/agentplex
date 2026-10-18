@@ -4,7 +4,7 @@ export interface ArtifactReference { start: number; end: number; reference: stri
 
 export function findArtifactReferences(text: string): ArtifactReference[] {
   const results: ArtifactReference[] = [];
-  const extension = String.raw`\.(?:markdown|json|html?|md)(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?`;
+  const extension = String.raw`\.(?:markdown|json|html?|md|pdf)(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?`;
   const patterns = [
     new RegExp(String.raw`\[[^\]\r\n]+\]\(([^)\r\n]+${extension})\)`, 'gi'),
     new RegExp(String.raw`\x60([^\x60\r\n]+${extension})\x60`, 'gi'),

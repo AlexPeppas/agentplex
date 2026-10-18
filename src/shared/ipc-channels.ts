@@ -264,12 +264,16 @@ export interface WorkspaceDirectory {
   truncated: boolean;
 }
 
-export interface WorkspaceFile {
+export type WorkspaceFile = {
   path: string;
   name: string;
+} & ({
   kind: 'json' | 'markdown' | 'html';
   content: string;
-}
+} | {
+  kind: 'pdf';
+  base64: string;
+});
 
 export const IPC = {
   WORKSPACE_LIST: 'workspace:list',

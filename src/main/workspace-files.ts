@@ -6,6 +6,7 @@ import type { WorkspaceDirectory, WorkspaceFile } from '../shared/ipc-channels';
 
 const MAX_ENTRIES = 500;
 const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_PDF_BYTES = 20 * 1024 * 1024;
 
 function contains(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
@@ -61,22 +62,28 @@ export async function readWorkspaceFile(root: string, reference: string, artifac
   }
   const extension = path.extname(resolved).toLowerCase();
   const kind = extension === '.json' ? 'json' : extension === '.md' || extension === '.markdown' ? 'markdown'
-    : extension === '.html' || extension === '.htm' ? 'html' : null;
-  if (!kind) throw new Error('Preview supports JSON, Markdown and HTML files only');
+    : extension === '.html' || extension === '.htm' ? 'html' : extension === '.pdf' ? 'pdf' : null;
+  if (!kind) throw new Error('Preview supports JSON, Markdown, HTML and PDF files only');
   const handle = await fs.open(resolved, 'r');
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error('The selected path is not a regular file');
-    if (stat.size > MAX_FILE_BYTES) throw new Error('File exceeds the 1 MiB preview limit');
-    const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
+    const limit = kind === 'pdf' ? MAX_PDF_BYTES : MAX_FILE_BYTES;
+    const limitError = `File exceeds the ${kind === 'pdf' ? '20' : '1'} MiB preview limit`;
+    if (stat.size > limit) throw new Error(limitError);
+    const buffer = Buffer.alloc(limit + 1);
     let bytesRead = 0;
     while (bytesRead < buffer.length) {
       const next = await handle.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
       if (!next.bytesRead) break;
       bytesRead += next.bytesRead;
     }
-    if (bytesRead > MAX_FILE_BYTES) throw new Error('File exceeds the 1 MiB preview limit');
+    if (bytesRead > limit) throw new Error(limitError);
     const bytes = buffer.subarray(0, bytesRead);
+    if (kind === 'pdf') {
+      if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') throw new Error('File is not a valid PDF document');
+      return { path: resolved, name: path.basename(resolved), kind, base64: bytes.toString('base64') };
+    }
     if (bytes.includes(0)) throw new Error('Binary files cannot be previewed');
     let content: string;
     try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }

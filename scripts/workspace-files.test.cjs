@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { loadSource } = require('./test-support.cjs');
+const { createPdf } = require('./pdf-fixture.cjs');
 const { listWorkspaceDirectory, readWorkspaceFile } = loadSource('src/main/workspace-files.ts');
 const { findArtifactReferences, resolveArtifactLink } = loadSource('src/shared/artifact-links.ts');
 const { terminalArtifactReferences } = loadSource('src/shared/artifact-links.ts');
@@ -76,11 +77,32 @@ test('HTML preserves native layout but removes executable elements, refreshes an
   assert.doesNotMatch(file.content, /script|iframe|meta|href|onclick|evil\(/i);
 });
 
+test('PDF reads preserve binary bytes and enforce signature, scope and the separate 20 MiB limit', async t => {
+  const { root, outside } = fixture(t);
+  const bytes = Buffer.concat([createPdf(), Buffer.from([0, 255, 128])]);
+  fs.writeFileSync(path.join(root, 'report.pdf'), bytes);
+  const file = await readWorkspaceFile(root, 'report.pdf');
+  assert.equal(file.kind, 'pdf');
+  assert.deepEqual(Buffer.from(file.base64, 'base64'), bytes);
+  fs.writeFileSync(path.join(root, 'invalid.pdf'), 'not a PDF');
+  await assert.rejects(readWorkspaceFile(root, 'invalid.pdf'), /valid PDF/);
+  const large = Buffer.alloc(20 * 1024 * 1024, 0);
+  large.write('%PDF-1.7\n');
+  fs.writeFileSync(path.join(root, 'large.pdf'), large);
+  assert.equal(Buffer.from((await readWorkspaceFile(root, 'large.pdf')).base64, 'base64').length, large.length);
+  fs.appendFileSync(path.join(root, 'large.pdf'), 'x');
+  await assert.rejects(readWorkspaceFile(root, 'large.pdf'), /20 MiB/);
+  fs.writeFileSync(path.join(outside, 'private.pdf'), bytes);
+  await assert.rejects(readWorkspaceFile(root, path.join(outside, 'private.pdf')), /outside/);
+  assert.deepEqual(Buffer.from((await readWorkspaceFile(root, 'files/private.pdf', outside)).base64, 'base64'), bytes);
+});
+
 test('terminal references include Markdown, quoted Windows paths, file URLs and source locations without web URLs', () => {
-  const text = '[report](reports/report data.md) `config.json:12:3` "C:\\My Files\\index.html" file:///C:/repo/data.json#L7 https://example.org/page.html';
+  const text = '[report](reports/report data.md) `config.json:12:3` "C:\\My Files\\index.html" file:///C:/repo/data.json#L7 https://example.org/page.html [PDF](docs/my report.pdf) file:///C:/repo/report.PDF';
   const links = findArtifactReferences(text);
   assert.deepEqual(links.map(link => link.reference), [
     'reports/report data.md', 'config.json:12:3', 'C:\\My Files\\index.html', 'file:///C:/repo/data.json#L7',
+    'docs/my report.pdf', 'file:///C:/repo/report.PDF',
   ]);
   for (const link of links) assert.equal(text.slice(link.start, link.end), link.reference);
   assert.equal(resolveArtifactLink('C:\\repo\\reports\\summary.md', '../data.json'), 'file:///C:/repo/data.json');

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { WorkspaceFile } from '../../shared/ipc-channels';
 import { artifactHtmlDocument, resolveArtifactLink } from '../../shared/artifact-links';
+
+const PdfPreview = lazy(() => import('./PdfPreview').then(module => ({ default: module.PdfPreview })));
 
 export function ArtifactPreview({ sessionId, cwd, reference, onOpenFile }: {
   sessionId: string; cwd: string; reference: string; onOpenFile: (reference: string) => void;
@@ -34,6 +36,9 @@ export function ArtifactPreview({ sessionId, cwd, reference, onOpenFile }: {
       </div>
       {error && <div role="alert" className="p-4 text-red-400 break-words">{error}</div>}
       {!file && !error && <div className="p-4 text-fg-muted">Loading file...</div>}
+      {file?.kind === 'pdf' && <Suspense fallback={<div className="p-4 text-fg-muted">Loading PDF reader...</div>}>
+        <PdfPreview key={revision} base64={file.base64} />
+      </Suspense>}
       {file?.kind === 'json' && <div className="overflow-auto p-4 text-xs">
         {jsonError && <div role="alert" className="text-red-400 mb-3">{jsonError}</div>}
         <pre>{json}</pre>

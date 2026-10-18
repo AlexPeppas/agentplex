@@ -4,16 +4,20 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { loadSource } = require('./test-support.cjs');
+const { createPdf } = require('./pdf-fixture.cjs');
 const root = process.env.AGENTPLEX_EDITOR_E2E_ROOT;
 if (!root || !fs.existsSync(root)) throw new Error('Run through scripts/run-git-editor-e2e.cjs');
 app.setPath('appData', root);
 app.setPath('userData', path.join(root, 'profile'));
 app.disableHardwareAcceleration();
 const repository = path.resolve(__dirname, '..');
+const rendererRoot = process.env.AGENTPLEX_ARTIFACT_RENDERER_ROOT || repository;
 const workspace = path.join(root, 'workspace');
 fs.mkdirSync(workspace);
 fs.mkdirSync(path.join(workspace, 'nested'));
 fs.writeFileSync(path.join(workspace, 'result.json'), '{"verified":"first"}');
+fs.writeFileSync(path.join(workspace, 'report.pdf'), createPdf());
+fs.writeFileSync(path.join(workspace, 'broken.pdf'), '%PDF-1.7\nbroken document');
 fs.writeFileSync(path.join(workspace, 'nested', 'next.json'), '{"nested":true}');
 fs.writeFileSync(path.join(workspace, 'summary.md'), '# Native Markdown\n\n| Metric | Value |\n| --- | --- |\n| Tests | Passed |\n\n[Nested JSON](nested/next.json)\n\n<script>window.badMarkdown=true</script>\n<img src="https://preview-test.invalid/image">\n[Unsafe](javascript:alert(1))');
 fs.writeFileSync(path.join(workspace, 'report.html'), '<h1 id="report">Native HTML</h1><script>window.badHtml=true</script>'
@@ -63,6 +67,7 @@ async function clickTerminalText(text, attempt = 0) {
     if (!target?.closest('.xterm')) throw new Error('Terminal link hit test failed: ' + target?.outerHTML);
     target.dispatchEvent(new MouseEvent(${JSON.stringify(type)}, { bubbles: true, clientX: ${point.x}, clientY: ${point.y}, button: 0 }));
   })()`);
+  await evaluate(`document.querySelector('.xterm-screen').dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: ${point.x + 80}, clientY: ${point.y + 20} }))`);
   await dispatch('mousemove');
   await new Promise(resolve => setTimeout(resolve, 250));
   const hover = await evaluate(`(() => {
@@ -96,7 +101,7 @@ app.whenReady().then(async () => {
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({
     responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:",
+      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:",
     ] },
   }));
   manager.start();
@@ -106,14 +111,14 @@ app.whenReady().then(async () => {
       nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false, offscreen: true } });
   loadSource('src/main/preview-navigation.ts').installPreviewNavigation(win.webContents);
   win.webContents.on('console-message', event => {
-    if (/Uncaught|Minified React error/.test(event.message)) rendererErrors.push(event.message);
+    if (/Uncaught|Minified React error|Setting up fake worker|Failed to load font|Unable to load (?:font|CMap)/.test(event.message)) rendererErrors.push(event.message);
   });
   manager.setWindow(win);
-  await win.loadFile(path.join(repository, '.vite', 'renderer', 'main_window', 'index.html'));
+  await win.loadFile(path.join(rendererRoot, '.vite', 'renderer', 'main_window', 'index.html'));
   await wait(() => evaluate(`!!document.querySelector('.react-flow')`), 'full production renderer');
   fs.mkdirSync(path.dirname(events));
   fs.writeFileSync(events, record('session.start', { context: { cwd: workspace } })
-    + record('assistant.message', { content: 'Open `result.json` for the generated output.' }));
+    + record('assistant.message', { content: 'Open `result.json` for the generated output.\nRead `report.pdf` for the PDF.' }));
   await wait(() => manager.list().length === 1, 'new CLI discovery');
   const info = manager.list()[0];
   assert.equal(info.readOnly, true);
@@ -130,6 +135,49 @@ app.whenReady().then(async () => {
   await clickTerminalText('result.json');
   await wait(() => evaluate(`(${preview})?.querySelector('pre')?.textContent.includes('"verified": "first"')`), 'plain terminal path opens native JSON tab');
   assert.equal(await evaluate(`window.testTerminalElement.isConnected`), true);
+  await clickText(info.title);
+  await wait(() => evaluate(`document.querySelector('.xterm-rows').textContent.includes('report.pdf')`), 'PDF terminal link');
+  await clickTerminalText('report.pdf');
+  const pdfCanvas = `(${preview})?.querySelector('canvas[data-rendered="true"]')`;
+  await wait(() => evaluate(`!!(${pdfCanvas})`), 'PDF renders from terminal link');
+  assert.equal(await evaluate(`(${preview}).textContent.includes('Page 1 of 2')`), true);
+  assert.deepEqual(await evaluate(`Array.from((${pdfCanvas}).getContext('2d').getImageData(5, 5, 1, 1).data)`), [255, 0, 0, 255]);
+  assert.ok(await evaluate(`(() => {
+    const canvas = (${pdfCanvas});
+    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let textPixels = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] + pixels[index + 1] + pixels[index + 2] < 60 && pixels[index + 3] > 200) textPixels++;
+    }
+    return textPixels > 40;
+  })()`), 'PDF text glyphs must render, not only the page background');
+  await clickText('Next page', `(${preview})`);
+  await wait(() => evaluate(`!!(${pdfCanvas}) && (${preview}).textContent.includes('Page 2 of 2')`), 'PDF page navigation');
+  assert.deepEqual(await evaluate(`Array.from((${pdfCanvas}).getContext('2d').getImageData(5, 5, 1, 1).data)`), [0, 0, 255, 255]);
+  await evaluate(`(() => { const zoom = (${preview}).querySelector('select[aria-label="PDF zoom"]'); zoom.value = '1.5'; zoom.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await wait(() => evaluate(`!!(${pdfCanvas}) && (${pdfCanvas}).style.width === '360px'`), 'PDF zoom');
+  await clickText('Previous page', `(${preview})`);
+  await wait(() => evaluate(`!!(${pdfCanvas}) && (${preview}).textContent.includes('Page 1 of 2')`), 'PDF previous page');
+  await clickText('Reload', `(${preview})`);
+  await wait(() => evaluate(`!!(${pdfCanvas})`), 'PDF reload');
+  await evaluate(`(() => {
+    const buttons = [...(${preview}).querySelectorAll('button')];
+    const next = buttons.find(button => button.textContent === 'Next page');
+    const previous = buttons.find(button => button.textContent === 'Previous page');
+    next.click();
+    requestAnimationFrame(() => previous.click());
+  })()`);
+  await wait(() => evaluate(`!!(${pdfCanvas}) && (${preview}).textContent.includes('Page 1 of 2')`), 'PDF cancels obsolete page renders');
+  assert.equal(await evaluate(`typeof window.badPdf`), 'undefined', 'PDF JavaScript must not execute');
+  assert.equal(await evaluate(`window.testTerminalElement.isConnected`), true);
+  await clickText('broken.pdf', `document.querySelector('aside[aria-label="Workspace files"]')`);
+  await wait(() => evaluate(`(${preview})?.querySelector('[role="alert"]')?.textContent.includes('Cannot open PDF')`), 'corrupt PDFs show an explicit reader error');
+  await clickText('report.pdf', `document.querySelector('aside[aria-label="Workspace files"]')`);
+  await wait(() => evaluate(`!!(${pdfCanvas})`), 'PDF tree reopens existing tab');
+  await evaluate(`document.querySelector('button[aria-label="Close report.pdf"]').click()`);
+  await wait(() => evaluate(`!document.querySelector('button[aria-label="Close report.pdf"]')`), 'PDF tab closes');
+  await clickText('report.pdf', `document.querySelector('aside[aria-label="Workspace files"]')`);
+  await wait(() => evaluate(`!!(${pdfCanvas})`), 'PDF reader reopens after disposing its worker');
   await clickText('summary.md', `document.querySelector('aside[aria-label="Workspace files"]')`);
   await wait(() => evaluate(`(${preview})?.querySelector('article h1')?.textContent === 'Native Markdown'`), 'native Markdown');
   assert.equal(await evaluate(`!!(${preview}).querySelector('table')`), true);
@@ -198,7 +246,7 @@ app.whenReady().then(async () => {
   await new Promise(resolve => setTimeout(resolve, 1800));
   assert.equal(manager.list().length, 0, 'stopped monitors must not immediately reattach');
   assert.deepEqual(rendererErrors, []);
-  console.log(JSON.stringify({ normalCliDiscovery: true, plainAndOsc8Links: true, jsonMarkdownHtml: true,
+  console.log(JSON.stringify({ normalCliDiscovery: true, plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true,
     htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true }));
   manager.stop();
   win.destroy();
