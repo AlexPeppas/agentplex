@@ -188,6 +188,7 @@ export class JsonlSessionWatcher extends EventEmitter {
   private pendingTodoSql = new Map<string, string>();
   private telemetry: SessionTelemetryEvent | null = null;
   private copilotLifecycle = new CopilotLifecycle();
+  private copilotStartedAt = 0;
   private lastLifecycleStatus: SessionStatus | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   /** When true, prime the read offset to the current end-of-file on start so
@@ -267,6 +268,7 @@ export class JsonlSessionWatcher extends EventEmitter {
         this.nextCopilotTaskNumber = 1;
         if (this.format === 'copilot') this.emit('task-list', { tasks: [] } satisfies TaskListEvent);
         this.copilotLifecycle.reset();
+        this.copilotStartedAt = 0;
         this.publishLifecycle();
       }
       if (stat.size === this.offset) return;
@@ -304,6 +306,7 @@ export class JsonlSessionWatcher extends EventEmitter {
     }
 
     if (!record || typeof record !== 'object') return;
+    if (this.format === 'copilot' && !this.isCurrentCopilotRecord(record)) return;
     if (this.format === 'claude') this.processClaudeRecord(record);
     else this.processCopilotRecord(record);
     this.emit('record', record);
@@ -369,6 +372,21 @@ export class JsonlSessionWatcher extends EventEmitter {
       if (end === 0) return;
       const maxBytes = 2 * 1024 * 1024;
       const start = Math.max(0, end - maxBytes);
+      if (this.format === 'copilot' && this.hydrateLifecycle && start > 0) {
+        // Forks rewrite the first session.start but retain older parent events,
+        // including shutdowns. The current start can be outside the tail.
+        const header = Buffer.alloc(Math.min(64 * 1024, end));
+        const bytesRead = fs.readSync(fd, header, 0, header.length, 0);
+        const newline = header.subarray(0, bytesRead).indexOf(10);
+        if (newline >= 0) {
+          try {
+            const record = JSON.parse(header.subarray(0, newline).toString('utf8'));
+            if (record && typeof record === 'object') this.isCurrentCopilotRecord(record);
+          } catch (error) {
+            if (!(error instanceof SyntaxError)) throw error;
+          }
+        }
+      }
       const buf = Buffer.alloc(end - start);
       fs.readSync(fd, buf, 0, buf.length, start);
       let text = this.liveDecoder.write(buf);
@@ -391,13 +409,14 @@ export class JsonlSessionWatcher extends EventEmitter {
           if (!record || typeof record !== 'object') continue;
           if (this.format === 'claude') this.processClaudeTelemetry(record);
           else {
+            if (!this.isCurrentCopilotRecord(record)) continue;
             this.processCopilotTelemetry(record);
-            if (this.hydrateLifecycle) {
+            if (this.hydrateLifecycle && record.agentId == null) {
               this.copilotLifecycle.accept(record);
-              if (!record.agentId && (record.type === 'session.start' || record.type === 'session.resume')) {
+              if (record.type === 'session.start' || record.type === 'session.resume') {
                 workspaceRecord = record;
                 shutdownRecord = undefined;
-              } else if (!record.agentId && record.type === 'session.shutdown') shutdownRecord = record;
+              } else if (record.type === 'session.shutdown') shutdownRecord = record;
             }
           }
         } catch {
@@ -411,6 +430,15 @@ export class JsonlSessionWatcher extends EventEmitter {
     } finally {
       if (fd !== null) fs.closeSync(fd);
     }
+  }
+
+  private isCurrentCopilotRecord(record: { type?: unknown; timestamp?: unknown; agentId?: unknown }): boolean {
+    if (!this.hydrateLifecycle) return true;
+    const timestamp = typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN;
+    if (record.type === 'session.start' && record.agentId == null && Number.isFinite(timestamp)) {
+      this.copilotStartedAt = Math.max(this.copilotStartedAt, timestamp);
+    }
+    return !Number.isFinite(timestamp) || timestamp >= this.copilotStartedAt;
   }
 
   private publishLifecycle(): void {
@@ -588,7 +616,7 @@ export class JsonlSessionWatcher extends EventEmitter {
    *     status immediately (avoids the 500ms terminal-pattern poll lag).
    */
   private processCopilotRecord(record: any): void {
-    this.copilotLifecycle.accept(record);
+    if (record.agentId == null) this.copilotLifecycle.accept(record);
     this.processCopilotTelemetry(record);
     const type = record.type;
     const data = record.data;

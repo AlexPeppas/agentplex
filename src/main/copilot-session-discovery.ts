@@ -14,6 +14,8 @@ export class CopilotSessionDiscovery {
   private watcher: fs.FSWatcher | null = null;
   private resumeAfter = new Map<string, number>();
   private failures = new Map<string, string>();
+  private scanTimer: ReturnType<typeof setTimeout> | null = null;
+  private scanRequested = false;
 
   ignore(uuid: string): void {
     this.seen.add(uuid);
@@ -40,6 +42,21 @@ export class CopilotSessionDiscovery {
     this.watcher = null;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.scanTimer) clearTimeout(this.scanTimer);
+    this.scanTimer = null;
+    this.scanRequested = false;
+  }
+
+  private schedulePoll(): void {
+    if (!this.controller || this.controller.signal.aborted) return;
+    this.scanRequested = true;
+    if (this.busy || this.scanTimer) return;
+    this.scanTimer = setTimeout(() => {
+      this.scanTimer = null;
+      if (this.busy) return;
+      this.scanRequested = false;
+      void this.poll();
+    }, 25);
   }
 
   async poll(): Promise<void> {
@@ -52,7 +69,11 @@ export class CopilotSessionDiscovery {
           this.watcher = fs.watch(this.root, { recursive: true }, (_event, filename) => {
             if (!filename) return;
             const parts = filename.toString().split(/[\\/]/);
-            if (parts.length === 2 && parts[1] === 'events.jsonl') this.activity.add(parts[0]);
+            if (parts.length === 2 && (parts[1] === 'events.jsonl' || parts[1] === 'workspace.yaml')
+              && !this.isManaged(parts[0])) {
+              this.activity.add(parts[0]);
+              this.schedulePoll();
+            }
           });
           this.watcher.on('error', error => {
             console.error('[discovery] Session watch failed:', error);
@@ -123,6 +144,7 @@ export class CopilotSessionDiscovery {
       if (!signal.aborted) console.error('[discovery] Failed to scan new Copilot sessions:', error);
     } finally {
       this.busy = false;
+      if (this.scanRequested) this.schedulePoll();
     }
   }
 }

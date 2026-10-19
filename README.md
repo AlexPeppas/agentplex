@@ -45,6 +45,37 @@ To build a distributable installer:
 pnpm make
 ```
 
+### Updating a source checkout
+
+After pulling changes, install the dependencies before starting AgentPlex:
+
+```bash
+git pull --ff-only
+pnpm install --frozen-lockfile
+pnpm start
+```
+
+`git pull` updates the source and lockfile, but does not install new dependencies.
+Run the install command in each checkout or worktree you launch, even if it
+already has a `node_modules` directory.
+
+### Troubleshooting: startup stuck building the main target
+
+If `pnpm start` finishes building preload but stays at `Building ... main.ts target`,
+the checkout may be missing a newly added dependency such as `sanitize-html`.
+Cancel only the stalled startup command with Ctrl+C, then run:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm start
+```
+
+Startup now checks runtime dependency entry points before launching the build
+and reports missing or incomplete packages with these recovery commands.
+If installation fails, address the reported installation error before retrying
+startup. This recovery does not require deleting session data or resetting
+configuration. These instructions apply to source checkouts, not the packaged EXE.
+
 ### Global CLI shortcut (optional)
 
 ```bash
