@@ -74,8 +74,12 @@ pnpm is pinned via `packageManager` in package.json. If you have [corepack](http
 - **Plan & task visualization** — see plans and task lists rendered in the graph
 - **Session resume** — resume previous Claude and Copilot sessions from the same launcher UX
 - **External session adoption** — discover and adopt running Claude/Copilot sessions
-- **Dark / light mode** — warm terracotta palette with theme toggle
+- **Graphite dark / Stone light** — muted paired themes for the graph, explorers, and toolbar
 - **Inline rename** — double-click any node to rename it
+
+Switch between Graphite and Stone in **Settings**; your choice persists across
+launches. Terminal output and Git diff editors remain dark in both themes to
+preserve CLI and code readability.
 
 <p align="center">
   <img src="assets/session-graph.png" alt="AgentPlex screenshot" width="800" />

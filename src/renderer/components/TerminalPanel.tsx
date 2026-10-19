@@ -1,32 +1,13 @@
 import { useRef, lazy, Suspense, useEffect, useCallback, useState } from 'react';
-import { X, GitBranch, Terminal, Maximize2, Minimize2, FolderOpen } from 'lucide-react';
+import { X, GitBranch, Maximize2, Minimize2, FolderOpen } from 'lucide-react';
+import { CliIcon } from './CliIcon';
 import { useTerminal } from '../hooks/useTerminal';
 import { useAppStore } from '../store';
 import { defineAgentPlexTheme } from '../monaco-theme';
-import type { CliTool } from '../../shared/ipc-channels';
 import { SessionStatus } from '../../shared/ipc-channels';
 import { StatusIndicator } from './StatusIndicator';
 import { WorkspaceExplorer } from './WorkspaceExplorer';
 import { ContextMeter, SessionAge } from './SessionMetrics';
-import claudeLogo from '../../../assets/claude-logo.svg';
-import codexDark from '../../../assets/codex-dark.svg';
-import codexLight from '../../../assets/codex-light.svg';
-import copilotDark from '../../../assets/githubcopilot-dark.svg';
-import copilotLight from '../../../assets/githubcopilot-light.svg';
-
-const CLI_ICONS: Record<string, { dark: string; light: string }> = {
-  claude: { dark: claudeLogo, light: claudeLogo },
-  codex: { dark: codexLight, light: codexDark },
-  copilot: { dark: copilotLight, light: copilotDark },
-};
-
-function CliIcon({ cli, size = 12 }: { cli?: CliTool; size?: number }) {
-  if (!cli) return <Terminal size={size} className="shrink-0" />;
-  const icons = CLI_ICONS[cli];
-  if (!icons) return <Terminal size={size} className="shrink-0" />;
-  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-  return <img src={theme === 'dark' ? icons.dark : icons.light} alt="" style={{ width: size, height: size }} className="shrink-0" />;
-}
 
 // Lazy-load GitDiffPanel so Monaco is only loaded when needed
 const GitDiffPanel = lazy(() =>
@@ -101,13 +82,13 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
       onClick={handleActivate}
     >
       {/* Pane header */}
-      <div className={`flex shrink-0 items-center justify-between py-0 px-1 bg-[#262420] border-b ${isActive ? 'border-[#d18a7a]' : 'border-[#3e3830]'}`}>
+      <div className={`terminal-pane__header flex shrink-0 items-center justify-between py-0 px-1 bg-surface border-b ${isActive ? 'border-accent-border' : 'border-border'}`}>
         <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto">
           <button
-            className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium border-b transition-colors ${
               terminalTab === 'session'
-                ? 'text-[#ece4d8] border-[#d18a7a]'
-                : 'text-[#9a8a70] border-transparent hover:text-[#ece4d8]'
+                ? 'text-fg border-accent'
+                : 'text-fg-muted border-transparent hover:text-fg'
             }`}
             onClick={() => setTerminalTab('session')}
           >
@@ -115,10 +96,10 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
             {sessionTitle}
           </button>
           <button
-            className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-t border-b-2 transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium border-b transition-colors ${
               terminalTab === 'git'
-                ? 'text-[#ece4d8] border-[#d18a7a]'
-                : 'text-[#9a8a70] border-transparent hover:text-[#ece4d8]'
+                ? 'text-fg border-accent'
+                : 'text-fg-muted border-transparent hover:text-fg'
             }`}
             onClick={() => setTerminalTab('git')}
           >
@@ -126,8 +107,8 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
             Git
           </button>
           {files.map(reference => (
-            <div key={reference} className={`flex items-center shrink-0 text-xs border-b-2 ${terminalTab === `file:${reference}` ? 'border-accent text-fg' : 'border-transparent text-fg-muted'}`}>
-              <button className="px-2 py-1.5 max-w-[160px] truncate" title={reference} onClick={() => setTerminalTab(`file:${reference}`)}>
+            <div key={reference} className={`flex items-center shrink-0 text-xs border-b ${terminalTab === `file:${reference}` ? 'border-accent text-fg' : 'border-transparent text-fg-muted'}`}>
+              <button className="px-2 py-2 max-w-[160px] truncate" title={reference} onClick={() => setTerminalTab(`file:${reference}`)}>
                 {reference.split(/[\\/]/).pop()}
               </button>
               <button aria-label={`Close ${reference}`} className="p-1" onClick={() => {
@@ -138,16 +119,16 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
           ))}
         </div>
         <div className="flex items-center gap-1 pr-1">
-          <button title="Toggle workspace files (pane must be at least 520px wide)" aria-label="Toggle workspace files" aria-pressed={showFiles} className="p-1 text-fg-muted" onClick={() => setShowFiles(!showFiles)}><FolderOpen size={14} /></button>
+          <button title="Toggle workspace files (pane must be at least 520px wide)" aria-label="Toggle workspace files" aria-pressed={showFiles} className="p-1 text-fg-muted rounded hover:bg-accent-subtle hover:text-fg" onClick={() => setShowFiles(!showFiles)}><FolderOpen size={14} /></button>
           <button
-            className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
+            className="bg-transparent border-none text-fg-muted text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-accent-subtle hover:text-fg"
             onClick={toggleTerminalFullscreen}
             title={terminalFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
             {terminalFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
           <button
-            className="bg-transparent border-none text-[#9a8a70] text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-[#3e3830] hover:text-[#ece4d8]"
+            className="bg-transparent border-none text-fg-muted text-base cursor-pointer py-0.5 px-1.5 rounded hover:bg-accent-subtle hover:text-fg"
             onClick={handleClose}
             title="Close pane"
           >
@@ -190,7 +171,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
       {/* Terminal body */}
       <div
-        className="terminal-body flex-1 min-h-0 min-w-0 p-1 overflow-hidden"
+        className="terminal-body flex-1 min-h-0 min-w-0 p-1 overflow-hidden bg-terminal"
         style={{ display: terminalTab === 'session' ? undefined : 'none' }}
       >
         <div ref={containerRef} className="h-full w-full overflow-hidden" />
@@ -201,7 +182,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
         <div className="flex-1 overflow-hidden">
           <Suspense
             fallback={
-              <div className="flex items-center justify-center h-full text-sm text-[#6a5e50]">
+              <div className="flex items-center justify-center h-full text-sm text-fg-muted">
                 Loading editor...
               </div>
             }
@@ -227,11 +208,11 @@ export function TerminalPanel() {
   if (openPanes.length === 0) return null;
 
   return (
-    <div className="flex h-full bg-[#1e1c18]">
+    <div className="flex h-full bg-surface">
       {openPanes.map((sessionId, idx) => (
         <div key={sessionId} className="flex flex-1 min-w-0 h-full">
           {idx > 0 && (
-            <div className="flex-[0_0_1px] bg-[#3e3830]" />
+            <div className="flex-[0_0_1px] bg-border" />
           )}
           <TerminalPane sessionId={sessionId} />
         </div>

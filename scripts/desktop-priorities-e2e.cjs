@@ -209,6 +209,7 @@ async function rendererTest(repositoryRoot) {
     gitBranchInfo: async () => null, updateSessionState() {} });
   const { ExplorerPanel } = loadSource('src/renderer/components/panels/ExplorerPanel.tsx', {
     '../../store': { useAppStore }, '../AttentionBox': { AttentionBox: () => null },
+    ...assets,
     ...Object.fromEntries(Object.entries(assets).map(([name, value]) => [name.replace('../../../', '../../../../'), value])),
   });
   useAppStore.setState({ sessions: {}, nodes: [], displayNames: {}, openPanes: [], nodeCounter: 0 });
@@ -299,12 +300,30 @@ async function rendererTest(repositoryRoot) {
   await settle();
   clickVisible([...menu('Session groups').querySelectorAll('button')].find(button => button.textContent === 'Menu group 79'));
   await wait(() => useAppStore.getState().nodes.find(node => node.id === 'menu-0').parentId === 'menu-group-79', 'graph group remains selectable');
+  const { ReactFlow, ReactFlowProvider } = require(require.resolve('@xyflow/react', { paths: [repositoryRoot] }));
+  document.documentElement.dataset.theme = 'dark';
+  useAppStore.getState().flashMessageEdge('theme-source', 'theme-target');
+  const messageEdge = useAppStore.getState().edges.find(edge => edge.source === 'theme-source');
+  reactRoot.render(React.createElement(ReactFlowProvider, null, React.createElement(ReactFlow, {
+    nodes: ['theme-source', 'theme-target'].map((id, index) => ({ id, position: { x: 30 + index * 220, y: 50 + index * 80 }, data: { label: id } })),
+    edges: [messageEdge],
+  })));
+  await wait(() => host.querySelector('.react-flow__edge-path[marker-end]') && host.querySelector('marker polyline'), 'real message SVG and arrow');
+  const messagePath = host.querySelector('.react-flow__edge-path[marker-end]');
+  const arrow = host.querySelector('marker polyline');
+  assert.notEqual(getComputedStyle(messagePath).markerEnd, 'none', 'CSS-variable marker IDs must produce valid SVG references');
+  assert.equal(getComputedStyle(messagePath).stroke, 'rgb(176, 193, 207)');
+  assert.equal(getComputedStyle(arrow).fill, 'rgb(176, 193, 207)');
+  document.documentElement.dataset.theme = 'light';
+  assert.equal(getComputedStyle(messagePath).stroke, 'rgb(93, 112, 100)', 'existing message edges follow theme changes');
+  assert.equal(getComputedStyle(arrow).fill, 'rgb(93, 112, 100)', 'existing arrowheads follow theme changes');
   reactRoot.unmount();
   assert.ok(cancellations.includes('projects') && cancellations.includes('sessions'));
   return { staleProviderAndProjectResponsesIgnored: true, exactConversationResumed: true,
     queryClearAndUnmountSafe: true, visibleHistoryFailures: true, duplicateNamesPreserveTemplateUuids: true,
     duplicateTemplateClicksBlocked: true, settingsReadAndWriteFailuresVisible: true, failedShellChangesPreserveSelection: true,
-    bottomEdgeMenusContained: true, resizeRepositionsMenus: true, nestedGroupsFlipAndScroll: true, graphMenusContained: true };
+    bottomEdgeMenusContained: true, resizeRepositionsMenus: true, nestedGroupsFlipAndScroll: true, graphMenusContained: true,
+    liveThemedMessageArrows: true };
 }
 
 let window;

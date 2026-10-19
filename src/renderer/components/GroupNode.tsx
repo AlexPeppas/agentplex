@@ -1,21 +1,11 @@
-import { memo, useState, useRef, useCallback } from 'react';
+import { memo, useState, useRef, useCallback, type CSSProperties } from 'react';
 import { NodeResizer, type NodeProps, type OnResizeEnd } from '@xyflow/react';
 import { useAppStore, type GroupNodeData } from '../store';
-
-/** Convert a #rrggbb hex colour to an rgba() string with the given alpha. */
-function hexToRgba(hex: string, alpha: number): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return hex;
-  const int = parseInt(m[1], 16);
-  const r = (int >> 16) & 255;
-  const g = (int >> 8) & 255;
-  const b = int & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
 
 export const GroupNode = memo(function GroupNode({ data, id, selected }: NodeProps) {
   const nodeData = data as GroupNodeData;
   const color = nodeData.color || '#7aa2f7';
+  const groupStyle: CSSProperties & { '--group-color': string } = { '--group-color': color };
   const renameGroup = useAppStore((s) => s.renameGroup);
   const resizeGroup = useAppStore((s) => s.resizeGroup);
   const [editing, setEditing] = useState(false);
@@ -51,8 +41,8 @@ export const GroupNode = memo(function GroupNode({ data, id, selected }: NodePro
 
   return (
     <div
-      className="w-full h-full rounded-full pointer-events-auto"
-      style={{ backgroundColor: hexToRgba(color, 0.08), border: `2px solid ${color}` }}
+      className="graph-group w-full h-full rounded-full pointer-events-auto"
+      style={groupStyle}
     >
       <NodeResizer
         color={color}
@@ -64,14 +54,13 @@ export const GroupNode = memo(function GroupNode({ data, id, selected }: NodePro
       />
       {/* Label pill at the top of the circle */}
       <div
-        className="absolute left-1/2 -translate-x-1/2 -top-3 px-2.5 py-0.5 rounded-full cursor-text whitespace-nowrap"
-        style={{ backgroundColor: color }}
+        className="graph-group__label absolute left-1/2 -translate-x-1/2 -top-3 flex items-center gap-2 px-2.5 py-1 rounded-full cursor-text whitespace-nowrap"
         onDoubleClick={handleDoubleClick}
       >
         {editing ? (
           <input
             ref={inputRef}
-            className="bg-transparent border-none text-white text-[11px] font-semibold uppercase tracking-wide outline-none"
+            className="bg-transparent border-none text-fg text-[10px] font-medium tracking-wide outline-none"
             style={{ width: `${Math.max(editValue.length, 4)}ch` }}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
@@ -80,7 +69,7 @@ export const GroupNode = memo(function GroupNode({ data, id, selected }: NodePro
             onMouseDown={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className="text-[11px] font-semibold text-white uppercase tracking-wide">{nodeData.label}</span>
+          <span className="text-[10px] font-medium tracking-wide">{nodeData.label}</span>
         )}
       </div>
     </div>

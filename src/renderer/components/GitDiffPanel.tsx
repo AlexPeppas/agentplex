@@ -9,12 +9,12 @@ import type { GitChangedFile, GitFileDiffResult, GitLogEntry, GitBranchInfo } fr
 loader.config({ paths: { vs: 'node_modules/monaco-editor/min/vs' } });
 
 const STATUS_COLORS: Record<string, string> = {
-  M: '#e8c070', // yellow - modified
-  A: '#a8c878', // green - added
-  D: '#e07070', // red - deleted
-  R: '#d18a7a', // accent - renamed
-  U: '#e8c070', // yellow - unmerged
-  '?': '#9a8a70', // muted - untracked
+  M: 'var(--warning)',
+  A: 'var(--success)',
+  D: 'var(--error)',
+  R: 'var(--accent)',
+  U: 'var(--warning)',
+  '?': 'var(--text-muted)',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -305,25 +305,25 @@ export function GitDiffPanel({ sessionId }: Props) {
         key={`${file.staged ? 's' : 'u'}-${file.path}`}
         className={`flex items-center gap-1.5 px-2 py-1 cursor-pointer rounded text-xs group ${
           isSelected
-            ? 'bg-[rgba(209,138,122,0.15)] text-[#ece4d8]'
-            : 'text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]'
+            ? 'bg-accent-subtle text-fg'
+            : 'text-fg-muted hover:bg-accent-subtle hover:text-fg'
         }`}
         onClick={() => setSelectedFile({ path: file.path, staged: file.staged })}
       >
         <span
           className="shrink-0 w-4 text-center font-bold text-[10px]"
-          style={{ color: STATUS_COLORS[file.status] || '#9a8a70' }}
+          style={{ color: STATUS_COLORS[file.status] || 'var(--text-muted)' }}
           title={STATUS_LABELS[file.status] || file.status}
         >
           {file.status}
         </span>
         <span className="truncate flex-1 min-w-0">
-          <span className="text-[#6a5e50]">{dirname}</span>
+          <span className="text-fg-muted">{dirname}</span>
           <span className="font-medium">{basename}</span>
         </span>
         {/* Stage/unstage button */}
         <button
-          className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#4e4638] text-[#9a8a70] hover:text-[#ece4d8]"
+          className="shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-0.5 rounded hover:bg-accent-subtle text-fg-muted hover:text-fg"
           onClick={(e) => {
             e.stopPropagation();
             if (file.staged) {
@@ -341,32 +341,32 @@ export function GitDiffPanel({ sessionId }: Props) {
   };
 
   return (
-    <div className="flex h-full bg-[#1e1c18]">
+    <div className="flex h-full bg-surface">
       {/* File list sidebar */}
-      <div className="w-56 shrink-0 border-r border-[#3e3830] flex flex-col overflow-hidden">
+      <div className="w-56 shrink-0 border-r border-border flex flex-col overflow-hidden">
         {/* Branch info bar */}
         {branchInfo && (
-          <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[#3e3830] text-[11px]">
-            <span className="text-[#d18a7a] font-medium truncate">{branchInfo.current}</span>
+          <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border text-[11px]">
+            <span className="text-accent font-medium truncate">{branchInfo.current}</span>
             {branchInfo.tracking && (
-              <span className="text-[#6a5e50] shrink-0">
-                {branchInfo.ahead > 0 && <span className="text-[#a8c878]">{'\u2191'}{branchInfo.ahead}</span>}
-                {branchInfo.behind > 0 && <span className="text-[#e8c070] ml-0.5">{'\u2193'}{branchInfo.behind}</span>}
+              <span className="text-fg-muted shrink-0">
+                {branchInfo.ahead > 0 && <span className="text-success">{'\u2191'}{branchInfo.ahead}</span>}
+                {branchInfo.behind > 0 && <span className="text-warning ml-0.5">{'\u2193'}{branchInfo.behind}</span>}
                 {branchInfo.ahead === 0 && branchInfo.behind === 0 && <span>{'\u2713'}</span>}
               </span>
             )}
             {!branchInfo.tracking && (
-              <span className="text-[#6a5e50] shrink-0 text-[10px]">no upstream</span>
+              <span className="text-fg-muted shrink-0 text-[10px]">no upstream</span>
             )}
           </div>
         )}
 
         {/* Changes header */}
-        <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#3e3830]">
-          <span className="text-xs font-medium text-[#9a8a70]">Changes</span>
+        <div className="flex items-center justify-between px-2 py-1.5 border-b border-border">
+          <span className="text-xs font-medium text-fg-muted">Changes</span>
           <div className="flex items-center gap-0.5">
             <button
-              className="p-0.5 rounded text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]"
+              className="p-0.5 rounded text-fg-muted hover:bg-accent-subtle hover:text-fg"
               onClick={refreshFiles}
               title="Refresh"
             >
@@ -378,21 +378,21 @@ export function GitDiffPanel({ sessionId }: Props) {
         {/* File list */}
         <div className="flex-1 overflow-y-auto py-1">
           {error && (
-            <div className="px-2 py-1 text-xs text-[#e07070]">{error}</div>
+            <div className="px-2 py-1 text-xs text-error">{error}</div>
           )}
           {files.length === 0 && !error && !loading && (
-            <div className="px-2 py-3 text-xs text-[#6a5e50] text-center">
+            <div className="px-2 py-3 text-xs text-fg-muted text-center">
               No changes
             </div>
           )}
           {stagedFiles.length > 0 && (
             <>
               <div className="flex items-center justify-between px-2 py-1">
-                <span className="text-[10px] font-semibold text-[#6a5e50] uppercase tracking-wider">
+                <span className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
                   Staged
                 </span>
                 <button
-                  className="p-0.5 rounded text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]"
+                  className="p-0.5 rounded text-fg-muted hover:bg-accent-subtle hover:text-fg"
                   onClick={handleUnstageAll}
                   title="Unstage all"
                 >
@@ -405,11 +405,11 @@ export function GitDiffPanel({ sessionId }: Props) {
           {unstagedFiles.length > 0 && (
             <>
               <div className="flex items-center justify-between px-2 py-1">
-                <span className="text-[10px] font-semibold text-[#6a5e50] uppercase tracking-wider">
+                <span className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
                   {stagedFiles.length > 0 ? 'Unstaged' : 'Changes'}
                 </span>
                 <button
-                  className="p-0.5 rounded text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]"
+                  className="p-0.5 rounded text-fg-muted hover:bg-accent-subtle hover:text-fg"
                   onClick={handleStageAll}
                   title="Stage all"
                 >
@@ -422,10 +422,10 @@ export function GitDiffPanel({ sessionId }: Props) {
         </div>
 
         {/* Commit / push / pull section */}
-        <div className="border-t border-[#3e3830] p-2 flex flex-col gap-1.5">
+        <div className="border-t border-border p-2 flex flex-col gap-1.5">
           {/* Commit message input */}
           <textarea
-            className="w-full bg-[#262420] border border-[#3e3830] rounded px-2 py-1.5 text-xs text-[#ece4d8] placeholder-[#6a5e50] resize-none outline-none focus:border-[#d18a7a]"
+            className="w-full bg-inset border border-border rounded px-2 py-1.5 text-xs text-fg placeholder:text-fg-muted resize-none outline-none focus:border-accent"
             rows={2}
             placeholder="Commit message..."
             value={commitMsg}
@@ -442,8 +442,8 @@ export function GitDiffPanel({ sessionId }: Props) {
           <button
             className={`flex items-center justify-center gap-1.5 w-full px-2 py-1 rounded text-xs font-medium transition-colors ${
               stagedFiles.length > 0 && commitMsg.trim() && !isBusy
-                ? 'bg-[rgba(209,138,122,0.15)] text-[#d18a7a] hover:bg-[rgba(209,138,122,0.25)]'
-                : 'bg-[#262420] text-[#6a5e50] cursor-default'
+                ? 'bg-accent-subtle text-accent hover:bg-accent-subtle-strong'
+                : 'bg-inset text-fg-muted cursor-default'
             }`}
             onClick={handleCommit}
             disabled={stagedFiles.length === 0 || !commitMsg.trim() || isBusy}
@@ -458,8 +458,8 @@ export function GitDiffPanel({ sessionId }: Props) {
             <button
               className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
                 !isBusy
-                  ? 'bg-[#262420] text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]'
-                  : 'bg-[#262420] text-[#6a5e50] cursor-default'
+                  ? 'bg-inset text-fg-muted hover:bg-accent-subtle hover:text-fg'
+                  : 'bg-inset text-fg-muted cursor-default'
               }`}
               onClick={handlePull}
               disabled={isBusy}
@@ -471,8 +471,8 @@ export function GitDiffPanel({ sessionId }: Props) {
             <button
               className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
                 !isBusy
-                  ? 'bg-[#262420] text-[#9a8a70] hover:bg-[#3e3830] hover:text-[#ece4d8]'
-                  : 'bg-[#262420] text-[#6a5e50] cursor-default'
+                  ? 'bg-inset text-fg-muted hover:bg-accent-subtle hover:text-fg'
+                  : 'bg-inset text-fg-muted cursor-default'
               }`}
               onClick={handlePush}
               disabled={isBusy}
@@ -486,7 +486,7 @@ export function GitDiffPanel({ sessionId }: Props) {
           {/* Command output */}
           {cmdOutput && (
             <div className={`px-2 py-1 rounded text-[10px] leading-snug break-words max-h-16 overflow-y-auto ${
-              cmdOutput.success ? 'bg-[rgba(168,200,120,0.1)] text-[#a8c878]' : 'bg-[rgba(224,112,112,0.1)] text-[#e07070]'
+              cmdOutput.success ? 'bg-success/10 text-success' : 'bg-error-subtle text-error'
             }`}>
               {cmdOutput.text}
             </div>
@@ -494,9 +494,9 @@ export function GitDiffPanel({ sessionId }: Props) {
         </div>
 
         {/* Log section (collapsible) */}
-        <div className="border-t border-[#3e3830]">
+        <div className="border-t border-border">
           <button
-            className="flex items-center gap-1 w-full px-2 py-1.5 text-xs text-[#9a8a70] hover:text-[#ece4d8]"
+            className="flex items-center gap-1 w-full px-2 py-1.5 text-xs text-fg-muted hover:text-fg"
             onClick={handleToggleLog}
           >
             {logOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -505,15 +505,15 @@ export function GitDiffPanel({ sessionId }: Props) {
           {logOpen && (
             <div className="max-h-32 overflow-y-auto pb-1">
               {logEntries.length === 0 && (
-                <div className="px-2 py-1 text-[10px] text-[#6a5e50]">No commits</div>
+                <div className="px-2 py-1 text-[10px] text-fg-muted">No commits</div>
               )}
               {logEntries.map((entry) => (
-                <div key={entry.hash} className="px-2 py-0.5 text-[10px] leading-relaxed hover:bg-[#3e3830] rounded mx-1">
+                <div key={entry.hash} className="px-2 py-0.5 text-[10px] leading-relaxed hover:bg-accent-subtle rounded mx-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[#d18a7a] font-mono shrink-0">{entry.shortHash}</span>
-                    <span className="text-[#ece4d8] truncate">{entry.subject}</span>
+                    <span className="text-accent font-mono shrink-0">{entry.shortHash}</span>
+                    <span className="text-fg truncate">{entry.subject}</span>
                   </div>
-                  <div className="text-[#6a5e50]">
+                  <div className="text-fg-muted">
                     {entry.author} {'\u00b7'} {entry.date}
                   </div>
                 </div>
@@ -526,18 +526,18 @@ export function GitDiffPanel({ sessionId }: Props) {
       {/* Diff editor area */}
       <div className="flex-1 flex flex-col min-w-0">
         {selectedFile && (
-          <div className="flex items-center justify-between px-3 py-1 border-b border-[#3e3830] bg-[#262420]">
-            <span className="text-xs text-[#9a8a70] truncate">
+          <div className="flex items-center justify-between px-3 py-1 border-b border-border bg-surface">
+            <span className="text-xs text-fg-muted truncate">
               {selectedFile.path}
-              {selectedFile.staged && <span className="ml-1.5 text-[10px] text-[#a8c878]">(staged)</span>}
-              {isModified && <span className="ml-1.5 text-[#e8c070]">*</span>}
+              {selectedFile.staged && <span className="ml-1.5 text-[10px] text-success">(staged)</span>}
+              {isModified && <span className="ml-1.5 text-warning">*</span>}
             </span>
             {!selectedFile.staged && (
               <button
                 className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
                   isModified
-                    ? 'bg-[rgba(209,138,122,0.15)] text-[#d18a7a] hover:bg-[rgba(209,138,122,0.25)]'
-                    : 'text-[#6a5e50] cursor-default'
+                    ? 'bg-accent-subtle text-accent hover:bg-accent-subtle-strong'
+                    : 'text-fg-muted cursor-default'
                 }`}
                 onClick={handleSave}
                 disabled={!activeDiff || !isModified || saving}
@@ -551,7 +551,7 @@ export function GitDiffPanel({ sessionId }: Props) {
         )}
         <div className="flex-1 min-h-0">
           {!selectedFile && (
-            <div className="flex items-center justify-center h-full text-sm text-[#6a5e50]">
+            <div className="flex items-center justify-center h-full text-sm text-fg-muted">
               Select a file to view diff
             </div>
           )}
@@ -580,7 +580,7 @@ export function GitDiffPanel({ sessionId }: Props) {
             />
           )}
           {selectedFile && !activeDiff && !error && (
-            <div className="flex items-center justify-center h-full text-sm text-[#6a5e50]">
+            <div className="flex items-center justify-center h-full text-sm text-fg-muted">
               Loading...
             </div>
           )}

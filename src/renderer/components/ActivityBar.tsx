@@ -49,7 +49,7 @@ export function ActivityBar() {
   const isSettingsActive = activePanelId === 'settings';
 
   return (
-    <div className="flex-none w-12 flex flex-col items-center pt-2 pb-2 gap-1 bg-inset border-r border-border">
+    <div className="flex-none w-12 flex flex-col items-center pt-3 pb-3 gap-2 bg-surface border-r border-border-soft">
       {/* Side panels */}
       {PANELS.map(({ id, icon: Icon }) => {
         const isActive = activePanelId === id;
@@ -66,7 +66,7 @@ export function ActivityBar() {
             {isActive && (
               <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-accent rounded-r-sm" />
             )}
-            <Icon size={20} />
+            <Icon size={18} strokeWidth={1.5} />
             {id === 'explorer' && waitingCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-4 px-0.5 rounded-full bg-warning-bg text-surface text-[9px] font-bold">
                 {waitingCount > 99 ? '99+' : waitingCount}
@@ -87,7 +87,7 @@ export function ActivityBar() {
           {drawingMode && (
             <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-accent rounded-r-sm" />
           )}
-          <Pencil size={20} />
+          <Pencil size={18} strokeWidth={1.5} />
         </button>
 
         {/* Expanded horizontal toolbar */}
@@ -211,7 +211,7 @@ export function ActivityBar() {
           {isSettingsActive && (
             <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-accent rounded-r-sm" />
           )}
-          <Settings size={20} />
+          <Settings size={18} strokeWidth={1.5} />
         </button>
       </div>
     </div>

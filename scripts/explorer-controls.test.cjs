@@ -69,6 +69,7 @@ test('explorer retains filters and expand/collapse without adding session-creati
   const overrides = { '../../store': store, '../store': store };
   for (const name of ['claude-logo', 'codex-dark', 'codex-light', 'githubcopilot-dark', 'githubcopilot-light']) {
     overrides[`../../../../assets/${name}.svg`] = '';
+    overrides[`../../../assets/${name}.svg`] = '';
   }
   const { ExplorerPanel } = loadSource('src/renderer/components/panels/ExplorerPanel.tsx', overrides);
   const html = renderToStaticMarkup(React.createElement(ExplorerPanel));

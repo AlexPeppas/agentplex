@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, Sun, Moon, Columns2 } from 'lucide-react';
 
-function getInitialTheme(): 'dark' | 'light' {
+export function getInitialTheme(): 'dark' | 'light' {
   const saved = localStorage.getItem('agentplex-theme');
   if (saved === 'dark' || saved === 'light') return saved;
   return 'dark';
@@ -60,7 +60,7 @@ export function SettingsPanel() {
         <div className="flex items-center gap-2">
           {theme === 'dark' ? <Moon size={13} className="text-fg-muted" /> : <Sun size={13} className="text-fg-muted" />}
           <span className="text-xs text-fg">
-            {theme === 'dark' ? 'Dark mode' : 'Light mode'}
+            {theme === 'dark' ? 'Graphite / Dark' : 'Stone / Light'}
           </span>
         </div>
         <span className="text-[10px] text-fg-muted">
