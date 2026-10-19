@@ -909,7 +909,7 @@ export class SessionManager {
       const data = isRecord(record.data) ? record.data : {};
       const context = isRecord(data.context) ? data.context : {};
       const cwd = format === 'claude' ? record.cwd
-        : record.type === 'session.start' || record.type === 'session.resume' ? context.cwd : undefined;
+        : record.agentId == null && (record.type === 'session.start' || record.type === 'session.resume') ? context.cwd : undefined;
       if (typeof cwd === 'string' && cwd !== session.cwd && path.isAbsolute(cwd)) {
         try {
           if (fs.statSync(cwd).isDirectory()) {
@@ -928,7 +928,7 @@ export class SessionManager {
         this.appendOutput(session, text);
         this.send(IPC.SESSION_DATA, { id: sessionId, data: text, offset: session.outputOffset });
       }
-      if (record.type === 'session.shutdown') {
+      if (record.type === 'session.shutdown' && record.agentId == null) {
         if (session.resumeSessionId) this.discovery?.ignore(session.resumeSessionId);
         this.updateStatus(session, SessionStatus.Killed);
         watcher.stop();
