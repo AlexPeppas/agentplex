@@ -112,11 +112,15 @@ Switch between Graphite and Stone in **Settings**; your choice persists across
 launches. Terminal output and Git diff editors remain dark in both themes to
 preserve CLI and code readability.
 
-<p align="center">
-  <img src="assets/session-graph.png" alt="AgentPlex screenshot" width="800" />
-</p>
+| Graphite (dark) | Stone (light) |
+| --- | --- |
+| ![Graphite session graph](assets/graphite-preview.png) | ![Stone session graph](assets/stone-preview.png) |
+| [Workspace and file preview](assets/graphite-workspace-preview.png) | [Workspace and file preview](assets/stone-workspace-preview.png) |
 
-> Three concurrent sessions on the graph canvas: **Autonomous Driving** spawned 3 sub-agents comparing Tesla, Waymo, and Cruise. **Fine Tuning** is in plan mode working through a structured research plan — it's currently waiting for human input (indicated by the **?** badge). **Mortgage** crawls and looks for the best interest rates. Each node reflects real-time session status at a glance. Hover any session and click the send icon to share context with another session.
+> Captured from the production renderer with synthetic sessions and an isolated
+> workspace. Click an image for the full-size view. Session cards show live state,
+> waiting sessions use a diamond indicator, and the graph dock provides zoom and
+> fit controls. Hover or keyboard-focus a card to reveal its actions.
 
 ## Configuration
 

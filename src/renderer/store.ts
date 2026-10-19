@@ -974,13 +974,21 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...getNodeSize(other),
         };
       });
+      const blockersAt = (position: { x: number; y: number }) => obstacles.filter(other =>
+        position.x < other.x + other.width + GROUP_ADJACENT_GAP
+        && position.x + nodeSz.width + GROUP_ADJACENT_GAP > other.x
+        && position.y < other.y + other.height + GROUP_ADJACENT_GAP
+        && position.y + nodeSz.height + GROUP_ADJACENT_GAP > other.y);
+      const centeredX = group.position.x + size / 2 - nodeSz.width / 2;
+      abs = [
+        abs,
+        { x: centeredX, y: group.position.y - nodeSz.height - GROUP_ADJACENT_GAP },
+        { x: centeredX, y: group.position.y + size + GROUP_ADJACENT_GAP },
+        { x: group.position.x - nodeSz.width - GROUP_ADJACENT_GAP, y: abs.y },
+      ].find(position => blockersAt(position).length === 0) ?? abs;
       // Move only the joining card, accounting for other groups' absolute positions.
       for (;;) {
-        const blockers = obstacles.filter(other =>
-          abs.x < other.x + other.width + GROUP_ADJACENT_GAP
-          && abs.x + nodeSz.width + GROUP_ADJACENT_GAP > other.x
-          && abs.y < other.y + other.height + GROUP_ADJACENT_GAP
-          && abs.y + nodeSz.height + GROUP_ADJACENT_GAP > other.y);
+        const blockers = blockersAt(abs);
         if (blockers.length === 0) break;
         abs.y = Math.max(...blockers.map(other => other.y + other.height + GROUP_ADJACENT_GAP));
       }

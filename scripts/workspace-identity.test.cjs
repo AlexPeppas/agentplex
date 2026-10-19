@@ -96,8 +96,9 @@ function withStore(run) {
 }
 
 test('menu grouping does not cover existing cards, including members of other groups', () => {
-  withStore(store => {
-    for (const id of ['anchor', 'joining', 'near', 'below']) store.getState().addSession(session(id, id));
+  for (const congested of [false, true]) withStore(store => {
+    const ids = ['anchor', 'joining', 'near', 'below', ...(congested ? ['above', 'bottom', 'left'] : [])];
+    for (const id of ids) store.getState().addSession(session(id, id));
     store.setState({ nodes: store.getState().nodes.map(node => ({
       ...node, position: { x: 0, y: 0 }, measured: { width: 240, height: 120 },
     })) });
@@ -105,8 +106,14 @@ test('menu grouping does not cover existing cards, including members of other gr
     const group = store.getState().nodes.find(node => node.type === 'groupNode');
     const x = group.position.x + group.width + 40;
     const y = group.position.y + group.width / 2 - 60;
-    store.setState({ nodes: store.getState().nodes.map(node => node.id === 'near' || node.id === 'below'
-      ? { ...node, position: { x, y: y + (node.id === 'below' ? 140 : 0) } } : node) });
+    const positions = {
+      near: { x, y }, below: { x, y: y + 140 },
+      above: { x: group.position.x + group.width / 2 - 120, y: group.position.y - 160 },
+      bottom: { x: group.position.x + group.width / 2 - 120, y: group.position.y + group.width + 40 },
+      left: { x: group.position.x - 280, y },
+    };
+    store.setState({ nodes: store.getState().nodes.map(node => positions[node.id]
+      ? { ...node, position: positions[node.id] } : node) });
     store.getState().createGroupWithMembers(['below']);
     const rectangles = () => store.getState().nodes.filter(node => node.type === 'sessionNode').map(node => {
       const parent = store.getState().nodes.find(other => other.id === node.parentId);
