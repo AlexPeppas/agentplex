@@ -26,6 +26,7 @@ function fixture(t) {
   const container = { isConnected: true, offsetParent: {}, clientWidth: 800, clientHeight: 400 };
   const term = {
     cols: 80, rows: 24,
+    options: { fontSize: 14 },
     write: (data, callback) => { assert.equal(data, ''); writes.push(callback); },
     clearTextureAtlas: () => calls.push('atlas'),
     refresh: (start, end) => calls.push(['refresh', start, end]),
@@ -206,4 +207,35 @@ test('persistent failures have bounded retries, cancelled on disposal', t => {
   assert.equal(f.timers.size, 1);
   f.controller.dispose();
   assert.equal(f.timers.size, 0);
+});
+
+test('a resize that changes the cell metrics (web font measured late) refits until stable', t => {
+  const f = fixture(t);
+  // The first fit still measures the fallback font (25 rows). xterm re-measures
+  // the cell right after a resize, so the real font makes the proposal shrink.
+  f.fit.fit = function () {
+    f.calls.push('fit');
+    Object.assign(f.term, this.dims);
+    if (this.dims.rows === 25) this.dims = { cols: 90, rows: 22 };
+  };
+  f.controller.schedule();
+  f.settle();
+  assert.deepEqual(f.calls, ['fit', 'fit', ['resize', 90, 22], ['refresh', 0, 21]]);
+});
+
+test('a forced refresh re-measures the cells before fitting (font loaded without any resize)', t => {
+  const f = fixture(t);
+  f.controller.schedule();
+  f.settle();
+  f.calls.length = 0;
+  // The font loaded after the first fit: only a fresh measure changes the proposal.
+  let remeasured = 0;
+  Object.defineProperty(f.term.options, 'fontSize', {
+    get: () => 14,
+    set: () => { remeasured++; f.fit.dims = { cols: 90, rows: 22 }; },
+  });
+  f.controller.schedule(true);
+  f.settle();
+  assert.ok(remeasured > 0, 'forced refresh must trigger a cell re-measure');
+  assert.deepEqual(f.calls, ['fit', ['resize', 90, 22], 'atlas', ['refresh', 0, 21]]);
 });
