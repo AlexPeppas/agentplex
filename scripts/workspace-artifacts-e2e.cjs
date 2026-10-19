@@ -27,7 +27,7 @@ const stateRoot = path.join(root, '.copilot', 'session-state');
 fs.mkdirSync(stateRoot, { recursive: true });
 const uuid = '12345678-1234-4234-8234-123456789012';
 const events = path.join(stateRoot, uuid, 'events.jsonl');
-const record = (type, data) => JSON.stringify({ type, timestamp: new Date().toISOString(), data }) + '\n';
+const record = (type, data, timestamp = new Date().toISOString()) => JSON.stringify({ type, timestamp, data }) + '\n';
 let manager, win;
 const network = [], rendererErrors = [];
 const wait = async (predicate, label) => {
@@ -116,13 +116,31 @@ app.whenReady().then(async () => {
   manager.setWindow(win);
   await win.loadFile(path.join(rendererRoot, '.vite', 'renderer', 'main_window', 'index.html'));
   await wait(() => evaluate(`!!document.querySelector('.react-flow')`), 'full production renderer');
+  // Align the fallback timer so it cannot satisfy the filesystem latency check.
+  manager.discovery.stop();
+  manager.discovery.start();
+  await wait(() => !manager.discovery.busy, 'discovery watch ready');
+  const discoveryBegan = performance.now();
   fs.mkdirSync(path.dirname(events));
   fs.writeFileSync(events, record('session.start', { context: { cwd: workspace } })
-    + record('assistant.message', { content: 'Open `result.json` for the generated output.\nRead `report.pdf` for the PDF.' }));
+    + record('session.shutdown', {}, new Date(Date.now() - 60000).toISOString()));
   await wait(() => manager.list().length === 1, 'new CLI discovery');
   const info = manager.list()[0];
   assert.equal(info.readOnly, true);
+  assert.equal(info.status, 'idle', 'copied parent shutdown must not kill the fork before it resumes');
   await wait(() => evaluate(`!!document.querySelector('[data-id="${info.id}"]')`), 'normal graph node');
+  const discoveryMs = Math.round(performance.now() - discoveryBegan);
+  assert.ok(discoveryMs < 750, `live graph discovery took ${discoveryMs}ms`);
+  fs.appendFileSync(events, record('session.resume', { context: { cwd: workspace } })
+    + record('assistant.turn_start', { turnId: 'child-working' })
+    + record('assistant.message', { content: 'Open `result.json` for the generated output.\nRead `report.pdf` for the PDF.' }));
+  await wait(() => manager.list()[0]?.status === 'running', 'fork becomes active on the same monitor');
+  await wait(() => evaluate(`[...document.querySelectorAll('[data-id="${info.id}"] span')].some(element => element.style.backgroundColor === 'var(--success)')`), 'running status rendered');
+  fs.appendFileSync(events, JSON.stringify({ type: 'session.shutdown', timestamp: new Date().toISOString(),
+    agentId: 'completed-sub-agent', data: {} }) + '\n');
+  await wait(() => manager.sessions.get(info.id).jsonlWatcher.snapshotOffset === fs.statSync(events).size, 'attributed shutdown consumed');
+  assert.equal(manager.list().length, 1);
+  assert.equal(manager.list()[0].status, 'running', 'a sub-agent shutdown must not kill its parent');
   await evaluate(`document.querySelector('[data-id="${info.id}"] > div').click()`);
   await wait(() => evaluate(`!!document.querySelector('.xterm-rows') && document.querySelector('aside[aria-label="Workspace files"]')?.textContent.includes('result.json')`), 'terminal and workspace tree');
   await evaluate(`window.testTerminalElement = document.querySelector('.xterm')`);
@@ -246,7 +264,8 @@ app.whenReady().then(async () => {
   await new Promise(resolve => setTimeout(resolve, 1800));
   assert.equal(manager.list().length, 0, 'stopped monitors must not immediately reattach');
   assert.deepEqual(rendererErrors, []);
-  console.log(JSON.stringify({ normalCliDiscovery: true, plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true,
+  console.log(JSON.stringify({ normalCliDiscovery: true, discoveryMs, liveForkPreserved: true, attributedShutdownSafe: true,
+    plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true,
     htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true }));
   manager.stop();
   win.destroy();

@@ -79,6 +79,85 @@ test('existing directories are discovered only after a fresh provider resume, no
   assert.equal(found.length, 1, 'past resumes cannot resurrect a detached monitor');
 });
 
+test('filesystem changes discover short-lived CLIs before the fallback poll', async t => {
+  const f = fixture(t);
+  const found = [];
+  const discovery = new f.CopilotSessionDiscovery(f.root, () => false, id => found.push(id));
+  f.disposers.push(() => discovery.stop());
+  discovery.start();
+  const waitUntil = async (predicate, timeout) => {
+    const deadline = performance.now() + timeout;
+    while (!predicate()) {
+      assert.ok(performance.now() < deadline, 'discovery must react to the filesystem without waiting a second');
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  };
+  await waitUntil(() => !discovery.baseline, 500);
+  const began = performance.now();
+  const file = f.make(1, '');
+  // Session metadata and the initial record need not be written atomically.
+  await new Promise(resolve => setTimeout(resolve, 50));
+  fs.appendFileSync(file, record('session.start', { context: { cwd: f.home } }));
+  await waitUntil(() => found.length === 1, 650);
+  assert.ok(performance.now() - began < 750);
+  assert.deepEqual(found, [uuid(1)]);
+  discovery.stop();
+  f.make(2);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.deepEqual(found, [uuid(1)]);
+});
+
+test('forked CLI history cannot kill a fresh monitor before its first resume, including beyond the hydration tail', async t => {
+  const f = fixture(t);
+  const { SessionManager } = loadSource('src/main/session-manager.ts', f.overrides);
+  const manager = new SessionManager();
+  f.disposers.push(() => manager.stop());
+  const began = Date.now();
+  const timed = (type, timestamp, data = {}) => JSON.stringify({ type, timestamp: new Date(timestamp).toISOString(), data }) + '\n';
+  for (const n of [1, 2]) {
+    const file = f.make(n, timed('session.start', began, { context: { cwd: f.home } })
+      + timed('assistant.message', began - 10000, { content: n === 2 ? 'x'.repeat(2 * 1024 * 1024) : 'inherited result' })
+      + timed('session.shutdown', began - 5000));
+    manager.monitorCopilotSession(uuid(n), f.home);
+    await Promise.resolve();
+    const info = manager.list().find(info => info.resumeSessionId === uuid(n));
+    const watcher = manager.sessions.get(info.id).jsonlWatcher;
+    assert.equal(manager.list().find(session => session.id === info.id).status, 'idle', 'an inherited shutdown predates the new fork');
+    assert.notEqual(watcher.timer, null);
+    fs.appendFileSync(file, timed('session.shutdown', began - 4000));
+    watcher.poll();
+    assert.equal(manager.list().find(session => session.id === info.id).status, 'idle', 'late copies of parent history are not live shutdowns');
+    assert.notEqual(watcher.timer, null);
+    fs.appendFileSync(file, timed('session.resume', began + 1, { context: { cwd: f.home } })
+      + timed('assistant.turn_start', began + 2, { turnId: 'new-work' }));
+    watcher.poll();
+    assert.equal(manager.list().find(session => session.id === info.id).status, 'running');
+    fs.appendFileSync(file, timed('session.shutdown', began + 3));
+    watcher.poll();
+    assert.equal(manager.list().find(session => session.id === info.id).status, 'killed', 'the actual child shutdown still ends monitoring');
+  }
+  assert.equal(manager.list().length, 2, 'resuming a fork must not require replacement graph nodes');
+});
+
+test('an attributed sub-agent shutdown cannot stop its independently monitored parent CLI', async t => {
+  const f = fixture(t);
+  const file = f.make(1, record('session.start', { context: { cwd: f.home } })
+    + record('assistant.turn_start', { turnId: 'parent-work' })
+    + JSON.stringify({ type: 'session.shutdown', agentId: 'earlier-worker', data: {} }) + '\n');
+  const { SessionManager } = loadSource('src/main/session-manager.ts', f.overrides);
+  const manager = new SessionManager();
+  f.disposers.push(() => manager.stop());
+  manager.monitorCopilotSession(uuid(1), f.home);
+  await Promise.resolve();
+  const info = manager.list()[0];
+  const watcher = manager.sessions.get(info.id).jsonlWatcher;
+  assert.equal(manager.list()[0].status, 'running');
+  fs.appendFileSync(file, JSON.stringify({ type: 'session.shutdown', agentId: 'finished-worker', data: {} }) + '\n');
+  watcher.poll();
+  assert.equal(manager.list()[0].status, 'running');
+  assert.notEqual(watcher.timer, null);
+});
+
 test('monitored CLIs replay and tail exactly once, preserve UTF-8, follow workspaces and never own processes or restore state', async t => {
   const f = fixture(t);
   const events = [];
