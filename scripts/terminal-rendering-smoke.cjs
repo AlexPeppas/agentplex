@@ -138,6 +138,14 @@ async function rendererTest(root) {
   await waitForLayout();
   const term = terminals[0];
   assert.ok(term);
+  // The pane mounted over retained output: its first PTY size must be a
+  // one-row shrink followed by the real size, so a full-screen CLI gets two
+  // SIGWINCHs and repaints the torn replay.
+  const replaySizes = sizes.filter(entry => entry.id === 'demo').slice(0, 2);
+  assert.deepEqual(replaySizes, [
+    { id: 'demo', cols: replaySizes[1]?.cols, rows: (replaySizes[1]?.rows ?? 0) - 1 },
+    { id: 'demo', cols: term.cols, rows: term.rows },
+  ], 'a pane mounted over retained output must shrink one row and restore');
   await new Promise(resolve => term.write('', resolve));
   assert.equal(term.buffer.active.getLine(0).translateToString(true), 'HYDRATED_HISTORY');
   listeners.forEach(callback => callback({ id: 'demo', data: 'HYDRATED_HISTORY\r\n', offset: state.sessionBufferOffsets.demo }));
@@ -203,6 +211,11 @@ async function rendererTest(root) {
     render();
     await waitForLayout();
     assert.equal(activeTerminals()[0], term, 'pane changes must not replay surviving terminals');
+    for (const id of state.openPanes.slice(1)) {
+      if (state.sessionBuffers[id]) continue;
+      assert.equal(sizes.filter(entry => entry.id === id).length, 1,
+        `fresh pane ${id} without retained output must size its PTY once, with no redraw shrink`);
+    }
     checkAll();
     for (let round = 0; round < 4; round++) {
       const count = sizes.length;

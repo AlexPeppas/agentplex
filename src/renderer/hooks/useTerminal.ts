@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { useAppStore } from '../store';
 import { createTerminalResizeController } from '../terminal-resize';
+import { createReplayRedraw } from '../terminal-redraw';
 import { terminalArtifactReferences } from '../../shared/artifact-links';
 
 // Terminal always uses dark palette so text stays readable in both themes
@@ -182,11 +183,20 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     termRef.current = term;
 
+    // A pane mounted over retained output (renderer reload, pane reopened,
+    // session switched) replays a screen the CLI painted differentially, so
+    // its first PTY size is doubled to make the CLI repaint everything. Panes
+    // that start empty and read-only mirrors have nothing to repaint.
+    const mountState = useAppStore.getState();
+    const replayed = Boolean(mountState.sessionBuffers[sessionId]) &&
+      mountState.sessions[sessionId]?.readOnly !== true;
+    const redraw = createReplayRedraw(
+      (cols, rows) => window.agentPlex.resizeSession(sessionId, cols, rows), replayed);
+
     // Register in global set for zoom/refresh
     const entry: LiveTerminal = {
       term,
-      resize: createTerminalResizeController(term, fitAddon, containerRef.current,
-        (cols, rows) => window.agentPlex.resizeSession(sessionId, cols, rows)),
+      resize: createTerminalResizeController(term, fitAddon, containerRef.current, redraw.sendSize),
     };
     liveTerminals.add(entry);
 
@@ -293,6 +303,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       disposed = true;
       liveTerminals.delete(entry);
       entry.resize.dispose();
+      redraw.dispose();
       container.removeEventListener('contextmenu', handleContextMenu);
       resizeObserver.disconnect();
       cleanup();
