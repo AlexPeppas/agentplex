@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronRight, Terminal, Pencil, Trash2, Send, FolderOpen, Star, Layers, Search, X, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { CLI_TOOLS, SessionStatus, type CliTool, type DetectedShell } from '../../../shared/ipc-channels';
@@ -6,6 +7,7 @@ import { StatusIndicator } from '../StatusIndicator';
 import { ContextMeter, SessionAge } from '../SessionMetrics';
 import { AttentionBox } from '../AttentionBox';
 import { buildExplorerProjects } from '../../session-explorer';
+import { useViewportMenu } from '../../hooks/useViewportMenu';
 import claudeLogo from '../../../../assets/claude-logo.svg';
 import codexDark from '../../../../assets/codex-dark.svg';
 import codexLight from '../../../../assets/codex-light.svg';
@@ -83,6 +85,10 @@ export function ExplorerPanel() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const groupAnchorRef = useRef<HTMLDivElement>(null);
+  const groupMenuRef = useRef<HTMLDivElement>(null);
+  useViewportMenu(contextMenuRef, contextMenu);
+  useViewportMenu(groupMenuRef, groupSubmenuOpen ? contextMenu : null, groupAnchorRef);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [shells, setShells] = useState<DetectedShell[]>([]);
   const [defaultShellId, setDefaultShellId] = useState<string | null>(null);
@@ -385,9 +391,11 @@ export function ExplorerPanel() {
         </div>
       ))}
 
-      {contextMenu && (
+      {contextMenu && createPortal(
         <div
           ref={contextMenuRef}
+          role="menu"
+          aria-label={contextMenu.type === 'session' ? 'Session actions' : 'Project actions'}
           className="fixed bg-elevated border border-border-strong rounded-lg py-1 min-w-[160px] shadow-[0_8px_24px_var(--shadow-heavy)] z-[1000]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
@@ -415,6 +423,7 @@ export function ExplorerPanel() {
                 </button>
               ) : (
                 <div
+                  ref={groupAnchorRef}
                   className="relative"
                   onMouseEnter={() => setGroupSubmenuOpen(true)}
                   onMouseLeave={() => setGroupSubmenuOpen(false)}
@@ -426,7 +435,7 @@ export function ExplorerPanel() {
                     <ChevronRight size={12} />
                   </button>
                   {groupSubmenuOpen && (
-                    <div className="absolute left-full top-0 -mt-1 ml-0.5 bg-elevated border border-border-strong rounded-lg py-1 min-w-[150px] max-h-[280px] overflow-y-auto shadow-[0_8px_24px_var(--shadow-heavy)] z-[1001]">
+                    <div ref={groupMenuRef} role="menu" aria-label="Session groups" className="bg-elevated border border-border-strong rounded-lg py-1 min-w-[150px] overflow-y-auto shadow-[0_8px_24px_var(--shadow-heavy)] z-[1001]">
                       <button
                         className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
                         onClick={handleNewGroup}
@@ -546,7 +555,8 @@ export function ExplorerPanel() {
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
 
       {confirmDeleteId && (

@@ -6,6 +6,7 @@ import { StatusIndicator } from './StatusIndicator';
 import { ContextMeter, SessionAge } from './SessionMetrics';
 import { useAppStore, type SessionNodeData } from '../store';
 import { SessionStatus, type CliTool } from '../../shared/ipc-channels';
+import { useViewportMenu } from '../hooks/useViewportMenu';
 import claudeLogo from '../../../assets/claude-logo.svg';
 import codexDark from '../../../assets/codex-dark.svg';
 import codexLight from '../../../assets/codex-light.svg';
@@ -58,6 +59,10 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
   const [groupSubmenuOpen, setGroupSubmenuOpen] = useState(false);
   const [menuGroups, setMenuGroups] = useState<{ id: string; label: string; color: string }[]>([]);
   const projectMenuRef = useRef<HTMLDivElement>(null);
+  const groupAnchorRef = useRef<HTMLDivElement>(null);
+  const groupMenuRef = useRef<HTMLDivElement>(null);
+  useViewportMenu(projectMenuRef, projectMenu);
+  useViewportMenu(groupMenuRef, groupSubmenuOpen ? projectMenu : null, groupAnchorRef);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -94,15 +99,18 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
       setProjectMenu(null);
     };
     const dismissAlways = () => setProjectMenu(null);
+    const dismissOnOutsideWheel = (event: WheelEvent) => {
+      if (!projectMenuRef.current?.contains(event.target as Node)) dismissAlways();
+    };
     // Capture phase so we fire before React Flow swallows the event
     document.addEventListener('mousedown', dismissIfOutside, true);
     document.addEventListener('pointerdown', dismissIfOutside, true);
-    document.addEventListener('wheel', dismissAlways, { capture: true, passive: true });
+    document.addEventListener('wheel', dismissOnOutsideWheel, { capture: true, passive: true });
     document.addEventListener('keydown', dismissAlways, true);
     return () => {
       document.removeEventListener('mousedown', dismissIfOutside, true);
       document.removeEventListener('pointerdown', dismissIfOutside, true);
-      document.removeEventListener('wheel', dismissAlways, { capture: true } as EventListenerOptions);
+      document.removeEventListener('wheel', dismissOnOutsideWheel, { capture: true } as EventListenerOptions);
       document.removeEventListener('keydown', dismissAlways, true);
     };
   }, [projectMenu]);
@@ -279,6 +287,8 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
       {projectMenu && createPortal(
         <div
           ref={projectMenuRef}
+          role="menu"
+          aria-label="Session project actions"
           className="session-node__context-menu"
           style={{ position: 'fixed', left: projectMenu.x, top: projectMenu.y, zIndex: 1000 }}
           onClick={(e) => e.stopPropagation()}
@@ -299,6 +309,7 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
             </button>
           ) : (
             <div
+              ref={groupAnchorRef}
               className="session-node__submenu-anchor"
               onMouseEnter={() => setGroupSubmenuOpen(true)}
               onMouseLeave={() => setGroupSubmenuOpen(false)}
@@ -308,7 +319,7 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
                 <span className="session-node__submenu-caret">›</span>
               </button>
               {groupSubmenuOpen && (
-                <div className="session-node__context-menu session-node__submenu">
+                <div ref={groupMenuRef} role="menu" aria-label="Session groups" className="session-node__context-menu session-node__submenu">
                   <button
                     className="session-node__context-menu-item"
                     onClick={handleNewGroup}

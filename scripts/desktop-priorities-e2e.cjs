@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -200,11 +200,111 @@ async function rendererTest(repositoryRoot) {
   window.agentPlex.getDefaultShell = async () => { throw new Error('Synthetic settings read failure'); };
   reactRoot.render(React.createElement(Toolbar));
   await wait(() => host.querySelector('[role="alert"]')?.textContent.includes('Could not read settings.json'), 'startup settings read failure visible');
+  const fs = require('node:fs');
+  const cssRoot = path.join(repositoryRoot, '.vite', 'renderer', 'main_window', 'assets');
+  const style = document.createElement('style');
+  style.textContent = fs.readFileSync(path.join(cssRoot, fs.readdirSync(cssRoot).find(name => /^index-.*\.css$/.test(name))), 'utf8');
+  document.head.append(style);
+  Object.assign(window.agentPlex, { getShells: async () => [], getDefaultShell: async () => null,
+    gitBranchInfo: async () => null, updateSessionState() {} });
+  const { ExplorerPanel } = loadSource('src/renderer/components/panels/ExplorerPanel.tsx', {
+    '../../store': { useAppStore }, '../AttentionBox': { AttentionBox: () => null },
+    ...Object.fromEntries(Object.entries(assets).map(([name, value]) => [name.replace('../../../', '../../../../'), value])),
+  });
+  useAppStore.setState({ sessions: {}, nodes: [], displayNames: {}, openPanes: [], nodeCounter: 0 });
+  for (let index = 0; index < 30; index++) useAppStore.getState().addSession({
+    id: `menu-${index}`, title: `Session ${String(index).padStart(2, '0')}`, status: 'idle', cli: 'copilot',
+    cwd: 'C:\\synthetic\\menu', startedAt: Date.now(), lastActivityAt: Date.now(),
+  });
+  useAppStore.setState(state => ({ nodes: [...state.nodes, ...Array.from({ length: 80 }, (_, index) => ({
+    id: `menu-group-${index}`, type: 'groupNode', position: { x: 0, y: 0 },
+    data: { label: `Menu group ${index}`, color: '#7aa2f7' },
+  }))] }));
+  host.style.cssText = 'position:fixed;inset:0;overflow:auto;transform:translateZ(0)';
+  reactRoot.render(React.createElement(ExplorerPanel));
+  await wait(() => host.textContent.includes('Session 29'), 'explorer menu fixture');
+  host.scrollTop = host.scrollHeight;
+  const menu = label => document.querySelector(`[role="menu"][aria-label="${label}"]`);
+  const inViewport = element => {
+    const rect = element.getBoundingClientRect();
+    assert.ok(rect.left >= 7 && rect.top >= 7, `menu top/left outside viewport: ${JSON.stringify(rect)}`);
+    assert.ok(rect.right <= document.documentElement.clientWidth - 7 && rect.bottom <= document.documentElement.clientHeight - 7,
+      `menu bottom/right outside viewport: ${JSON.stringify(rect)}`);
+  };
+  const clickVisible = element => {
+    const rect = element.getBoundingClientRect();
+    const target = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    assert.ok(target && element.contains(target), 'menu option must be unobscured and hit-testable');
+    target.click();
+  };
+  const bottomSession = [...host.querySelectorAll('button')].find(button => button.textContent.includes('Session 29'));
+  const openBottomMenu = async () => {
+    bottomSession.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+      clientX: innerWidth - 3, clientY: innerHeight - 3 }));
+    await wait(() => menu('Session actions'), 'session actions at bottom-right');
+    inViewport(menu('Session actions'));
+    assert.equal(menu('Session actions').parentElement, document.body, 'menu escapes clipped/transformed explorer');
+  };
+  await openBottomMenu();
+  clickVisible([...menu('Session actions').querySelectorAll('button')].find(button => button.textContent.includes('Rename')));
+  await wait(() => bottomSession.querySelector('input'), 'rename remains selectable at bottom of window');
+  bottomSession.querySelector('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await wait(() => !bottomSession.querySelector('input'), 'cancel rename');
+  await openBottomMenu();
+  const { ipcRenderer } = require('electron');
+  await ipcRenderer.invoke('test:menu-window-size', 500, 300);
+  await settle();
+  inViewport(menu('Session actions'));
+  const groupButton = [...menu('Session actions').querySelectorAll('button')].find(button => button.textContent.includes('Add to group'));
+  groupButton.parentElement.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  await wait(() => menu('Session groups'), 'group submenu opens');
+  inViewport(menu('Session groups'));
+  assert.ok(menu('Session groups').getBoundingClientRect().right <= menu('Session actions').getBoundingClientRect().left + 1,
+    'submenu flips left at the right edge');
+  menu('Session groups').scrollTop = menu('Session groups').scrollHeight;
+  await settle();
+  const lastGroup = [...menu('Session groups').querySelectorAll('button')].find(button => button.textContent === 'Menu group 79');
+  clickVisible(lastGroup);
+  await wait(() => useAppStore.getState().nodes.find(node => node.id === 'menu-29').parentId === 'menu-group-79', 'last scrollable group selectable');
+  const menuProject = [...host.querySelectorAll('button')].find(button => button.title === 'C:\\synthetic\\menu');
+  menuProject.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: innerWidth - 2, clientY: innerHeight - 2 }));
+  await wait(() => menu('Project actions'), 'directory actions at bottom edge');
+  inViewport(menu('Project actions'));
+  menu('Project actions').scrollTop = menu('Project actions').scrollHeight;
+  await settle();
+  const folder = [...menu('Project actions').querySelectorAll('button')].find(button => button.textContent.includes('Open Folder'));
+  const folderRect = folder.getBoundingClientRect();
+  assert.ok(folderRect.bottom <= innerHeight - 7, 'last project action remains reachable');
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await wait(() => !menu('Project actions'), 'Escape dismisses menu');
+  const { SessionNode } = loadSource('src/renderer/components/SessionNode.tsx', {
+    '../store': { useAppStore }, '@xyflow/react': { Handle: () => null, Position: { Top: 'top', Bottom: 'bottom' } }, ...assets,
+  });
+  host.style.cssText = 'position:fixed;inset:0;overflow:auto';
+  reactRoot.render(React.createElement(SessionNode, { id: 'menu-0', data: {
+    sessionId: 'menu-0', label: 'Graph session', status: 'idle', tasks: [], plans: [], mode: 'normal',
+  } }));
+  await wait(() => host.textContent.includes('Graph session'), 'graph session fixture');
+  host.firstElementChild.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: innerWidth - 2, clientY: innerHeight - 2 }));
+  await wait(() => menu('Session project actions'), 'graph menu at bottom-right');
+  inViewport(menu('Session project actions'));
+  const graphGroup = [...menu('Session project actions').querySelectorAll('button')].find(button => button.textContent.includes('Add to group'));
+  graphGroup.parentElement.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  await wait(() => menu('Session groups'), 'graph group submenu');
+  inViewport(menu('Session groups'));
+  menu('Session groups').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 100 }));
+  await settle();
+  assert.ok(menu('Session groups'), 'scrolling inside graph menu must not dismiss it');
+  menu('Session groups').scrollTop = menu('Session groups').scrollHeight;
+  await settle();
+  clickVisible([...menu('Session groups').querySelectorAll('button')].find(button => button.textContent === 'Menu group 79'));
+  await wait(() => useAppStore.getState().nodes.find(node => node.id === 'menu-0').parentId === 'menu-group-79', 'graph group remains selectable');
   reactRoot.unmount();
   assert.ok(cancellations.includes('projects') && cancellations.includes('sessions'));
   return { staleProviderAndProjectResponsesIgnored: true, exactConversationResumed: true,
     queryClearAndUnmountSafe: true, visibleHistoryFailures: true, duplicateNamesPreserveTemplateUuids: true,
-    duplicateTemplateClicksBlocked: true, settingsReadAndWriteFailuresVisible: true, failedShellChangesPreserveSelection: true };
+    duplicateTemplateClicksBlocked: true, settingsReadAndWriteFailuresVisible: true, failedShellChangesPreserveSelection: true,
+    bottomEdgeMenusContained: true, resizeRepositionsMenus: true, nestedGroupsFlipAndScroll: true, graphMenusContained: true };
 }
 
 let window;
@@ -234,6 +334,7 @@ if (owner && !secondary) app.whenReady().then(async () => {
   assert.equal(focusRequests, 1, 'second launch forwards to primary without taking state ownership');
   assert.deepEqual(JSON.parse(fs.readFileSync(stateFile, 'utf8')), { owner: 'primary' });
   window = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true, contextIsolation: false } });
+  ipcMain.handle('test:menu-window-size', (_event, width, height) => window.setContentSize(width, height));
   await window.loadURL('about:blank');
   const result = await window.webContents.executeJavaScript(`(${rendererTest.toString()})(${JSON.stringify(path.resolve(__dirname, '..'))})`);
   console.log(JSON.stringify({ nativeElectronOwnership: true, secondaryCannotReplaceRestoreState: true, ...result }));
