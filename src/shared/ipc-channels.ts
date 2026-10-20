@@ -294,6 +294,7 @@ export const IPC = {
   SESSION_DATA: 'session:data',
   SESSION_STATUS: 'session:status',
   SESSION_EXIT: 'session:exit',
+  SESSION_REMOVED: 'session:removed',
   /** Partial SessionInfo update from main (e.g. after copilot-resume discovery
    *  captures the real UUID + cwd from workspace.yaml). */
   SESSION_INFO_UPDATE: 'session:infoUpdate',

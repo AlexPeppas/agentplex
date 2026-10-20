@@ -188,6 +188,7 @@ export class JsonlSessionWatcher extends EventEmitter {
   private pendingTodoSql = new Map<string, string>();
   private telemetry: SessionTelemetryEvent | null = null;
   private copilotLifecycle = new CopilotLifecycle();
+  private copilotShutdown = false;
   private copilotStartedAt = 0;
   private lastLifecycleStatus: SessionStatus | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -204,7 +205,8 @@ export class JsonlSessionWatcher extends EventEmitter {
   }
 
   get lifecycleStatus(): SessionStatus | null {
-    return this.format === 'copilot' ? this.copilotLifecycle.status : null;
+    if (this.format !== 'copilot') return null;
+    return this.hydrateLifecycle && this.copilotShutdown ? SessionStatus.Killed : this.copilotLifecycle.status;
   }
 
   start(): void {
@@ -268,6 +270,7 @@ export class JsonlSessionWatcher extends EventEmitter {
         this.nextCopilotTaskNumber = 1;
         if (this.format === 'copilot') this.emit('task-list', { tasks: [] } satisfies TaskListEvent);
         this.copilotLifecycle.reset();
+        this.copilotShutdown = false;
         this.copilotStartedAt = 0;
         this.publishLifecycle();
       }
@@ -412,7 +415,7 @@ export class JsonlSessionWatcher extends EventEmitter {
             if (!this.isCurrentCopilotRecord(record)) continue;
             this.processCopilotTelemetry(record);
             if (this.hydrateLifecycle && record.agentId == null) {
-              this.copilotLifecycle.accept(record);
+              this.acceptCopilotLifecycle(record);
               if (record.type === 'session.start' || record.type === 'session.resume') {
                 workspaceRecord = record;
                 shutdownRecord = undefined;
@@ -615,8 +618,14 @@ export class JsonlSessionWatcher extends EventEmitter {
    *   - `permission.requested` / `permission.completed` → drive WaitingForInput
    *     status immediately (avoids the 500ms terminal-pattern poll lag).
    */
+  private acceptCopilotLifecycle(record: Parameters<CopilotLifecycle['accept']>[0]): void {
+    this.copilotLifecycle.accept(record);
+    if (record.type === 'session.shutdown') this.copilotShutdown = true;
+    else if (record.type === 'session.start' || record.type === 'session.resume') this.copilotShutdown = false;
+  }
+
   private processCopilotRecord(record: any): void {
-    if (record.agentId == null) this.copilotLifecycle.accept(record);
+    if (record.agentId == null) this.acceptCopilotLifecycle(record);
     this.processCopilotTelemetry(record);
     const type = record.type;
     const data = record.data;

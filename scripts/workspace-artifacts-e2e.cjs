@@ -357,7 +357,10 @@ app.whenReady().then(async () => {
   await wait(() => evaluate(`document.querySelector('aside[aria-label="Workspace files"]')?.textContent.includes('mounted.md')`), 'provider workspace changes refresh directory');
   await clickText('mounted.md', `document.querySelector('aside[aria-label="Workspace files"]')`);
   await wait(() => evaluate(`(${preview})?.querySelector('h1')?.textContent === 'Mounted workspace'`), 'mounted file preview');
-  manager.kill(info.id);
+  fs.appendFileSync(events, record('session.shutdown', {}));
+  await wait(() => manager.list().length === 0, 'terminated discovered CLI removed from the main process');
+  await wait(() => evaluate(`!document.querySelector('[data-id="${info.id}"]') && !document.body.innerText.includes(${JSON.stringify(info.title)})`),
+    'terminated discovered CLI removed from graph, explorer and open terminal');
   fs.appendFileSync(events, record('assistant.message', { content: 'External CLI continues independently.' }));
   await new Promise(resolve => setTimeout(resolve, 1800));
   assert.equal(manager.list().length, 0, 'stopped monitors must not immediately reattach');
@@ -366,7 +369,7 @@ app.whenReady().then(async () => {
     plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true,
     htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true,
     csvTsvTables: true, plainAndCodeText: true, docxAndLegacyDoc: true, xlsxSheetsAndReload: true,
-    mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true }));
+    mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true }));
   manager.stop();
   win.destroy();
   app.quit();

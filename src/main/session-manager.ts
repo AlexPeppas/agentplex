@@ -822,7 +822,10 @@ export class SessionManager {
   kill(id: string) {
     const session = this.sessions.get(id);
     if (session) {
-      if (session.readOnly && session.resumeSessionId) this.discovery?.ignore(session.resumeSessionId);
+      if (session.readOnly) {
+        this.removeDiscoveredSession(session);
+        return;
+      }
       if (session.launchTimer) clearTimeout(session.launchTimer);
       if (session.jsonlWatcher) session.jsonlWatcher.stop();
       try {
@@ -835,6 +838,13 @@ export class SessionManager {
       this.sessions.delete(id);
       this.saveState();
     }
+  }
+
+  private removeDiscoveredSession(session: Session): void {
+    if (!this.sessions.delete(session.id)) return;
+    if (session.resumeSessionId) this.discovery?.ignore(session.resumeSessionId);
+    session.jsonlWatcher?.stop();
+    this.send(IPC.SESSION_REMOVED, { id: session.id });
   }
 
   getBuffer(id: string): string {
@@ -927,11 +937,6 @@ export class SessionManager {
         session.lastActivityAt = Date.now();
         this.appendOutput(session, text);
         this.send(IPC.SESSION_DATA, { id: sessionId, data: text, offset: session.outputOffset });
-      }
-      if (record.type === 'session.shutdown' && record.agentId == null) {
-        if (session.resumeSessionId) this.discovery?.ignore(session.resumeSessionId);
-        this.updateStatus(session, SessionStatus.Killed);
-        watcher.stop();
       }
     });
 
@@ -1446,6 +1451,10 @@ export class SessionManager {
   }
 
   private updateStatus(session: Session, status: SessionStatus): void {
+    if (session.readOnly && status === SessionStatus.Killed) {
+      this.removeDiscoveredSession(session);
+      return;
+    }
     if (session.status === SessionStatus.Killed || status === session.status) return;
     session.status = status;
     this.send(IPC.SESSION_STATUS, { id: session.id, status });

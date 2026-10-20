@@ -20,6 +20,7 @@ export interface AgentPlexAPI {
   onSessionData: (callback: (data: { id: string; data: string; offset: number }) => void) => () => void;
   onSessionStatus: (callback: (data: { id: string; status: SessionStatus }) => void) => () => void;
   onSessionExit: (callback: (data: { id: string; exitCode: number }) => void) => () => void;
+  onSessionRemoved: (callback: (data: { id: string }) => void) => () => void;
   onSessionInfoUpdate: (callback: (data: { id: string; cli?: string; cwd?: string; resumeSessionId?: string | null; lastActivityAt?: number; usage?: SessionUsage | null }) => void) => () => void;
   onSubagentSpawn: (callback: (data: SubagentInfo) => void) => () => void;
   onSubagentComplete: (callback: (data: SubagentInfo) => void) => () => void;
