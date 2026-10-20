@@ -18,6 +18,9 @@
     "node": ">=20"
   },
   "pnpm": {
+    "overrides": {
+      "mammoth>@xmldom/xmldom": "^0.8.15"
+    },
     "onlyBuiltDependencies": [
       "electron",
       "node-pty",
@@ -41,7 +44,12 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.10.1",
+    "csv-parse": "^7.0.3",
+    "dompurify": "^3.4.17",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.7.0",
+    "mammoth": "^1.13.0",
+    "mermaid": "^12.2.0",
     "monaco-editor": "^0.55.1",
     "node-pty": "^1.1.0",
     "pdfjs-dist": "^6.4.299",
@@ -51,6 +59,8 @@
     "remark-gfm": "^4.0.1",
     "sanitize-html": "^2.17.0",
     "tailwindcss": "^4.2.2",
+    "word-extractor": "^1.0.4",
+    "yauzl": "^3.4.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -63,10 +73,13 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/sanitize-html": "^2.16.0",
+    "@types/word-extractor": "^1.0.6",
+    "@types/yauzl": "^3.4.0",
     "@vitejs/plugin-react": "^6.0.1",
     "electron": "^41.0.4",
     "eslint": "^10.1.0",
     "eslint-plugin-react-hooks": "^7.0.1",
+    "jszip": "^3.10.2",
     "sharp": "^0.34.5",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.57.2",

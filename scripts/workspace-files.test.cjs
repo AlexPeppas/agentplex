@@ -6,7 +6,11 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { loadSource } = require('./test-support.cjs');
 const { createPdf } = require('./pdf-fixture.cjs');
-const { listWorkspaceDirectory, readWorkspaceFile } = loadSource('src/main/workspace-files.ts');
+const { createDocx, createXlsx, createDoc } = require('./office-fixtures.cjs');
+const { parseOfficePreview } = loadSource('src/main/office-preview-parser.ts');
+const { listWorkspaceDirectory, readWorkspaceFile } = loadSource('src/main/workspace-files.ts', {
+  './office-preview': { readOfficePreview: parseOfficePreview },
+});
 const { findArtifactReferences, resolveArtifactLink } = loadSource('src/shared/artifact-links.ts');
 const { terminalArtifactReferences } = loadSource('src/shared/artifact-links.ts');
 
@@ -55,7 +59,7 @@ test('previews resolve file URLs, spaces and source locations; session artifacts
 test('previews reject unsupported, binary, invalid UTF-8, directory and oversized content explicitly', async t => {
   const { root } = fixture(t);
   for (const [name, data, expected] of [
-    ['unsupported.txt', 'text', /supports JSON/],
+    ['unsupported.exe', 'text', /Unsupported preview/],
     ['binary.md', Buffer.from([0, 1, 2]), /Binary/],
     ['invalid.md', Buffer.from([255]), /UTF-8/],
     ['huge.json', 'x'.repeat(1024 * 1024 + 1), /1 MiB/],
@@ -65,6 +69,81 @@ test('previews reject unsupported, binary, invalid UTF-8, directory and oversize
   }
   fs.mkdirSync(path.join(root, 'directory.md'));
   await assert.rejects(readWorkspaceFile(root, 'directory.md'), /regular file/);
+});
+
+test('CSV/TSV preserve quoting, multiline values and literals; large tables are explicitly limited', async t => {
+  const { root } = fixture(t);
+  fs.writeFileSync(path.join(root, 'data.csv'), '\ufeffName,Notes,Formula\r\n"Last, First","line 1\nline 2",=1+1\r\nshort\r\n');
+  const csv = await readWorkspaceFile(root, 'data.csv');
+  assert.equal(csv.kind, 'table');
+  assert.deepEqual(csv.sheet.rows, [['Name', 'Notes', 'Formula'], ['Last, First', 'line 1\nline 2', '=1+1'], ['short']]);
+  fs.writeFileSync(path.join(root, 'data.tsv'), 'A\tB\n1\t2');
+  assert.deepEqual((await readWorkspaceFile(root, 'data.tsv')).sheet.rows, [['A', 'B'], ['1', '2']]);
+  fs.writeFileSync(path.join(root, 'large.csv'), ('x,'.repeat(110) + 'x\n').repeat(1002));
+  const large = (await readWorkspaceFile(root, 'large.csv')).sheet;
+  assert.equal(large.truncated, true);
+  assert.equal(large.rows.length, 200);
+  assert.equal(large.rows[0].length, 100);
+  fs.writeFileSync(path.join(root, 'bad.csv'), 'a,"unfinished');
+  await assert.rejects(readWorkspaceFile(root, 'bad.csv'), /Quote|quote/);
+});
+
+test('common text/code and Mermaid files are readable without interpreting their content', async t => {
+  const { root } = fixture(t);
+  for (const name of ['notes.txt', 'debug.log', 'config.yaml', 'source.ts', 'data.xml', 'events.jsonl', 'diagram.mmd', 'diagram.mermaid']) {
+    fs.writeFileSync(path.join(root, name), '<script>doNotExecute()</script>\nflowchart LR\nA-->B');
+    const file = await readWorkspaceFile(root, name);
+    assert.equal(file.kind, name.includes('diagram') ? 'mermaid' : 'text');
+    assert.match(file.content, /doNotExecute/);
+    assert.equal(findArtifactReferences('Open `' + name + '`')[0]?.reference, name);
+  }
+  fs.writeFileSync(path.join(root, 'unicode.txt'), Buffer.concat([Buffer.from([255, 254]), Buffer.from('UTF16 λ', 'utf16le')]));
+  assert.equal((await readWorkspaceFile(root, 'unicode.txt')).content, 'UTF16 λ');
+});
+
+test('Word DOCX structure is sanitized, legacy DOC text is extracted and XLSX sheets keep cached values', async t => {
+  const { root } = fixture(t);
+  fs.writeFileSync(path.join(root, 'report.docx'), await createDocx());
+  const docx = await readWorkspaceFile(root, 'report.docx');
+  assert.equal(docx.kind, 'document');
+  assert.equal(docx.format, 'html');
+  assert.match(docx.content, /<h1>Native Word preview<\/h1>/);
+  assert.match(docx.content, /<strong>Generated report &amp; evidence<\/strong>/);
+  assert.match(docx.content, /<table>/);
+  assert.doesNotMatch(docx.content, /href|javascript:|<script|<img/i);
+  fs.writeFileSync(path.join(root, 'legacy.doc'), createDoc());
+  const doc = await readWorkspaceFile(root, 'legacy.doc');
+  assert.equal(doc.kind, 'document');
+  assert.equal(doc.format, 'text');
+  assert.match(doc.content, /Legacy Word preview\nSynthetic evidence/);
+  fs.writeFileSync(path.join(root, 'book.xlsx'), await createXlsx());
+  const book = await readWorkspaceFile(root, 'book.xlsx');
+  assert.equal(book.kind, 'workbook');
+  assert.deepEqual(book.sheets.map(sheet => sheet.name), ['Summary', 'Details']);
+  assert.deepEqual(book.sheets[0].rows[2], ['Computed', '84']);
+  assert.deepEqual(book.sheets[0].rows[3], ['Uncached', '[Formula: no cached result]']);
+  assert.equal(book.sheets[0].rows[4][1].startsWith('=HYPERLINK'), true);
+  assert.equal(book.sheets[0].rows[5][1], 'Hello World');
+  assert.equal(book.sheets[0].rows[6][1], 'Visible link text');
+});
+
+test('Office parser rejects malformed and expanded oversized archives, with explicit workbook truncation', async () => {
+  const JSZip = require('jszip');
+  await assert.rejects(parseOfficePreview(Buffer.from('not word'), '.doc'), /legacy Word/);
+  for (const [offset, value] of [[30, 30], [44, 0x7fffffff]]) {
+    const invalidDoc = createDoc();
+    invalidDoc.writeUIntLE(value, offset, offset === 30 ? 2 : 4);
+    await assert.rejects(parseOfficePreview(invalidDoc, '.doc'), /compound-document header/);
+  }
+  await assert.rejects(parseOfficePreview(Buffer.from('not zip'), '.docx'));
+  const invalid = new JSZip();
+  invalid.file('word/document.xml', 'x'.repeat(40 * 1024 * 1024 + 1));
+  await assert.rejects(parseOfficePreview(await invalid.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }), '.docx'), /40 MiB/);
+  const large = await parseOfficePreview(await createXlsx(true), '.xlsx');
+  assert.equal(large.truncated, true);
+  assert.equal(large.sheets.length, 20);
+  assert.equal(large.sheets[0].truncated, true);
+  assert.ok(large.sheets.reduce((count, sheet) => count + sheet.rows.reduce((sum, row) => sum + row.length, 0), 0) <= 20000);
 });
 
 test('HTML preserves native layout but removes executable elements, refreshes and navigation attributes', async t => {

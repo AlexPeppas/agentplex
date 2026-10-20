@@ -3,8 +3,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { WorkspaceFile } from '../../shared/ipc-channels';
 import { artifactHtmlDocument, resolveArtifactLink } from '../../shared/artifact-links';
+import { TablePreview } from './TablePreview';
 
 const PdfPreview = lazy(() => import('./PdfPreview').then(module => ({ default: module.PdfPreview })));
+const MermaidPreview = lazy(() => import('./MermaidPreview').then(module => ({ default: module.MermaidPreview })));
 
 export function ArtifactPreview({ sessionId, cwd, reference, onOpenFile }: {
   sessionId: string; cwd: string; reference: string; onOpenFile: (reference: string) => void;
@@ -36,6 +38,20 @@ export function ArtifactPreview({ sessionId, cwd, reference, onOpenFile }: {
       </div>
       {error && <div role="alert" className="p-4 text-red-400 break-words">{error}</div>}
       {!file && !error && <div className="p-4 text-fg-muted">Loading file...</div>}
+      {file?.kind === 'text' && <pre className="overflow-auto p-4 text-xs whitespace-pre-wrap break-words">{file.content}</pre>}
+      {file?.kind === 'table' && <TablePreview key={`${file.path}:${revision}`} sheets={[file.sheet]} />}
+      {file?.kind === 'workbook' && <TablePreview key={`${file.path}:${revision}`} sheets={file.sheets} truncated={file.truncated} />}
+      {file?.kind === 'document' && <>
+        <div className="shrink-0 max-h-24 overflow-auto text-xs text-fg-muted px-3 py-2">
+          {file.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
+        </div>
+        {file.format === 'text' ? <pre className="overflow-auto p-4 text-sm whitespace-pre-wrap break-words">{file.content}</pre>
+          : <iframe title={`Word preview: ${file.name}`} sandbox="" referrerPolicy="no-referrer"
+            className="flex-1 w-full border-0 bg-white" srcDoc={artifactHtmlDocument(file.content)} />}
+      </>}
+      {file?.kind === 'mermaid' && <Suspense fallback={<div className="p-4 text-fg-muted">Loading diagram renderer...</div>}>
+        <MermaidPreview key={`${file.path}:${revision}`} content={file.content} />
+      </Suspense>}
       {file?.kind === 'pdf' && <Suspense fallback={<div className="p-4 text-fg-muted">Loading PDF reader...</div>}>
         <PdfPreview key={revision} base64={file.base64} />
       </Suspense>}
@@ -48,6 +64,13 @@ export function ArtifactPreview({ sessionId, cwd, reference, onOpenFile }: {
           <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} urlTransform={url =>
             /^(?:https?:|file:)/i.test(url) || /^[a-z]:[\\/]/i.test(url) || !/^[a-z][a-z\d+.-]*:/i.test(url) ? url : ''
           } components={{
+            pre: ({ children, node }) => node?.children.some(child => child.type === 'element'
+              && child.tagName === 'code' && Array.isArray(child.properties.className)
+              && child.properties.className.includes('language-mermaid'))
+              ? <div>{children}</div> : <pre>{children}</pre>,
+            code: ({ className, children }) => className === 'language-mermaid'
+              ? <Suspense fallback={<span>Loading diagram renderer...</span>}><MermaidPreview content={String(children)} /></Suspense>
+              : <code className={className}>{children}</code>,
             a: ({ href, children }) => <a href={href} className="text-accent underline" onClick={event => {
               event.preventDefault();
               if (!href || href.startsWith('#')) return;
