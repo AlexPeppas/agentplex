@@ -50,6 +50,8 @@ async function rendererTest(root) {
   const sizes = [];
   const listeners = new Set();
   const nativePtys = new Map();
+  const typed = [];
+  let clipboardText = '';
   const { ipcRenderer } = require('electron');
   const output = event => {
     state.sessionBuffers[event.id] = ((state.sessionBuffers[event.id] ?? '') + event.data).slice(-512 * 1024);
@@ -66,9 +68,12 @@ async function rendererTest(root) {
       nativePtys.get(id)?.resize(cols, rows);
     },
     writeSession: (id, data) => {
-      assert.match(data, /^\x1b\[\d+;\d+R$/, 'only cursor-position responses may reach test PTYs');
+      if (id === 'demo') { typed.push(data); return; }
+      assert.match(data, /^(?:\x1b\[\d+;\d+R|\x1b\[[IO])$/, 'only cursor-position and focus reports may reach test PTYs');
       nativePtys.get(id)?.write(data);
     },
+    clipboardWriteText: async text => { clipboardText = text; },
+    clipboardReadText: async () => clipboardText,
     gitBranchInfo: async () => null,
     listWorkspaceDirectory: async () => ({ entries: [], truncated: false }),
   };
@@ -144,6 +149,42 @@ async function rendererTest(root) {
   await new Promise(resolve => term.write('', resolve));
   assert.equal(term.buffer.active.getLine(1).translateToString(true), '', 'late snapshot-overlapping IPC must not replay history twice');
   assert.deepEqual(term.options.windowsPty, { backend: 'conpty', buildNumber: 26100 });
+  const key = (value, options = {}) => term.textarea.dispatchEvent(new KeyboardEvent('keydown', {
+    key: value, ctrlKey: true, bubbles: true, cancelable: true, ...options,
+  }));
+  term.focus();
+  for (const [value, shiftKey] of [['c', false], ['C', true]]) {
+    term.select(0, 0, 8);
+    key(value, { shiftKey });
+    await wait(10);
+    assert.equal(clipboardText, 'HYDRATED', 'both terminal copy shortcuts must copy the xterm selection');
+    assert.deepEqual(typed, [], 'copying must not send an interrupt or text to the PTY');
+  }
+  term.select(0, 0, 8);
+  term.element.parentElement.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  await wait(10);
+  assert.equal(clipboardText, 'HYDRATED');
+  assert.deepEqual(typed, [], 'right-click with a selection must copy, not paste');
+  term.clearSelection();
+  key('C', { shiftKey: true });
+  assert.deepEqual(typed, [], 'dedicated copy shortcut must not interrupt without a selection');
+  key('c', { code: 'KeyC', keyCode: 67, which: 67 });
+  assert.deepEqual(typed.splice(0), ['\x03'], 'Ctrl+C without selection must still interrupt the PTY');
+  clipboardText = 'PASTE_PROBE';
+  for (const [value, shiftKey] of [['v', false], ['V', true]]) {
+    key(value, { shiftKey });
+    await wait(10);
+    assert.deepEqual(typed.splice(0), ['PASTE_PROBE'], 'paste shortcuts must await clipboard IPC');
+  }
+  state.sessions.demo.readOnly = true;
+  term.select(0, 0, 8);
+  key('c');
+  await wait(10);
+  assert.equal(clipboardText, 'HYDRATED', 'read-only sessions must still permit copying');
+  key('v');
+  await wait(10);
+  assert.deepEqual(typed, [], 'read-only sessions must not paste');
+  state.sessions.demo.readOnly = false;
   output({ id: 'demo', data: Array.from({ length: 90 }, (_, i) => `Chat line ${i}: ${'wrapped text '.repeat(10)}\r\n`).join('') });
   await wait();
   const check = () => {
@@ -355,7 +396,7 @@ async function rendererTest(root) {
   assert.ok(oldBehavior.after < oldBehavior.before, 'reproduce scrollback pulled into viewport');
   assert.equal(fixedBehavior.after, fixedBehavior.before, 'ConPTY scrollback must stay in history');
   return { fullscreenTransitions: 12, stressTransitions, nativeFrames, dimensionsRestored: initial,
-    hiddenTabRecovery: true, oldBehavior, fixedBehavior };
+    hiddenTabRecovery: true, terminalCopyPasteAndInterrupt: true, oldBehavior, fixedBehavior };
 }
 
 function runElectron() {
@@ -398,8 +439,13 @@ app.whenReady().then(async () => {
   });
   window = new BrowserWindow({ show: false, width: 1200, height: 800,
     webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false, offscreen: true } });
+  const rendererErrors = [];
+  window.webContents.on('console-message', event => {
+    if (/Uncaught/.test(event.message)) rendererErrors.push(event.message);
+  });
   await window.loadURL('about:blank');
   const result = await window.webContents.executeJavaScript(`(${rendererTest.toString()})(${JSON.stringify(path.resolve(__dirname, '..'))})`);
+  require('node:assert/strict').deepEqual(rendererErrors, []);
   console.log(JSON.stringify(result));
   stopNativePtys();
   window.destroy();

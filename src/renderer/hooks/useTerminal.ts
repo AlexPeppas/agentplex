@@ -194,20 +194,39 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
     const isMac = window.agentPlex.platform === 'darwin';
+    const copySelection = (selection: string) => {
+      window.agentPlex.clipboardWriteText(selection)
+        .then(() => {
+          if (liveTerminals.has(entry) && term.getSelection() === selection) term.clearSelection();
+        })
+        .catch(error => console.error('[terminal] Cannot copy selected text:', error));
+    };
+    const pasteClipboard = () => {
+      if (useAppStore.getState().sessions[sessionId]?.readOnly) return;
+      window.agentPlex.clipboardReadText()
+        .then(text => {
+          if (text && liveTerminals.has(entry) && !useAppStore.getState().sessions[sessionId]?.readOnly) term.paste(text);
+        })
+        .catch(error => console.error('[terminal] Cannot paste clipboard text:', error));
+    };
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       const modKey = isMac ? e.metaKey : e.ctrlKey;
       if (!modKey || e.type !== 'keydown') return true;
+      const key = e.key.toLowerCase();
 
       // Cmd/Ctrl+C: copy only when there's actual selected text; otherwise fall
       // through so xterm sends SIGINT (\x03). Guard on a non-empty selection —
       // xterm can report hasSelection()===true for a zero-width selection left by
       // a plain click, which would otherwise silently swallow every Ctrl+C
       // (notably inside Copilot/Claude TUIs) and never interrupt the process.
-      if (e.key === 'c') {
+      if (key === 'c') {
         const selection = term.getSelection();
         if (selection) {
-          window.agentPlex.clipboardWriteText(selection);
-          term.clearSelection();
+          copySelection(selection);
+          e.preventDefault();
+          return false;
+        }
+        if (e.shiftKey) {
           e.preventDefault();
           return false;
         }
@@ -215,11 +234,8 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       }
 
       // Cmd/Ctrl+V: paste from clipboard into terminal
-      if (e.key === 'v') {
-        const text = window.agentPlex.clipboardReadText();
-        if (text) {
-          term.paste(text);
-        }
+      if (key === 'v') {
+        pasteClipboard();
         e.preventDefault();
         return false;
       }
@@ -278,14 +294,13 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
     resizeObserver.observe(containerRef.current);
 
-    // Right-click to paste
+    // Preserve terminal selection when copying; otherwise right-click pastes.
     const container = containerRef.current;
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      const text = window.agentPlex.clipboardReadText();
-      if (text) {
-        term.paste(text);
-      }
+      const selection = term.getSelection();
+      if (selection) copySelection(selection);
+      else pasteClipboard();
     };
     container.addEventListener('contextmenu', handleContextMenu);
 

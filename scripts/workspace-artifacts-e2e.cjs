@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, clipboard, Menu } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -131,8 +131,18 @@ app.whenReady().then(async () => {
     if (/Uncaught|Minified React error|Setting up fake worker|Failed to load font|Unable to load (?:font|CMap)/.test(event.message)) rendererErrors.push(event.message);
   });
   manager.setWindow(win);
+  Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'Edit', submenu: [{ role: 'copy' }, { role: 'paste' }] }]));
   await win.loadFile(path.join(rendererRoot, '.vite', 'renderer', 'main_window', 'index.html'));
   await wait(() => evaluate(`!!document.querySelector('.react-flow')`), 'full production renderer');
+  const clipboardBefore = clipboard.availableFormats().map(format => [format, clipboard.readBuffer(format)]);
+  try {
+    await evaluate(`window.agentPlex.clipboardWriteText('AGENTPLEX_CLIPBOARD_PROBE')`);
+    assert.equal(clipboard.readText(), 'AGENTPLEX_CLIPBOARD_PROBE', 'sandboxed preload must write the native clipboard');
+    assert.equal(await evaluate(`window.agentPlex.clipboardReadText()`), 'AGENTPLEX_CLIPBOARD_PROBE');
+  } finally {
+    clipboard.clear();
+    for (const [format, bytes] of clipboardBefore) clipboard.writeBuffer(format, bytes);
+  }
   // Align the fallback timer so it cannot satisfy the filesystem latency check.
   manager.discovery.stop();
   manager.discovery.start();
@@ -162,6 +172,40 @@ app.whenReady().then(async () => {
   await wait(() => evaluate(`!!document.querySelector('.xterm-rows') && document.querySelector('aside[aria-label="Workspace files"]')?.textContent.includes('result.json')`), 'terminal and workspace tree');
   await evaluate(`window.testTerminalElement = document.querySelector('.xterm')`);
   assert.equal(await evaluate(`document.querySelector('.xterm-helper-textarea').readOnly`), true);
+  const selectedText = await evaluate(`(() => {
+    const walker = document.createTreeWalker(document.querySelector('.xterm-rows'), NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.textContent.trim().length < 8) continue;
+      const range = document.createRange();
+      range.setStart(node, 0); range.setEnd(node, 8);
+      const rect = range.getBoundingClientRect();
+      return { text: node.textContent.slice(0, 8).replace(/\\u00a0/g, ' '),
+        x: Math.ceil(rect.left + 1), endX: Math.floor(rect.right + 1), y: Math.floor(rect.top + rect.height / 2) };
+    }
+    throw new Error('No terminal text available to copy');
+  })()`);
+  const savedClipboard = clipboard.availableFormats().map(format => [format, clipboard.readBuffer(format)]);
+  try {
+    for (const modifiers of [['control'], ['control', 'shift'], null]) {
+      clipboard.writeText('AGENTPLEX_COPY_NOT_YET');
+      win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, x: selectedText.x, y: selectedText.y });
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: selectedText.endX, y: selectedText.y, modifiers: ['leftButtonDown'] });
+      win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, x: selectedText.endX, y: selectedText.y });
+      if (modifiers) {
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'C', modifiers });
+        win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'C', modifiers });
+      } else {
+        const point = { x: Math.round((selectedText.x + selectedText.endX) / 2), y: selectedText.y };
+        win.webContents.sendInputEvent({ type: 'mouseDown', button: 'right', clickCount: 1, ...point });
+        win.webContents.sendInputEvent({ type: 'mouseUp', button: 'right', clickCount: 1, ...point });
+      }
+      await wait(() => clipboard.readText() === selectedText.text, 'native keyboard copies mouse-selected terminal text with the application Edit menu');
+    }
+  } finally {
+    clipboard.clear();
+    for (const [format, bytes] of savedClipboard) clipboard.writeBuffer(format, bytes);
+  }
   win.setContentSize(900, 1000);
   await wait(() => evaluate(`getComputedStyle(document.querySelector('aside[aria-label="Workspace files"]')).display === 'none'`), 'narrow panes preserve terminal space');
   win.setContentSize(1400, 1000);
@@ -369,7 +413,8 @@ app.whenReady().then(async () => {
     plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true,
     htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true,
     csvTsvTables: true, plainAndCodeText: true, docxAndLegacyDoc: true, xlsxSheetsAndReload: true,
-    mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true }));
+    mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true,
+    sandboxClipboard: true, mouseSelectedTerminalCopy: true }));
   manager.stop();
   win.destroy();
   app.quit();

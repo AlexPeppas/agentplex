@@ -279,6 +279,8 @@ export type WorkspaceFile = {
 } | import('./artifact-formats').OfficePreview);
 
 export const IPC = {
+  CLIPBOARD_WRITE: 'clipboard:write',
+  CLIPBOARD_READ: 'clipboard:read',
   WORKSPACE_LIST: 'workspace:list',
   WORKSPACE_READ: 'workspace:read',
   OPEN_EXTERNAL: 'app:openExternal',

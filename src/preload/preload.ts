@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, clipboard } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, SessionStatus } from '../shared/ipc-channels';
 import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
 import type { HistoryRequestKind } from '../shared/ipc-channels';
@@ -220,12 +220,12 @@ const api = {
     return ipcRenderer.invoke(IPC.SHELL_OPEN_PATH, { path });
   },
 
-  clipboardWriteText: (text: string): void => {
-    clipboard.writeText(text);
+  clipboardWriteText: (text: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC.CLIPBOARD_WRITE, text);
   },
 
-  clipboardReadText: (): string => {
-    return clipboard.readText();
+  clipboardReadText: (): Promise<string> => {
+    return ipcRenderer.invoke(IPC.CLIPBOARD_READ);
   },
 
   openSettings: (): Promise<void> => {

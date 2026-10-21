@@ -47,8 +47,8 @@ export interface AgentPlexAPI {
   getDefaultShell: () => Promise<string | null>;
   setDefaultShell: (id: string) => Promise<void>;
   openPath: (path: string) => Promise<void>;
-  clipboardWriteText: (text: string) => void;
-  clipboardReadText: () => string;
+  clipboardWriteText: (text: string) => Promise<void>;
+  clipboardReadText: () => Promise<string>;
   openSettings: () => Promise<void>;
   openProjectConfig: (cwd: string) => Promise<void>;
   gitStatus: (sessionId: string) => Promise<GitStatusResult>;

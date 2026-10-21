@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, BrowserWindow, app } from 'electron';
+import { ipcMain, dialog, shell, BrowserWindow, app, clipboard } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createInterface } from 'node:readline';
@@ -38,6 +38,15 @@ function isValidCli(id: string): boolean {
 const MAX_CONTEXT_LENGTH = 100_000;
 
 export function registerIpcHandlers() {
+  ipcMain.handle(IPC.CLIPBOARD_WRITE, (event, text: string) => {
+    if (event.senderFrame !== event.sender.mainFrame) throw new Error('Clipboard access requires the application frame');
+    if (typeof text !== 'string') throw new Error('Clipboard text must be a string');
+    clipboard.writeText(text);
+  });
+  ipcMain.handle(IPC.CLIPBOARD_READ, event => {
+    if (event.senderFrame !== event.sender.mainFrame) throw new Error('Clipboard access requires the application frame');
+    return clipboard.readText();
+  });
   function workspace(sessionId: string): string {
     if (typeof sessionId !== 'string') throw new Error('Session ID must be a string');
     const cwd = sessionManager.getSessionCwd(sessionId);
