@@ -85,6 +85,42 @@ agentplex            # launch from anywhere
 
 To remove: `pnpm unlink --global agentplex`
 
+### Native file previews
+
+Open a file from the session workspace tree, or click a supported local file path
+in terminal output, to preview it in a read-only session tab. Markdown links can
+also open other local files within the session workspace.
+
+| Files | Preview |
+| --- | --- |
+| `.md`, `.markdown` | Formatted Markdown, tables and fenced Mermaid diagrams |
+| `.json` | Formatted JSON with explicit parse errors |
+| `.html`, `.htm` | Sandboxed HTML with scripts, navigation and network resources disabled |
+| `.pdf` | Native PDF reader with page navigation and zoom |
+| `.csv`, `.tsv` | Scrollable tables preserving quoted and multiline values |
+| `.docx` | Word headings, paragraphs, lists and tables; not exact page layout |
+| `.doc` | Legacy Word text, including headers, footers and notes; no original page layout |
+| `.xlsx` | Workbook sheet tabs and cell values; formulas show saved results and are never calculated |
+| `.mmd`, `.mermaid` | Locally rendered Mermaid diagram with a source toggle |
+| `.txt`, `.log`, `.yaml`, `.yml`, `.xml`, `.toml`, `.ini`, `.conf`, `.config`, `.jsonl`, `.ndjson` | Plain text |
+| Common source files (`.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.go`, `.rs`, `.java`, `.c`, `.cpp`, `.cs`, `.css`, `.sql`, `.sh`, `.ps1`, etc.) | Read-only source text, never executed |
+
+Text files are limited to **1 MiB**, decoded as UTF-8 or BOM-marked UTF-16.
+PDF and Office input files are limited to **20 MiB**. Office conversion runs in
+bounded background workers with a 15-second timeout; ZIP-based Office documents
+are limited to 2,000 archive entries and 40 MiB of expanded content. Extracted
+Word output is limited to 2 MiB.
+
+Table previews show at most 1,000 rows and 100 columns per sheet, 20 sheets and
+20,000 cells total; a notice identifies truncated previews. Word images, embedded
+objects and active links are disabled. Encrypted documents and legacy `.xls`
+workbooks are not supported. Mermaid configuration directives, interactive links
+and network references are disabled; diagrams are limited to 50,000 characters
+and 500 edges. Unsupported, malformed and oversized files show an explicit error.
+
+Previews remain scoped to the selected workspace and that session's artifact
+directory. They do not require Microsoft Office or an external editor.
+
 ## Dev Requirements
 
 Building from source requires [Node.js](https://nodejs.org/) 20+ and native build tools for `node-pty`:

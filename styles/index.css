@@ -17,6 +17,12 @@
 .artifact-markdown :is(th, td) { padding: .4em .7em; border: 1px solid var(--border); }
 .artifact-markdown blockquote { border-left: 3px solid var(--border); padding-left: 1em; }
 
+.artifact-table { min-width: 100%; }
+.artifact-table :is(th, td) { border: 1px solid var(--border); padding: .4rem .6rem; text-align: left; }
+.artifact-table th { background: var(--bg-inset); color: var(--text-muted); font-weight: 500; }
+.artifact-table thead th { position: sticky; top: 0; z-index: 1; }
+.artifact-table td > div { min-width: 5rem; max-width: 30rem; max-height: 10rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* ═══════════════════════════════════════════════════════════
    Tailwind theme tokens (reference CSS custom properties)
    ═══════════════════════════════════════════════════════════ */

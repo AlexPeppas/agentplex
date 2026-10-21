@@ -71,6 +71,7 @@ export function App() {
   const updateTask = useAppStore((s) => s.updateTask);
   const reconcileTasks = useAppStore((s) => s.reconcileTasks);
   const prevStatuses = useRef<Map<string, SessionStatus>>(new Map());
+  const removedSessions = useRef(new Set<string>());
   const groupsReadyRef = useRef(false);
 
   const applySessionName = useAppStore((s) => s.applySessionName);
@@ -149,6 +150,7 @@ export function App() {
         const savedNames = await window.agentPlex.getDisplayNames();
 
         for (const info of existing) {
+          if (removedSessions.current.has(info.id)) continue;
           if (!knownIds.has(info.id)) addSession(info);
           updateStatus(info.id, info.status);
           // Apply persisted display name to node label
@@ -258,7 +260,14 @@ export function App() {
 
   // Subscribe to IPC events
   useEffect(() => {
-    const cleanupCreated = window.agentPlex.onSessionCreated(addSession);
+    const cleanupCreated = window.agentPlex.onSessionCreated(info => {
+      if (!removedSessions.current.has(info.id)) addSession(info);
+    });
+    const cleanupRemoved = window.agentPlex.onSessionRemoved(({ id }) => {
+      removedSessions.current.add(id);
+      prevStatuses.current.delete(id);
+      useAppStore.getState().removeSession(id);
+    });
     const cleanupData = window.agentPlex.onSessionData(({ id, data, offset }) => {
       appendBuffer(id, data, offset);
     });
@@ -316,6 +325,7 @@ export function App() {
 
     return () => {
       cleanupCreated();
+      cleanupRemoved();
       cleanupData();
       cleanupStatus();
       cleanupExit();

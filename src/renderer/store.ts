@@ -487,7 +487,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Remove edges connected to this session or its sub-agents
       const edges = state.edges.filter(
-        (e) => e.source !== id && !subagentIds.has(e.target)
+        (e) => e.source !== id && e.target !== id && !subagentIds.has(e.source) && !subagentIds.has(e.target)
       );
 
       // Remove the node and its sub-agent nodes; if it was in a group, handle group cleanup

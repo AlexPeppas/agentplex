@@ -7,7 +7,7 @@ function fixture(t) {
     './components/panels/SettingsPanel': { getSplitPaneEnabled: () => false },
   });
   const effects = [], noop = () => {};
-  let resolveList, resolveSnapshot, rejectSnapshot, receiveData, receiveCreated;
+  let resolveList, resolveSnapshot, rejectSnapshot, receiveData, receiveCreated, receiveRemoved;
   const info = { id: 'session', title: 'Synthetic', status: 'idle', cli: 'copilot', cwd: process.cwd(),
     startedAt: Date.now(), lastActivityAt: Date.now() };
   const api = {
@@ -17,6 +17,7 @@ function fixture(t) {
     groupsLoad: async () => ({ version: 1, groups: [] }), groupsSave: async () => {},
     onSessionData: callback => { receiveData = callback; return noop; },
     onSessionCreated: callback => { receiveCreated = callback; return noop; },
+    onSessionRemoved: callback => { receiveRemoved = callback; return noop; },
   };
   for (const name of ['onSessionStatus', 'onSessionExit', 'onSessionInfoUpdate',
     'onSubagentSpawn', 'onSubagentComplete', 'onPlanEnter', 'onPlanExit', 'onTaskCreate',
@@ -46,6 +47,7 @@ function fixture(t) {
   return {
     store: useAppStore, info,
     created: session => receiveCreated(session),
+    removed: id => receiveRemoved({ id }),
     output: (data, offset, id = info.id) => receiveData({ id, data, offset }),
     list: async () => { resolveList([info]); await new Promise(resolve => setImmediate(resolve)); },
     snapshot: async (buffer, offset) => {
@@ -103,4 +105,34 @@ test('removing a session during snapshot hydration does not block the remaining 
   await f.reject();
   assert.equal(f.store.getState().buffersReady, true);
   assert.equal(f.store.getState().sessions.session, undefined);
+});
+
+test('discovered-session removal cleans graph, explorer, subagents, panes and both edge directions', t => {
+  const f = fixture(t);
+  f.created({ ...f.info, id: 'child', readOnly: true });
+  f.created({ ...f.info, id: 'other' });
+  f.store.getState().openPane('child');
+  f.store.setState({ subagents: { worker: { sessionId: 'child', subagentId: 'worker' } },
+    nodes: [...f.store.getState().nodes, { id: 'worker', type: 'subAgentNode', data: {}, position: { x: 0, y: 0 } }],
+    edges: [
+    ...f.store.getState().edges,
+    { id: 'incoming', source: 'other', target: 'child' },
+    { id: 'outgoing', source: 'child', target: 'other' },
+  ] });
+  f.removed('child');
+  const state = f.store.getState();
+  assert.equal(state.sessions.child, undefined);
+  assert.equal(state.nodes.some(node => node.id === 'child' || node.id === 'worker'), false);
+  assert.deepEqual(state.edges, []);
+  assert.equal(state.openPanes.includes('child'), false);
+  assert.ok(state.sessions.other);
+});
+
+test('a stale reconnect list or created event cannot resurrect an already removed discovered CLI', async t => {
+  const f = fixture(t);
+  f.removed('session');
+  f.created(f.info);
+  await f.list();
+  assert.equal(f.store.getState().sessions.session, undefined);
+  assert.equal(f.store.getState().buffersReady, true);
 });

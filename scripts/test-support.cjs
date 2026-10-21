@@ -18,7 +18,7 @@ function loadSource(relativePath, overrides = {}) {
     }
     return require(name);
   };
-  new Function('require', 'module', 'exports', code)(localRequire, module, module.exports);
+  new Function('require', 'module', 'exports', '__dirname', code)(localRequire, module, module.exports, path.dirname(filename));
   return module.exports;
 }
 

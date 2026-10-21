@@ -52,6 +52,11 @@ const config: ForgeConfig = {
           config: 'vite.preload.config.mts',
           target: 'preload',
         },
+        {
+          entry: 'src/main/office-preview-worker.ts',
+          config: 'vite.main.config.mts',
+          target: 'main',
+        },
       ],
       renderer: [
         {

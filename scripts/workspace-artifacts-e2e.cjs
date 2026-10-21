@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { loadSource } = require('./test-support.cjs');
 const { createPdf } = require('./pdf-fixture.cjs');
+const { createDocx, createDoc, createXlsx } = require('./office-fixtures.cjs');
 const root = process.env.AGENTPLEX_EDITOR_E2E_ROOT;
 if (!root || !fs.existsSync(root)) throw new Error('Run through scripts/run-git-editor-e2e.cjs');
 app.setPath('appData', root);
@@ -18,6 +19,15 @@ fs.mkdirSync(path.join(workspace, 'nested'));
 fs.writeFileSync(path.join(workspace, 'result.json'), '{"verified":"first"}');
 fs.writeFileSync(path.join(workspace, 'report.pdf'), createPdf());
 fs.writeFileSync(path.join(workspace, 'broken.pdf'), '%PDF-1.7\nbroken document');
+fs.writeFileSync(path.join(workspace, 'data.csv'), 'Name,Notes,Formula\n"Last, First","line 1\nline 2",=1+1');
+fs.writeFileSync(path.join(workspace, 'data.tsv'), 'A\tB\n1\t2');
+fs.writeFileSync(path.join(workspace, 'notes.txt'), '<script>window.textExecuted=true</script>\nPlain text λ');
+fs.writeFileSync(path.join(workspace, 'settings.yaml'), 'enabled: true\nmode: native');
+fs.writeFileSync(path.join(workspace, 'diagram.mmd'), 'flowchart LR\n A[Native diagram] --> B[Rendered locally]');
+fs.writeFileSync(path.join(workspace, 'bad.mermaid'), 'flowchart LR\n A[unclosed');
+fs.writeFileSync(path.join(workspace, 'unsafe.mmd'), '%%{init: {"securityLevel": "loose"}}%%\nflowchart LR\n A-->B');
+fs.writeFileSync(path.join(workspace, 'diagram.md'), '# Diagram in Markdown\n\n```mermaid\nsequenceDiagram\n Alice->>Bob: Native sequence\n```\n');
+fs.writeFileSync(path.join(workspace, 'invalid.xlsx'), 'Not an XLSX archive');
 fs.writeFileSync(path.join(workspace, 'nested', 'next.json'), '{"nested":true}');
 fs.writeFileSync(path.join(workspace, 'summary.md'), '# Native Markdown\n\n| Metric | Value |\n| --- | --- |\n| Tests | Passed |\n\n[Nested JSON](nested/next.json)\n\n<script>window.badMarkdown=true</script>\n<img src="https://preview-test.invalid/image">\n[Unsafe](javascript:alert(1))');
 fs.writeFileSync(path.join(workspace, 'report.html'), '<h1 id="report">Native HTML</h1><script>window.badHtml=true</script>'
@@ -86,9 +96,16 @@ async function clickTerminalText(text, attempt = 0) {
 }
 
 app.whenReady().then(async () => {
+  fs.writeFileSync(path.join(workspace, 'report.docx'), await createDocx());
+  fs.writeFileSync(path.join(workspace, 'legacy.doc'), createDoc());
+  fs.writeFileSync(path.join(workspace, 'book.xlsx'), await createXlsx());
+  const workerThreads = require('node:worker_threads');
   const overrides = {
     os: { ...os, homedir: () => root },
     'node-pty': { spawn() { assert.fail('A discovered CLI must not spawn another process'); } },
+    'node:worker_threads': { ...workerThreads, Worker: class extends workerThreads.Worker {
+      constructor(_filename, options) { super(path.join(repository, '.vite', 'build', 'office-preview-worker.js'), options); }
+    } },
   };
   const { SessionManager } = loadSource('src/main/session-manager.ts', overrides);
   manager = new SessionManager();
@@ -243,6 +260,87 @@ app.whenReady().then(async () => {
   assert.equal(BrowserWindow.getAllWindows().length, 1);
   assert.deepEqual(network, []);
   win.webContents.debugger.detach();
+  const openTree = async name => clickText(name, `document.querySelector('aside[aria-label="Workspace files"]')`);
+  for (const name of ['data.csv', 'data.tsv']) {
+    await openTree(name);
+    await wait(() => evaluate(`!!(${preview})?.querySelector('table tbody tr')`), `native table: ${name}`);
+  }
+  await openTree('data.csv');
+  assert.equal(await evaluate(`(${preview}).querySelector('tbody tr:nth-child(2) td').textContent`), 'Last, First');
+  assert.equal(await evaluate(`(${preview}).querySelector('tbody tr:nth-child(2) td:nth-of-type(2)').textContent`), 'line 1\nline 2');
+  assert.equal(await evaluate(`(${preview}).querySelector('tbody tr:nth-child(2) td:nth-of-type(3)').textContent`), '=1+1');
+  await openTree('notes.txt');
+  await wait(() => evaluate(`(${preview})?.querySelector('pre')?.textContent.includes('Plain text λ')`), 'native text');
+  assert.equal(await evaluate(`typeof window.textExecuted`), 'undefined');
+  await openTree('settings.yaml');
+  await wait(() => evaluate(`(${preview})?.querySelector('pre')?.textContent.includes('mode: native')`), 'native YAML source');
+  await openTree('book.xlsx');
+  await wait(() => evaluate(`(${preview})?.querySelector('table')?.textContent.includes('Revenue')`), 'native XLSX worker and table');
+  assert.equal(await evaluate(`(${preview}).querySelector('table').textContent.includes('84')`), true);
+  await evaluate(`(${preview}).querySelector('[role="tablist"] button:nth-child(2)').click()`);
+  await wait(() => evaluate(`(${preview})?.querySelector('table')?.textContent.includes('Second sheet')`), 'workbook sheet selection');
+  await clickText('Reload', `(${preview})`);
+  await wait(() => evaluate(`(${preview})?.querySelector('table')?.textContent.includes('Revenue')`), 'workbook reload resets sheet safely');
+  await openTree('legacy.doc');
+  await wait(() => evaluate(`(${preview})?.querySelector('pre')?.textContent.includes('Legacy Word preview')`), 'legacy Word native text');
+  await openTree('invalid.xlsx');
+  await wait(() => evaluate(`!!(${preview})?.querySelector('[role="alert"]')`), 'malformed workbook shows explicit error');
+  const available = new Map(), sandboxTargets = new Set(), enabled = new Set();
+  const sandboxListener = (_event, method, params, sessionId) => {
+    if (method === 'Target.attachedToTarget' && params.targetInfo.type === 'iframe') sandboxTargets.add(params.sessionId);
+    if (method === 'Runtime.executionContextCreated' && params.context.auxData?.isDefault) {
+      available.set(`${sessionId}:${params.context.id}`, { contextId: params.context.id, sessionId });
+    }
+    if (method === 'Runtime.executionContextDestroyed') available.delete(`${sessionId}:${params.executionContextId}`);
+  };
+  win.webContents.debugger.on('message', sandboxListener);
+  win.webContents.debugger.attach('1.3');
+  await win.webContents.debugger.sendCommand('Runtime.enable');
+  await win.webContents.debugger.sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+  const inspectFrame = async (match, expression) => {
+    for (const sessionId of sandboxTargets) {
+      if (enabled.has(sessionId)) continue;
+      await win.webContents.debugger.sendCommand('Runtime.enable', {}, sessionId);
+      enabled.add(sessionId);
+    }
+    for (const { contextId, sessionId } of available.values()) {
+      const result = await win.webContents.debugger.sendCommand('Runtime.evaluate', {
+        expression: `document.URL === 'about:srcdoc' && (${match}) ? { matched: true, value: (${expression}) } : { matched: false }`,
+        contextId, returnByValue: true, allowUnsafeEvalBlockedByCSP: true,
+      }, sessionId || undefined);
+      if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+      if (result.result.value?.matched) return result.result.value.value;
+    }
+    return false;
+  };
+  await openTree('report.docx');
+  await wait(() => evaluate(`!!(${preview})?.querySelector('iframe[title="Word preview: report.docx"]')`), 'DOCX native preview');
+  const wordFrame = `document.querySelector('h1')?.textContent === 'Native Word preview'`;
+  await wait(() => inspectFrame(wordFrame, 'true'), 'DOCX heading and sandbox');
+  assert.deepEqual(await inspectFrame(wordFrame, `({ table: !!document.querySelector('table'), unsafe: !!document.querySelector('[href], script, img'), ipc: typeof window.agentPlex })`),
+    { table: true, unsafe: false, ipc: 'undefined' });
+  await openTree('diagram.mmd');
+  await wait(() => evaluate(`!!(${preview})?.querySelector('iframe[title="Mermaid diagram"]')`), 'standalone Mermaid SVG');
+  assert.deepEqual(await evaluate(`(() => {
+    const doc = new DOMParser().parseFromString((${preview}).querySelector('iframe').srcdoc, 'text/html');
+    return [...doc.querySelectorAll('text')].map(node => node.textContent);
+  })()`), ['Native diagram', 'Rendered locally'], 'SVG labels must survive sanitization');
+  const mermaidFrame = `!!document.querySelector('svg[id^="artifact-diagram-"]')`;
+  await wait(() => inspectFrame(mermaidFrame, `document.body.textContent.includes('Native diagram')`), 'Mermaid diagram contains rendered nodes');
+  assert.equal(await inspectFrame(mermaidFrame, `!!document.querySelector('script, image, foreignObject, [href], [onclick]')`), false);
+  await clickText('Show source', `(${preview})`);
+  assert.equal(await evaluate(`(${preview}).querySelector('pre').textContent.includes('flowchart LR')`), true);
+  await openTree('diagram.md');
+  await wait(() => evaluate(`!!(${preview})?.querySelector('iframe[title="Mermaid diagram"]')`), 'Markdown Mermaid code fence');
+  assert.equal(await evaluate(`!!(${preview}).querySelector('pre iframe')`), false, 'diagram blocks must not be nested inside code markup');
+  await openTree('bad.mermaid');
+  await wait(() => evaluate(`(${preview})?.querySelector('[role="alert"]')?.textContent.includes('Cannot render Mermaid')`), 'malformed Mermaid error');
+  await openTree('unsafe.mmd');
+  await wait(() => evaluate(`(${preview})?.querySelector('[role="alert"]')?.textContent.includes('directives')`), 'unsafe Mermaid config rejected');
+  win.webContents.debugger.detach();
+  win.webContents.debugger.removeListener('message', sandboxListener);
+  assert.equal(await evaluate(`window.testTerminalElement.isConnected`), true, 'all new formats preserve the original terminal');
+  assert.deepEqual(network, [], 'new previews cannot load external resources');
   await clickText(info.title);
   fs.appendFileSync(events, record('assistant.message', { content: '\x1b]8;;' + require('node:url').pathToFileURL(path.join(workspace, 'result.json')).href + '\x07Open OSC artifact\x1b]8;;\x07' }));
   await wait(() => evaluate(`document.querySelector('.xterm-rows').textContent.replace(/\\u00a0/g, ' ').includes('Open OSC artifact')`), 'live transcript reaches same terminal');
@@ -259,14 +357,19 @@ app.whenReady().then(async () => {
   await wait(() => evaluate(`document.querySelector('aside[aria-label="Workspace files"]')?.textContent.includes('mounted.md')`), 'provider workspace changes refresh directory');
   await clickText('mounted.md', `document.querySelector('aside[aria-label="Workspace files"]')`);
   await wait(() => evaluate(`(${preview})?.querySelector('h1')?.textContent === 'Mounted workspace'`), 'mounted file preview');
-  manager.kill(info.id);
+  fs.appendFileSync(events, record('session.shutdown', {}));
+  await wait(() => manager.list().length === 0, 'terminated discovered CLI removed from the main process');
+  await wait(() => evaluate(`!document.querySelector('[data-id="${info.id}"]') && !document.body.innerText.includes(${JSON.stringify(info.title)})`),
+    'terminated discovered CLI removed from graph, explorer and open terminal');
   fs.appendFileSync(events, record('assistant.message', { content: 'External CLI continues independently.' }));
   await new Promise(resolve => setTimeout(resolve, 1800));
   assert.equal(manager.list().length, 0, 'stopped monitors must not immediately reattach');
   assert.deepEqual(rendererErrors, []);
   console.log(JSON.stringify({ normalCliDiscovery: true, discoveryMs, liveForkPreserved: true, attributedShutdownSafe: true,
     plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true,
-    htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true }));
+    htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true,
+    csvTsvTables: true, plainAndCodeText: true, docxAndLegacyDoc: true, xlsxSheetsAndReload: true,
+    mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true }));
   manager.stop();
   win.destroy();
   app.quit();

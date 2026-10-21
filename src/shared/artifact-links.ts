@@ -1,10 +1,12 @@
 import type { IBuffer } from '@xterm/xterm';
+import { ARTIFACT_EXTENSIONS } from './artifact-formats';
 
 export interface ArtifactReference { start: number; end: number; reference: string }
 
 export function findArtifactReferences(text: string): ArtifactReference[] {
   const results: ArtifactReference[] = [];
-  const extension = String.raw`\.(?:markdown|json|html?|md|pdf)(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?`;
+  const extensions = Object.keys(ARTIFACT_EXTENSIONS).sort((a, b) => b.length - a.length).join('|');
+  const extension = String.raw`\.(?:${extensions})(?::\d+(?::\d+)?|#L\d+(?:C\d+)?)?`;
   const patterns = [
     new RegExp(String.raw`\[[^\]\r\n]+\]\(([^)\r\n]+${extension})\)`, 'gi'),
     new RegExp(String.raw`\x60([^\x60\r\n]+${extension})\x60`, 'gi'),

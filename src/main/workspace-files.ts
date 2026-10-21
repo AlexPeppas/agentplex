@@ -2,6 +2,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sanitizeHtml from 'sanitize-html';
+import { parse } from 'csv-parse/sync';
+import { artifactKind } from '../shared/artifact-formats';
+import { readOfficePreview } from './office-preview';
 import type { WorkspaceDirectory, WorkspaceFile } from '../shared/ipc-channels';
 
 const MAX_ENTRIES = 500;
@@ -61,15 +64,15 @@ export async function readWorkspaceFile(root: string, reference: string, artifac
     resolved = await resolveScoped(artifactRoot, target.replace(/^(?:\.[\\/])?files[\\/]/, ''));
   }
   const extension = path.extname(resolved).toLowerCase();
-  const kind = extension === '.json' ? 'json' : extension === '.md' || extension === '.markdown' ? 'markdown'
-    : extension === '.html' || extension === '.htm' ? 'html' : extension === '.pdf' ? 'pdf' : null;
-  if (!kind) throw new Error('Preview supports JSON, Markdown, HTML and PDF files only');
+  const kind = artifactKind(extension);
+  if (!kind) throw new Error('Unsupported preview format. Use a text/code, CSV/TSV, DOC/DOCX, XLSX, Mermaid, JSON, Markdown, HTML or PDF file.');
   const handle = await fs.open(resolved, 'r');
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error('The selected path is not a regular file');
-    const limit = kind === 'pdf' ? MAX_PDF_BYTES : MAX_FILE_BYTES;
-    const limitError = `File exceeds the ${kind === 'pdf' ? '20' : '1'} MiB preview limit`;
+    const binary = kind === 'pdf' || kind === 'document' || kind === 'workbook';
+    const limit = binary ? MAX_PDF_BYTES : MAX_FILE_BYTES;
+    const limitError = `File exceeds the ${binary ? '20' : '1'} MiB preview limit`;
     if (stat.size > limit) throw new Error(limitError);
     const buffer = Buffer.alloc(limit + 1);
     let bytesRead = 0;
@@ -84,10 +87,31 @@ export async function readWorkspaceFile(root: string, reference: string, artifac
       if (bytes.subarray(0, 5).toString('ascii') !== '%PDF-') throw new Error('File is not a valid PDF document');
       return { path: resolved, name: path.basename(resolved), kind, base64: bytes.toString('base64') };
     }
-    if (bytes.includes(0)) throw new Error('Binary files cannot be previewed');
+    if (kind === 'document' || kind === 'workbook') {
+      return { path: resolved, name: path.basename(resolved), ...await readOfficePreview(bytes, extension) };
+    }
     let content: string;
-    try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
-    catch { throw new Error('File is not valid UTF-8 text'); }
+    const encoding = bytes[0] === 255 && bytes[1] === 254 ? 'utf-16le'
+      : bytes[0] === 254 && bytes[1] === 255 ? 'utf-16be' : 'utf-8';
+    try { content = new TextDecoder(encoding, { fatal: true }).decode(bytes); }
+    catch { throw new Error('File is not valid UTF-8 or BOM-marked UTF-16 text'); }
+    if (content.includes('\0')) throw new Error('Binary files cannot be previewed as text');
+    if (kind === 'table') {
+      const records: string[][] = parse(content, {
+        delimiter: extension === '.tsv' ? '\t' : ',', bom: true, skip_empty_lines: true,
+        relax_column_count: true, max_record_size: 128 * 1024, to: 1001,
+      });
+      let cells = 20000;
+      let truncated = records.length > 1000 || records.some(row => row.length > 100);
+      const rows: string[][] = [];
+      for (const row of records.slice(0, 1000)) {
+        const values = row.slice(0, 100);
+        if (values.length > cells) { truncated = true; break; }
+        rows.push(values);
+        cells -= values.length;
+      }
+      return { path: resolved, name: path.basename(resolved), kind, sheet: { name: path.basename(resolved), rows, truncated } };
+    }
     if (kind === 'html') content = sanitizeHtml(content, {
       allowedTags: false, allowedAttributes: false, allowVulnerableTags: true,
       allowedSchemesByTag: { img: ['data', 'http', 'https'] },

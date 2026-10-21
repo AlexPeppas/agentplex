@@ -134,9 +134,9 @@ test('forked CLI history cannot kill a fresh monitor before its first resume, in
     assert.equal(manager.list().find(session => session.id === info.id).status, 'running');
     fs.appendFileSync(file, timed('session.shutdown', began + 3));
     watcher.poll();
-    assert.equal(manager.list().find(session => session.id === info.id).status, 'killed', 'the actual child shutdown still ends monitoring');
+    assert.equal(manager.list().find(session => session.id === info.id), undefined, 'the actual child shutdown removes the monitor');
   }
-  assert.equal(manager.list().length, 2, 'resuming a fork must not require replacement graph nodes');
+  assert.equal(manager.list().length, 0, 'terminated forks must not leave killed graph nodes');
 });
 
 test('an attributed sub-agent shutdown cannot stop its independently monitored parent CLI', async t => {
@@ -198,7 +198,8 @@ test('monitored CLIs replay and tail exactly once, preserve UTF-8, follow worksp
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.home, '.agentplex', 'state.json'))).sessions, {});
   fs.appendFileSync(file, record('session.shutdown', {}));
   watcher.poll();
-  assert.equal(manager.list()[0].status, 'killed');
+  assert.deepEqual(manager.list(), []);
+  assert.equal(events.filter(event => event.channel === 'session:removed' && event.data.id === info.id).length, 1);
   assert.equal(watcher.timer, null);
   manager.kill(info.id);
   assert.deepEqual(manager.list(), []);
@@ -215,12 +216,28 @@ test('initial monitor hydration uses the latest workspace and does not revive a 
   const manager = new SessionManager();
   f.disposers.push(() => manager.stop());
   manager.monitorCopilotSession(uuid(1), f.home);
+  const session = manager.sessions.get(manager.list()[0].id);
+  const watcher = session.jsonlWatcher;
+  await Promise.resolve();
+  assert.equal(session.cwd, mounted);
+  assert.deepEqual(manager.list(), []);
+  assert.match(session.buffer, /last result/);
+  assert.equal(watcher.timer, null);
+});
+
+test('a shutdown followed by a resume in the same watcher batch keeps the live discovered CLI', async t => {
+  const f = fixture(t);
+  const file = f.make(1);
+  const { SessionManager } = loadSource('src/main/session-manager.ts', f.overrides);
+  const manager = new SessionManager();
+  f.disposers.push(() => manager.stop());
+  manager.monitorCopilotSession(uuid(1), f.home);
   await Promise.resolve();
   const info = manager.list()[0];
-  assert.equal(info.cwd, mounted);
-  assert.equal(info.status, 'killed');
-  assert.match(manager.getBuffer(info.id), /last result/);
-  assert.equal(manager.sessions.get(info.id).jsonlWatcher.timer, null);
+  fs.appendFileSync(file, record('session.shutdown', {}) + record('session.resume', { context: { cwd: f.home } }));
+  manager.sessions.get(info.id).jsonlWatcher.poll();
+  assert.equal(manager.list()[0].id, info.id);
+  assert.equal(manager.list()[0].status, 'idle');
 });
 
 test('one inaccessible session cannot block other discoveries or repeatedly flood the log', async t => {

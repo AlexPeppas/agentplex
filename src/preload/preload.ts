@@ -70,6 +70,12 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.SESSION_STATUS, handler);
   },
 
+  onSessionRemoved: (callback: (data: { id: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { id: string }) => callback(payload);
+    ipcRenderer.on(IPC.SESSION_REMOVED, handler);
+    return () => ipcRenderer.removeListener(IPC.SESSION_REMOVED, handler);
+  },
+
   onSessionExit: (callback: (data: { id: string; exitCode: number }) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: { id: string; exitCode: number }) => {
       callback(payload);
