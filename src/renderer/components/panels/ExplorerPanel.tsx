@@ -3,31 +3,13 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, Terminal, Pencil, Trash2, Send, FolderOpen, Star, Layers, Search, X, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { CLI_TOOLS, SessionStatus, type CliTool, type DetectedShell } from '../../../shared/ipc-channels';
+import { CliIcon } from '../CliIcon';
 import { StatusIndicator } from '../StatusIndicator';
 import { ContextMeter, SessionAge } from '../SessionMetrics';
 import { AttentionBox } from '../AttentionBox';
 import { buildExplorerProjects } from '../../session-explorer';
 import { useViewportMenu } from '../../hooks/useViewportMenu';
 import claudeLogo from '../../../../assets/claude-logo.svg';
-import codexDark from '../../../../assets/codex-dark.svg';
-import codexLight from '../../../../assets/codex-light.svg';
-import copilotDark from '../../../../assets/githubcopilot-dark.svg';
-import copilotLight from '../../../../assets/githubcopilot-light.svg';
-
-const CLI_ICONS: Record<string, { dark: string; light: string }> = {
-  claude: { dark: claudeLogo, light: claudeLogo },
-  codex: { dark: codexLight, light: codexDark },
-  copilot: { dark: copilotLight, light: copilotDark },
-};
-
-
-function CliIcon({ cli }: { cli: CliTool }) {
-  const icons = CLI_ICONS[cli];
-  if (!icons) return <Terminal size={13} className="shrink-0 text-fg-muted" />;
-  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-  const src = theme === 'dark' ? icons.dark : icons.light;
-  return <img src={src} alt="" className="w-3.5 h-3.5 shrink-0" />;
-}
 
 /** Convert a #rrggbb hex colour to an rgba() string with the given alpha. */
 function hexToRgba(hex: string, alpha: number): string {
@@ -256,26 +238,26 @@ export function ExplorerPanel() {
   };
 
   return (
-    <div className="py-1">
+    <div className="session-explorer py-1">
       <AttentionBox />
-      <div className="px-2 py-2 space-y-2 border-b border-border">
+      <div className="px-3 pt-2 pb-3 space-y-2.5 border-b border-border-soft mb-2">
         <div className="flex items-center gap-1">
-          <span className="flex-1 text-[11px] font-semibold text-fg-muted">Projects</span>
+          <span className="flex-1 text-[10px] font-medium uppercase tracking-widest text-fg-muted">Projects</span>
           <button title="Expand all projects" aria-label="Expand all projects" onClick={() => setCollapsed(new Set())}
             className="p-1.5 text-fg-muted rounded hover:bg-elevated"><ChevronsUpDown size={14} /></button>
           <button title="Collapse all projects" aria-label="Collapse all projects" onClick={() => setCollapsed(new Set(Object.values(sessions).map(s => s.cwd || 'Unknown')))}
             className="p-1.5 text-fg-muted rounded hover:bg-elevated"><ChevronsDownUp size={14} /></button>
         </div>
-        <div className="flex items-center gap-1 border border-border rounded bg-inset px-2">
+        <div className="flex items-center gap-1.5 border border-border-soft rounded-md bg-inset px-2 focus-within:border-accent">
           <Search size={12} className="shrink-0 text-fg-muted" />
           <input aria-label="Filter sessions" placeholder="Name, project, group..." value={query}
             onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') clearFilters(); }}
-            className="w-full min-w-0 py-1.5 text-xs bg-transparent text-fg outline-none" />
+            className="w-full min-w-0 py-2 text-xs bg-transparent text-fg placeholder:text-fg-muted outline-none" />
           {query && <button aria-label="Clear search" onClick={() => setQuery('')} className="text-fg-muted"><X size={12} /></button>}
         </div>
         <div className="flex flex-wrap gap-1">
           <select aria-label="Filter by status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            className="flex-1 min-w-0 p-1 border border-border rounded bg-inset text-fg text-[11px]">
+            className="flex-1 min-w-0 p-1.5 border border-border-soft rounded-md bg-inset text-fg text-[11px]">
             <option value="all">All statuses</option>
             <option value={SessionStatus.WaitingForInput}>Needs input</option>
             <option value={SessionStatus.Running}>Running</option>
@@ -283,7 +265,7 @@ export function ExplorerPanel() {
             <option value={SessionStatus.Killed}>Stopped</option>
           </select>
           <select aria-label="Filter by CLI" value={cliFilter} onChange={e => setCliFilter(e.target.value)}
-            className="flex-1 min-w-0 p-1 border border-border rounded bg-inset text-fg text-[11px]">
+            className="flex-1 min-w-0 p-1.5 border border-border-soft rounded-md bg-inset text-fg text-[11px]">
             <option value="all">All CLIs</option>
             {cliOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
@@ -306,12 +288,13 @@ export function ExplorerPanel() {
             onClick={() => toggle(dir.cwd)}
             onContextMenu={(e) => handleDirContextMenu(e, dir.cwd)}
             aria-expanded={!collapsed.has(dir.cwd)}
-            className="flex flex-1 min-w-0 items-center gap-1.5 h-8 px-3 text-[11px] font-semibold text-fg uppercase tracking-wide hover:bg-elevated transition-colors cursor-pointer"
+            className="flex flex-1 min-w-0 items-center gap-1.5 h-9 px-3 text-xs font-medium text-fg hover:bg-elevated transition-colors cursor-pointer"
             title={dir.cwd}
           >
             <span className={`shrink-0 transition-transform duration-150 ${collapsed.has(dir.cwd) ? '' : 'rotate-90'}`}>
               <ChevronRight size={14} />
             </span>
+            <FolderOpen size={13} className="shrink-0 text-fg-muted" />
             <span className="truncate">{dir.dirName}</span>
             <span className="ml-auto text-[10px] tabular-nums text-fg-muted">
               {dir.sessions.length === dir.total ? dir.total : `${dir.sessions.length}/${dir.total}`}
@@ -329,13 +312,12 @@ export function ExplorerPanel() {
                   onClick={() => selectSession(s.id, true)}
                   onContextMenu={(e) => handleSessionContextMenu(e, s.id)}
                   style={group ? {
-                    backgroundColor: isSelected ? undefined : hexToRgba(group.color, 0.1),
-                    boxShadow: `inset 3px 0 0 ${group.color}`,
+                    boxShadow: `inset 2px 0 0 ${hexToRgba(group.color, 0.6)}`,
                   } : undefined}
-                  className={`relative flex items-center gap-2 w-full min-h-10 pl-7 pr-3.5 py-1.5 text-xs transition-colors cursor-pointer
+                  className={`relative flex items-center gap-2 mx-1.5 w-[calc(100%-12px)] min-h-12 pl-5 pr-2.5 py-2 text-xs rounded-md border transition-colors cursor-pointer
                     ${isSelected
-                      ? 'bg-accent-subtle border-l-2 border-accent pl-[26px]'
-                      : 'hover:bg-elevated'}`}
+                      ? 'bg-accent-subtle border-accent-border'
+                      : 'border-transparent hover:bg-elevated'}`}
                 >
                   <CliIcon cli={s.cli} />
                   <StatusIndicator status={s.status} />
@@ -367,8 +349,7 @@ export function ExplorerPanel() {
                       <span className="flex items-center justify-between gap-2 w-full min-w-0">
                         {group ? (
                           <span
-                            className="truncate text-[9px] font-semibold uppercase tracking-wide leading-tight"
-                            style={{ color: group.color }}
+                            className="truncate text-[9px] text-fg-muted font-medium uppercase tracking-wide leading-tight"
                             title={group.label}
                           >
                             {group.label}
@@ -490,11 +471,7 @@ export function ExplorerPanel() {
               <div className="h-px bg-border my-1" />
               <div className="py-1 px-2.5">
                 <span className="flex items-center gap-1.5 text-[10px] font-semibold text-fg-muted uppercase tracking-wide mb-1">
-                  <img
-                    src={(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? copilotLight : copilotDark}
-                    alt=""
-                    className="w-3 h-3"
-                  />
+                  <CliIcon cli="copilot" size={12} />
                   GitHub Copilot
                 </span>
                 <div className="flex gap-1">
@@ -514,16 +491,13 @@ export function ExplorerPanel() {
               </div>
               <div className="h-px bg-border my-1" />
               {CLI_TOOLS.filter((t) => t.id !== 'claude' && t.id !== 'copilot').map((tool) => {
-                const icons = CLI_ICONS[tool.id];
-                const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-                const iconSrc = icons ? (theme === 'dark' ? icons.dark : icons.light) : null;
                 return (
                   <button
                     key={tool.id}
                     className="flex items-center gap-2 w-full py-1.5 px-3 text-[12px] text-fg bg-transparent border-none cursor-pointer transition-colors hover:bg-border text-left"
                     onClick={() => handleNewSessionInDir(tool.id)}
                   >
-                    {iconSrc ? <img src={iconSrc} alt="" className="w-3.5 h-3.5" /> : <Terminal size={13} />}
+                    <CliIcon cli={tool.id} />
                     {tool.label}
                   </button>
                 );

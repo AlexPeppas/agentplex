@@ -6,20 +6,17 @@ import {
   type OnEdgesChange,
   applyNodeChanges,
   applyEdgeChanges,
+  MarkerType,
 } from '@xyflow/react';
 import { SessionStatus, type SessionInfo, type CliTool, type PersistedGroup, type PersistedGroups } from '../shared/ipc-channels';
 import type { SubAgentNodeData } from './components/SubAgentNode';
 import { getSplitPaneEnabled } from './components/panels/SettingsPanel';
 import { conversationIdentity } from '../shared/conversation-identity';
 
-function getAccentColor(): string {
-  return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#d18a7a';
-}
-
 // Grid layout constants
 const GRID_COLS = 3;
 const GRID_SPACING_X = 280;
-const GRID_SPACING_Y = 120;
+const GRID_SPACING_Y = 180;
 const GRID_OFFSET_X = 60;
 const GRID_OFFSET_Y = 60;
 
@@ -192,7 +189,7 @@ const GROUP_MIN_MANUAL_SIZE = 120;
 const GROUP_ADJACENT_GAP = 40;
 
 /** Chrome-like palette; new groups cycle through it. */
-const GROUP_COLORS = ['#7aa2f7', '#e06c75', '#e5c07b', '#98c379', '#56b6c2', '#c678dd', '#d18a7a', '#e08aa8'];
+const GROUP_COLORS = ['#8fa6bb', '#b8a0a0', '#b5a585', '#98aa96', '#8eacab', '#aaa0ba', '#b5a092', '#b39da9'];
 
 function nextGroupColor(): string {
   const color = GROUP_COLORS[groupColorCounter % GROUP_COLORS.length];
@@ -686,7 +683,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       type: 'subagentNode',
       position: {
         x: parentNode.position.x + offsetX,
-        y: parentNode.position.y + 90,
+        y: parentNode.position.y + (parentNode.measured?.height ?? 120) + 28,
       },
       data: {
         label: description,
@@ -698,9 +695,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: `edge-${sessionId}-${subagentId}`,
       source: sessionId,
       target: subagentId,
-      type: 'smoothstep',
-      animated: true,
-      style: { stroke: getAccentColor(), strokeWidth: 2 },
+      type: 'default',
+      style: { stroke: 'var(--edge)', strokeWidth: 1.25 },
     };
 
     set({
@@ -970,6 +966,32 @@ export const useAppStore = create<AppState>((set, get) => ({
         x: group.position.x + size + GROUP_ADJACENT_GAP,
         y: group.position.y + size / 2 - nodeSz.height / 2,
       };
+      const obstacles = base.filter(other => other.id !== nodeId && other.type !== 'groupNode').map(other => {
+        const parent = base.find(candidate => candidate.id === other.parentId);
+        return {
+          x: other.position.x + (parent?.position.x ?? 0),
+          y: other.position.y + (parent?.position.y ?? 0),
+          ...getNodeSize(other),
+        };
+      });
+      const blockersAt = (position: { x: number; y: number }) => obstacles.filter(other =>
+        position.x < other.x + other.width + GROUP_ADJACENT_GAP
+        && position.x + nodeSz.width + GROUP_ADJACENT_GAP > other.x
+        && position.y < other.y + other.height + GROUP_ADJACENT_GAP
+        && position.y + nodeSz.height + GROUP_ADJACENT_GAP > other.y);
+      const centeredX = group.position.x + size / 2 - nodeSz.width / 2;
+      abs = [
+        abs,
+        { x: centeredX, y: group.position.y - nodeSz.height - GROUP_ADJACENT_GAP },
+        { x: centeredX, y: group.position.y + size + GROUP_ADJACENT_GAP },
+        { x: group.position.x - nodeSz.width - GROUP_ADJACENT_GAP, y: abs.y },
+      ].find(position => blockersAt(position).length === 0) ?? abs;
+      // Move only the joining card, accounting for other groups' absolute positions.
+      for (;;) {
+        const blockers = blockersAt(abs);
+        if (blockers.length === 0) break;
+        abs.y = Math.max(...blockers.map(other => other.y + other.height + GROUP_ADJACENT_GAP));
+      }
     } else {
       // Drag adds keep the drop point.
       abs = { x: node.position.x, y: node.position.y };
@@ -1139,11 +1161,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: edgeId,
       source: sourceId,
       target: targetId,
-      type: 'smoothstep',
+      type: 'default',
       animated: true,
       className: 'edge-message',
-      markerEnd: { type: 'arrowclosed' as any, color: getAccentColor(), width: 16, height: 16 },
-      style: { stroke: getAccentColor(), strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--accent)', width: 16, height: 16 },
+      style: { stroke: 'var(--accent)', strokeWidth: 1.5 },
     };
 
     set({ edges: [...edges, newEdge] });

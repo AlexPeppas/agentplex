@@ -141,14 +141,22 @@ pnpm is pinned via `packageManager` in package.json. If you have [corepack](http
 - **Plan & task visualization** — see plans and task lists rendered in the graph
 - **Session resume** — resume previous Claude and Copilot sessions from the same launcher UX
 - **External session adoption** — discover and adopt running Claude/Copilot sessions
-- **Dark / light mode** — warm terracotta palette with theme toggle
+- **Graphite dark / Stone light** — muted paired themes for the graph, explorers, and toolbar
 - **Inline rename** — double-click any node to rename it
 
-<p align="center">
-  <img src="assets/session-graph.png" alt="AgentPlex screenshot" width="800" />
-</p>
+Switch between Graphite and Stone in **Settings**; your choice persists across
+launches. Terminal output and Git diff editors remain dark in both themes to
+preserve CLI and code readability.
 
-> Three concurrent sessions on the graph canvas: **Autonomous Driving** spawned 3 sub-agents comparing Tesla, Waymo, and Cruise. **Fine Tuning** is in plan mode working through a structured research plan — it's currently waiting for human input (indicated by the **?** badge). **Mortgage** crawls and looks for the best interest rates. Each node reflects real-time session status at a glance. Hover any session and click the send icon to share context with another session.
+| Graphite (dark) | Stone (light) |
+| --- | --- |
+| ![Graphite session graph](assets/graphite-preview.png) | ![Stone session graph](assets/stone-preview.png) |
+| [Workspace and file preview](assets/graphite-workspace-preview.png) | [Workspace and file preview](assets/stone-workspace-preview.png) |
+
+> Captured from the production renderer with synthetic sessions and an isolated
+> workspace. Click an image for the full-size view. Session cards show live state,
+> waiting sessions use a diamond indicator, and the graph dock provides zoom and
+> fit controls. Hover or keyboard-focus a card to reveal its actions.
 
 ## Configuration
 

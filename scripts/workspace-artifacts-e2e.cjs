@@ -57,6 +57,49 @@ const clickText = async (text, scope = 'document') => {
   })()`);
 };
 const preview = `[...document.querySelectorAll('section[aria-label="File preview"]')].find(element => element.getBoundingClientRect().width > 0)`;
+async function setTheme(theme) {
+  await evaluate(`document.querySelector('button[title="Settings"]').click()`);
+  await wait(() => evaluate(`!![...document.querySelectorAll('button')].find(button => button.textContent.includes('Switch to'))`), 'appearance settings');
+  if (await evaluate(`document.documentElement.dataset.theme`) !== theme) {
+    await evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent.includes('Switch to')).click()`);
+  }
+  await wait(() => evaluate(`document.documentElement.dataset.theme === ${JSON.stringify(theme)}`), `${theme} theme applied`);
+  await wait(() => win.getBackgroundColor().toLowerCase().endsWith(theme === 'dark' ? '181c20' : 'f3f1ec'), 'native window matches renderer theme');
+  await evaluate(`document.querySelector('button[title="Settings"]').click()`);
+}
+
+async function assertThemedSurfaces(theme) {
+  const result = await evaluate(`(() => {
+    const color = selector => {
+      let element = document.querySelector(selector);
+      const text = getComputedStyle(element).color;
+      while (getComputedStyle(element).backgroundColor === 'rgba(0, 0, 0, 0)') element = element.parentElement;
+      return { background: getComputedStyle(element).backgroundColor, text };
+    };
+    const card = document.querySelector('.session-node');
+    const icon = card.querySelector('.cli-icon--' + ${JSON.stringify(theme)});
+    const other = card.querySelector('.cli-icon--' + ${JSON.stringify(theme === 'dark' ? 'light' : 'dark')});
+    return { surfaces: ['.app-toolbar', '.session-node', '.workspace-explorer',
+      '.session-node .text-fg-muted', '.workspace-explorer > .text-fg-muted', '.app-toolbar button.bg-accent'].map(color),
+      cardBorder: getComputedStyle(card).borderTopWidth,
+      cardRadius: getComputedStyle(card).borderTopLeftRadius,
+      iconVisible: getComputedStyle(icon).display !== 'none',
+      otherIconHidden: getComputedStyle(other).display === 'none' };
+  })()`);
+  const luminance = color => color.match(/[\d.]+/g).slice(0, 3).map(Number).reduce((sum, value, i) => {
+    const channel = value / 255;
+    return sum + (channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4) * [.2126, .7152, .0722][i];
+  }, 0);
+  for (const surface of result.surfaces) {
+    const values = [luminance(surface.background), luminance(surface.text)].sort((a, b) => a - b);
+    assert.ok((values[1] + .05) / (values[0] + .05) >= 4.5, `readable ${theme} UI: ${JSON.stringify(surface)}`);
+  }
+  assert.equal(result.surfaces[1].background, theme === 'dark' ? 'rgb(32, 37, 43)' : 'rgb(251, 250, 247)');
+  assert.equal(result.cardBorder, '1px');
+  assert.equal(result.cardRadius, theme === 'dark' ? '9px' : '13px');
+  assert.equal(result.iconVisible && result.otherIconHidden, true, 'existing CLI icons switch without remounting');
+}
+
 async function clickTerminalText(text, attempt = 0) {
   await evaluate(`document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))`);
   const point = await evaluate(`(() => {
@@ -125,6 +168,8 @@ app.whenReady().then(async () => {
   manager.start();
   await wait(() => !manager.discovery.baseline, 'historical baseline');
   win = new BrowserWindow({ show: false, width: 1400, height: 1000,
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden',
+      titleBarOverlay: { height: 48, color: '#181c20', symbolColor: '#e4e8ed' } } : {}),
     webPreferences: { preload: path.join(repository, '.vite', 'build', 'preload.js'),
       nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false, offscreen: true } });
   loadSource('src/main/preview-navigation.ts').installPreviewNavigation(win.webContents);
@@ -144,6 +189,10 @@ app.whenReady().then(async () => {
     clipboard.clear();
     for (const [format, bytes] of clipboardBefore) clipboard.writeBuffer(format, bytes);
   }
+  await setTheme('light');
+  await win.loadFile(path.join(rendererRoot, '.vite', 'renderer', 'main_window', 'index.html'));
+  await wait(() => evaluate(`!!document.querySelector('.react-flow')`), 'renderer reload');
+  assert.equal(await evaluate(`document.documentElement.dataset.theme`), 'light', 'Stone persists across reload');
   // Align the fallback timer so it cannot satisfy the filesystem latency check.
   manager.discovery.stop();
   manager.discovery.start();
@@ -172,6 +221,16 @@ app.whenReady().then(async () => {
   await evaluate(`document.querySelector('[data-id="${info.id}"] > div').click()`);
   await wait(() => evaluate(`!!document.querySelector('.xterm-rows') && document.querySelector('aside[aria-label="Workspace files"]')?.textContent.includes('result.json')`), 'terminal and workspace tree');
   await evaluate(`window.testTerminalElement = document.querySelector('.xterm')`);
+  await assertThemedSurfaces('light');
+  await setTheme('dark');
+  await assertThemedSurfaces('dark');
+  assert.equal(await evaluate(`window.testTerminalElement.isConnected`), true, 'switching themes preserves the terminal instance');
+  await evaluate(`document.querySelector('.session-node button[title="Rename session"]').focus()`);
+  await wait(() => evaluate(`getComputedStyle(document.querySelector('.session-node__actions')).opacity === '1'`), 'node actions are visible on keyboard focus');
+  const oldViewport = await evaluate(`document.querySelector('.react-flow__viewport').style.transform`);
+  await evaluate(`document.querySelector('.react-flow__controls-zoomin').click()`);
+  await wait(() => evaluate(`document.querySelector('.react-flow__viewport').style.transform`) !== oldViewport, 'graph dock zooms the real canvas');
+  await setTheme('light');
   assert.equal(await evaluate(`document.querySelector('.xterm-helper-textarea').readOnly`), true);
   const selectedText = await evaluate(`(() => {
     const walker = document.createTreeWalker(document.querySelector('.xterm-rows'), NodeFilter.SHOW_TEXT);
@@ -214,6 +273,8 @@ app.whenReady().then(async () => {
   await wait(() => evaluate(`document.querySelector('.xterm-rows').textContent.includes('result.json')`), 'transcript file link');
   await clickTerminalText('result.json');
   await wait(() => evaluate(`(${preview})?.querySelector('pre')?.textContent.includes('"verified": "first"')`), 'plain terminal path opens native JSON tab');
+  await setTheme('dark');
+  assert.equal(await evaluate(`(${preview})?.querySelector('pre')?.textContent.includes('"verified": "first"')`), true, 'theme changes preserve the active artifact');
   assert.equal(await evaluate(`window.testTerminalElement.isConnected`), true);
   await clickText(info.title);
   await wait(() => evaluate(`document.querySelector('.xterm-rows').textContent.includes('report.pdf')`), 'PDF terminal link');
@@ -278,6 +339,13 @@ app.whenReady().then(async () => {
     }
   });
   win.webContents.debugger.attach('1.3');
+  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  });
+  assert.equal(await evaluate(`matchMedia('(prefers-reduced-motion: reduce)').matches
+    && getComputedStyle(document.querySelector('.session-node')).transitionDuration.split(',').every(value => parseFloat(value) <= .01)`),
+  true, 'system reduced-motion preference disables decorative transitions');
+  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
   await win.webContents.debugger.sendCommand('Runtime.enable');
   await win.webContents.debugger.sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
   const tree = await win.webContents.debugger.sendCommand('Page.getFrameTree');
@@ -441,7 +509,9 @@ app.whenReady().then(async () => {
     htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true,
     csvTsvTables: true, plainAndCodeText: true, docxAndLegacyDoc: true, xlsxSheetsAndReload: true,
     mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true,
-    sandboxClipboard: true, mouseSelectedTerminalCopy: true, cliOutputNativeClipboard: true }));
+    sandboxClipboard: true, mouseSelectedTerminalCopy: true, cliOutputNativeClipboard: true,
+    graphiteAndStone: true, persistedTheme: true, readableSurfaces: true, liveCliIcons: true, keyboardNodeActions: true, graphZoomDock: true,
+    reducedMotion: true }));
   manager.stop();
   win.destroy();
   app.quit();

@@ -17,7 +17,7 @@ export function StatusIndicator({ status }: StatusIndicatorProps) {
 
   return (
     <span
-      className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${shouldPulse ? 'animate-[pulse-dot_1.5s_ease-in-out_infinite]' : ''}`}
+      className={`inline-block w-1.5 h-1.5 shrink-0 ${status === SessionStatus.WaitingForInput ? 'rounded-[1px] rotate-45' : 'rounded-full'} ${shouldPulse ? 'animate-[pulse-dot_2.5s_ease-in-out_infinite]' : ''}`}
       style={{ backgroundColor: color }}
     />
   );

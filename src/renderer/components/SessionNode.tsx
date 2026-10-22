@@ -1,32 +1,13 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Send, ClipboardList, Circle, Check, Terminal, Trash2, GitBranch } from 'lucide-react';
+import { Send, ClipboardList, Circle, Check, Trash2, GitBranch } from 'lucide-react';
+import { CliIcon } from './CliIcon';
 import { StatusIndicator } from './StatusIndicator';
 import { ContextMeter, SessionAge } from './SessionMetrics';
 import { useAppStore, type SessionNodeData } from '../store';
-import { SessionStatus, type CliTool } from '../../shared/ipc-channels';
+import { SessionStatus } from '../../shared/ipc-channels';
 import { useViewportMenu } from '../hooks/useViewportMenu';
-import claudeLogo from '../../../assets/claude-logo.svg';
-import codexDark from '../../../assets/codex-dark.svg';
-import codexLight from '../../../assets/codex-light.svg';
-import copilotDark from '../../../assets/githubcopilot-dark.svg';
-import copilotLight from '../../../assets/githubcopilot-light.svg';
-
-const CLI_ICONS: Record<string, { dark: string; light: string }> = {
-  claude: { dark: claudeLogo, light: claudeLogo },
-  codex: { dark: codexLight, light: codexDark },
-  copilot: { dark: copilotLight, light: copilotDark },
-};
-
-function CliIcon({ cli, size = 14 }: { cli?: CliTool; size?: number }) {
-  if (!cli) return null;
-  const icons = CLI_ICONS[cli];
-  if (!icons) return <Terminal size={size} className="shrink-0 text-fg-muted" />;
-  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-  const src = theme === 'dark' ? icons.dark : icons.light;
-  return <img src={src} alt="" style={{ width: size, height: size }} className="shrink-0" />;
-}
 
 export const SessionNode = memo(function SessionNode({ data, id, parentId }: NodeProps) {
   const nodeData = data as SessionNodeData;
@@ -205,19 +186,22 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
 
   return (
     <div
-      className={`group relative py-2.5 px-3.5 bg-elevated border-2 border-border rounded-[10px] min-w-[160px] cursor-pointer transition-[border-color,box-shadow] duration-150 select-none hover:border-border-strong ${isSelected ? 'border-accent shadow-[0_0_12px_var(--accent-subtle-strong)]' : ''} ${isKilled ? 'opacity-60' : ''}`}
+      className={`session-node group relative cursor-pointer select-none ${isKilled ? 'opacity-60' : ''}`}
+      data-selected={isSelected}
+      data-waiting={isWaiting}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
     >
-      {cli && (
-        <span className="absolute -top-2 -left-2 w-5 h-5 flex items-center justify-center bg-elevated border border-border rounded-full z-10 pointer-events-none">
-          <CliIcon cli={cli} size={12} />
-        </span>
-      )}
-      {isWaiting && <span className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center bg-warning-bg text-surface text-xs font-bold rounded-full z-10 pointer-events-none animate-[attention-pulse_1.5s_ease-in-out_infinite]">?</span>}
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
+      <div className="flex items-center gap-1.5 mb-2 text-[10px] text-fg-muted">
+        <CliIcon cli={cli} size={13} />
+        <span className="capitalize truncate">{cli || 'Session'}</span>
+        <span className={`ml-auto flex items-center gap-1.5 shrink-0 ${isWaiting ? 'text-warning' : ''}`}>
+          <StatusIndicator status={status} />
+          <span className="capitalize">{isWaiting ? 'Needs input' : status}</span>
+        </span>
+      </div>
       <div className="flex items-center gap-2">
-        <StatusIndicator status={status} />
         {editing ? (
           <input
             ref={inputRef}
@@ -240,10 +224,10 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
           </span>
         )}
         {!editing && (
-          <>
+          <div className="session-node__actions absolute right-2 top-1.5 flex items-center gap-1 p-1 bg-elevated border border-border rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
             {!isKilled && (
               <button
-                className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-accent cursor-pointer opacity-0 transition-[opacity,background] duration-150 group-hover:opacity-100 hover:bg-accent-subtle"
+                className="w-5 h-5 flex items-center justify-center rounded text-fg-muted cursor-pointer hover:bg-accent-subtle hover:text-fg"
                 onClick={handleSend}
                 title="Send message to session"
               >
@@ -258,13 +242,13 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
               {editIcon}
             </button>
             <button
-              className="w-5 h-5 flex items-center justify-center bg-transparent border border-border-strong rounded-[4px] text-error cursor-pointer opacity-0 transition-[opacity,background] duration-150 group-hover:opacity-100 hover:bg-error-subtle"
+              className="w-5 h-5 flex items-center justify-center rounded text-fg-muted cursor-pointer hover:bg-error-subtle hover:text-error"
               onClick={handleDelete}
               title="Delete session"
             >
               <Trash2 size={14} />
             </button>
-          </>
+          </div>
         )}
       </div>
       {branchName && (
@@ -274,7 +258,7 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
         </div>
       )}
       {session && (
-        <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-border">
+        <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-border-soft">
           <ContextMeter usage={session.usage} supported={session.telemetrySupported} compact />
           <SessionAge
             startedAt={session.startedAt}

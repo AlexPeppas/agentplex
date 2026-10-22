@@ -2,6 +2,8 @@ import { useCallback, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
+  Controls,
+  Panel,
   useReactFlow,
   type Node,
   type OnNodeDrag,
@@ -136,7 +138,14 @@ export function GraphCanvas() {
         elementsSelectable={!drawingMode}
         proOptions={{ hideAttribution: true }}
       >
-        <Background />
+        <Background gap={22} size={1} color="var(--grid)" />
+        <Panel position="top-left">
+          <div className="graph-heading">
+            <h1>Session map</h1>
+            <span>{nodes.filter(node => node.type === 'sessionNode').length} sessions</span>
+          </div>
+        </Panel>
+        <Controls position="bottom-right" orientation="horizontal" showInteractive={false} />
       </ReactFlow>
       <DrawingOverlay />
     </div>

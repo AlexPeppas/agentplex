@@ -95,6 +95,66 @@ function withStore(run) {
   } finally { Object.assign(global, prior); }
 }
 
+test('menu grouping does not cover existing cards, including members of other groups', () => {
+  for (const congested of [false, true]) withStore(store => {
+    const ids = ['anchor', 'joining', 'near', 'below', ...(congested ? ['above', 'bottom', 'left'] : [])];
+    for (const id of ids) store.getState().addSession(session(id, id));
+    store.setState({ nodes: store.getState().nodes.map(node => ({
+      ...node, position: { x: 0, y: 0 }, measured: { width: 240, height: 120 },
+    })) });
+    store.getState().createGroupWithMembers(['anchor']);
+    const group = store.getState().nodes.find(node => node.type === 'groupNode');
+    const x = group.position.x + group.width + 40;
+    const y = group.position.y + group.width / 2 - 60;
+    const positions = {
+      near: { x, y }, below: { x, y: y + 140 },
+      above: { x: group.position.x + group.width / 2 - 120, y: group.position.y - 160 },
+      bottom: { x: group.position.x + group.width / 2 - 120, y: group.position.y + group.width + 40 },
+      left: { x: group.position.x - 280, y },
+    };
+    store.setState({ nodes: store.getState().nodes.map(node => positions[node.id]
+      ? { ...node, position: positions[node.id] } : node) });
+    store.getState().createGroupWithMembers(['below']);
+    const rectangles = () => store.getState().nodes.filter(node => node.type === 'sessionNode').map(node => {
+      const parent = store.getState().nodes.find(other => other.id === node.parentId);
+      return { id: node.id, x: node.position.x + (parent?.position.x ?? 0),
+        y: node.position.y + (parent?.position.y ?? 0), ...node.measured };
+    });
+    const before = rectangles().filter(node => node.id !== 'joining');
+    store.getState().addToGroup(group.id, 'joining', { reposition: true });
+    const after = rectangles();
+    const joined = after.find(node => node.id === 'joining');
+    for (const other of before) {
+      assert.deepEqual(after.find(node => node.id === other.id), other, 'existing cards stay fixed');
+      assert.ok(joined.x >= other.x + other.width || joined.x + joined.width <= other.x
+        || joined.y >= other.y + other.height || joined.y + joined.height <= other.y,
+      `joining card must not cover ${other.id}`);
+    }
+    assert.equal(store.getState().nodes.find(node => node.id === 'joining').parentId, group.id);
+  });
+});
+
+test('grouping preserves deliberate drag positions and manually sized circle placement', () => {
+  for (const manual of [false, true]) withStore(store => {
+    store.getState().addSession(session('anchor', 'anchor'));
+    store.getState().addSession(session('joining', 'joining'));
+    store.getState().createGroupWithMembers(['anchor']);
+    const groupId = store.getState().nodes.find(node => node.type === 'groupNode').id;
+    if (manual) store.getState().resizeGroup(groupId, 400);
+    const group = store.getState().nodes.find(node => node.id === groupId);
+    const joining = store.getState().nodes.find(node => node.id === 'joining');
+    const expected = manual
+      ? { x: group.position.x + 200 - 90, y: group.position.y + 200 - 28 }
+      : joining.position;
+    store.getState().addToGroup(groupId, joining.id, { reposition: manual });
+    const updatedGroup = store.getState().nodes.find(node => node.id === groupId);
+    const updated = store.getState().nodes.find(node => node.id === joining.id);
+    assert.deepEqual({ x: updatedGroup.position.x + updated.position.x,
+      y: updatedGroup.position.y + updated.position.y }, expected);
+    if (manual) assert.equal(updatedGroup.width, 400);
+  });
+});
+
 test('missing or ambiguous group UUIDs never fall back to reused transient IDs and survive saves', () => {
   for (const live of [[session('session-1', 'other')], [session('session-1', 'saved'), session('session-2', 'saved')]]) {
     withStore((store, save) => {

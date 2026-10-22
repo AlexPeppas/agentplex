@@ -314,8 +314,8 @@ ${safeContext}
   });
 
   const THEME_COLORS: Record<string, { titleBar: string; symbol: string; bg: string }> = {
-    dark: { titleBar: '#1e1c18', symbol: '#ece4d8', bg: '#262420' },
-    light: { titleBar: '#ebe5da', symbol: '#3a3428', bg: '#f5f0e8' },
+    dark: { titleBar: '#181c20', symbol: '#e4e8ed', bg: '#181c20' },
+    light: { titleBar: '#f3f1ec', symbol: '#30332f', bg: '#f3f1ec' },
   };
 
   ipcMain.handle(IPC.LAUNCHER_SCAN_PROJECTS, async (event, { cli }: { cli?: 'claude' | 'copilot' } = {}) => {
@@ -356,10 +356,10 @@ ${safeContext}
     return runHistory(event, 'search', signal => searchSessions(query, signal));
   });
 
-  ipcMain.on(IPC.THEME_CHANGE, (_event, { theme }: { theme: string }) => {
+  ipcMain.on(IPC.THEME_CHANGE, (event, { theme }: { theme: string }) => {
     const colors = THEME_COLORS[theme];
     if (!colors) return;
-    const win = BrowserWindow.getFocusedWindow();
+    const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
     if (process.platform === 'win32') {
       win.setTitleBarOverlay({

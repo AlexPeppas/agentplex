@@ -2,17 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Star, Plus, Radar } from 'lucide-react';
 import { useAppStore } from '../store';
 import { CLI_TOOLS, type CliTool, type ExternalSession, type DetectedShell } from '../../shared/ipc-channels';
+import { CliIcon } from './CliIcon';
 import logoSvg from '../../../assets/logo.svg';
 import claudeLogo from '../../../assets/claude-logo.svg';
-import codexDark from '../../../assets/codex-dark.svg';
-import codexLight from '../../../assets/codex-light.svg';
-import copilotDark from '../../../assets/githubcopilot-dark.svg';
-import copilotLight from '../../../assets/githubcopilot-light.svg';
-
-const TOOL_ICONS: Record<string, { dark: string; light: string }> = {
-  codex: { dark: codexLight, light: codexDark },
-  copilot: { dark: copilotLight, light: copilotDark },
-};
 
 function formatTimeAgo(timestamp: number): string {
   const diff = Date.now() - timestamp;
@@ -188,12 +180,14 @@ export function Toolbar() {
   }, [discoverOpen]);
 
   return (
-    <div className={`flex items-center gap-2.5 h-12 bg-inset border-b border-border [-webkit-app-region:drag] ${isDarwin ? 'pl-20 pr-[18px]' : 'px-[18px] pr-[140px]'}`}>
+    <div className={`app-toolbar flex shrink-0 items-center gap-2.5 h-12 bg-surface border-b border-border [-webkit-app-region:drag] ${isDarwin ? 'pl-20 pr-[18px]' : 'px-[18px] pr-[140px]'}`}>
       <div className="flex items-center gap-3 flex-1 min-w-0">
-        <div className="w-6 h-6 rounded-md overflow-hidden shrink-0 shadow-[0_0_6px_var(--accent-subtle-strong)]">
+        <div className="w-6 h-6 rounded-md overflow-hidden shrink-0">
           <img className="w-full h-full" src={logoSvg} alt="AgentPlex" />
         </div>
-        <span className="text-sm font-semibold text-accent tracking-wide flex-1">AgentPlex</span>
+        <span className="text-sm font-semibold text-fg tracking-tight">AgentPlex</span>
+        <span className="hidden sm:block h-4 w-px bg-border mx-1" />
+        <span className="hidden sm:block text-[11px] text-fg-muted truncate">Agent workspace</span>
         {shellSettingsError && (
           <span role="alert" className="text-xs text-error truncate max-w-64" title={shellSettingsError}>
             {shellSettingsError}
@@ -203,12 +197,12 @@ export function Toolbar() {
       <div className="[-webkit-app-region:no-drag] flex items-center gap-2.5">
         <div className="relative" ref={discoverRef}>
           <button
-            className="flex items-center gap-1 h-6 px-2 rounded text-fg-muted text-[11px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border-soft text-fg-muted text-[11px] font-medium cursor-pointer transition-colors hover:bg-elevated hover:text-fg"
             onClick={handleDiscover}
             title="Find running external CLI sessions not managed by AgentPlex"
           >
             <Radar size={14} />
-            <span>Discover</span>
+            <span className="hidden sm:inline">Discover</span>
           </button>
           {discoverOpen && (
             <>
@@ -248,7 +242,7 @@ export function Toolbar() {
         </div>
         <div className="relative" ref={menuRef}>
           <button
-            className="flex items-center gap-1 h-6 px-2 bg-accent text-surface border-none rounded text-[11px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover active:bg-accent-active"
+            className="flex items-center gap-1.5 h-7 px-2.5 bg-accent text-surface border-none rounded-md text-[11px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover active:bg-accent-active"
             onClick={() => setMenuOpen((v) => !v)}
           >
             <Plus size={14} />
@@ -280,11 +274,7 @@ export function Toolbar() {
               <div className="h-px bg-border my-1" />
               <div className="py-1.5 px-2.5">
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold text-fg uppercase tracking-wide mb-1.5">
-                  <img
-                    src={(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? copilotLight : copilotDark}
-                    alt=""
-                    className="w-3.5 h-3.5"
-                  />
+                  <CliIcon cli="copilot" />
                   GitHub Copilot
                 </span>
                 <div className="flex gap-1.5">
@@ -311,13 +301,7 @@ export function Toolbar() {
                   className="flex items-center gap-2 w-full py-2 px-3 bg-transparent border-none rounded-md text-fg text-[13px] font-medium text-left cursor-pointer transition-colors hover:bg-border"
                   onClick={() => handlePick(tool.id)}
                 >
-                  {TOOL_ICONS[tool.id] && (
-                    <img
-                      src={(document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? TOOL_ICONS[tool.id].dark : TOOL_ICONS[tool.id].light}
-                      alt=""
-                      className="w-4 h-4"
-                    />
-                  )}
+                  <CliIcon cli={tool.id} size={16} />
                   {tool.label}
                 </button>
               ))}
@@ -333,7 +317,7 @@ export function Toolbar() {
                       title={`Right-click to set as default`}
                     >
                       {shell.id === defaultShellId && (
-                        <><Star size={12} className="inline text-[#f0c040] fill-[#f0c040] -mt-px" />{' '}</>
+                        <><Star size={12} className="inline text-warning fill-current -mt-px" />{' '}</>
                       )}
                       {shell.label}
                     </button>
