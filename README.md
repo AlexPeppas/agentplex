@@ -39,6 +39,14 @@ pnpm install
 pnpm start
 ```
 
+`pnpm start` builds the application once and reuses that production build on
+unchanged launches. Source, asset, configuration, environment-file, or lockfile
+changes trigger a rebuild; missing or modified build outputs are rebuilt too.
+The global `agentplex` command uses the same launcher. Build files stay in
+the ignored `.vite` directory; saved sessions are not part of the build cache.
+
+For development with Vite live reload, use `pnpm dev` instead.
+
 To build a distributable installer:
 
 ```bash
@@ -59,9 +67,10 @@ pnpm start
 Run the install command in each checkout or worktree you launch, even if it
 already has a `node_modules` directory.
 
-### Troubleshooting: startup stuck building the main target
+### Troubleshooting: startup build failures
 
-If `pnpm start` finishes building preload but stays at `Building ... main.ts target`,
+If startup reports missing dependencies, or `pnpm dev` finishes building preload
+but stays at `Building ... main.ts target`,
 the checkout may be missing a newly added dependency such as `sanitize-html`.
 Cancel only the stalled startup command with Ctrl+C, then run:
 
