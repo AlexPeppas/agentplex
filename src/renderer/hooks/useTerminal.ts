@@ -85,7 +85,10 @@ const TERMINAL_FONT_FAMILY = 'MesloLGS Nerd Font Mono';
 
 /** xterm measures the character cell from the *currently loaded* font. The
  * terminal font may still be loading on first paint, so refit once its actual
- * metrics are available to keep xterm columns synchronized with the PTY. */
+ * metrics are available to keep xterm columns synchronized with the PTY. The
+ * refit is forced because xterm never re-measures on its own when a font
+ * finishes loading: without a fresh measurement the fit would keep the
+ * fallback font's cell size and rows would overflow the pane. */
 function fitWhenFontReady(entry: LiveTerminal) {
   syncTerminalSize(entry);
 
@@ -94,7 +97,7 @@ function fitWhenFontReady(entry: LiveTerminal) {
 
   const refit = () => {
     if (!liveTerminals.has(entry)) return;
-    syncTerminalSize(entry);
+    syncTerminalSize(entry, true);
   };
 
   const size = entry.term.options.fontSize ?? DEFAULT_FONT_SIZE;
@@ -131,6 +134,9 @@ function ensureGlobalListeners() {
     if (document.visibilityState === 'visible') scheduleRefreshAllTerminals();
   });
   window.addEventListener('resize', scheduleRefreshAllTerminals);
+  // A font that finishes loading after a terminal was fitted changes its cell
+  // size: re-measure and refit every terminal so rows keep fitting the pane.
+  document.fonts?.addEventListener('loadingdone', scheduleRefreshAllTerminals);
 }
 
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string, onOpenFile?: (reference: string) => void) {
