@@ -211,3 +211,48 @@ test('launch failures remain recoverable without retaining unsupported or intent
   assert.deepEqual(f.manager.restoreAll(), []);
   assert.deepEqual(Object.keys(f.read().sessions), ['failed']);
 });
+
+test('restart deduplicates provider identities across directories and aliases without merging different providers', t => {
+  const f = fixture(t);
+  const identity = 'abcdefab-cdef-4abc-8def-abcdefabcdef';
+  const otherWorkspace = path.join(f.home, 'other-workspace');
+  fs.mkdirSync(otherWorkspace);
+  f.write({
+    original: { ...f.saved('copilot', identity), displayName: 'Original conversation' },
+    duplicate: { ...f.saved('copilot-resume', identity.toUpperCase()), cwd: otherWorkspace, displayName: 'Wrong duplicate' },
+    independent: { ...f.saved('claude', identity), displayName: 'Independent provider' },
+  });
+  f.manager.createWithUuid = (cwd, cli, resumeSessionId) => {
+    const id = f.manager.allocateSessionId();
+    active(f, id, { cwd, cli, resumeSessionId, displayName: 'Restored' });
+    return { id, cwd, cli, resumeSessionId };
+  };
+  const warnings = [];
+  t.mock.method(console, 'warn', message => warnings.push(message));
+  const restored = f.manager.restoreAll();
+  assert.deepEqual(restored.map(item => item.displayName), ['Original conversation', 'Independent provider']);
+  assert.equal(warnings.filter(message => /duplicate conversation/.test(message)).length, 1);
+  assert.equal(Object.keys(f.read().sessions).length, 2);
+  assert.deepEqual(f.manager.restoreAll(), []);
+});
+
+test('a discovered owner blocks duplicate restoration without discarding the saved conversation', t => {
+  const f = fixture(t);
+  const saved = f.saved();
+  f.write({ original: saved });
+  const monitor = active(f, 'monitor', { ...saved, cwd: f.home, displayName: 'External monitor' });
+  monitor.readOnly = true;
+  t.mock.method(console, 'warn', () => {});
+  assert.deepEqual(f.manager.restoreAll(), []);
+  assert.deepEqual(f.read().sessions, { original: saved });
+  f.manager.sessions.delete('monitor');
+  f.manager.createWithUuid = (cwd, cli, resumeSessionId) => {
+    const id = f.manager.allocateSessionId();
+    active(f, id, { cwd, cli, resumeSessionId, displayName: 'Restored' });
+    return { id, cwd, cli, resumeSessionId };
+  };
+  const restored = f.manager.restoreAll();
+  assert.equal(restored.length, 1);
+  assert.equal(restored[0].displayName, saved.displayName);
+  assert.equal(restored[0].info.resumeSessionId, saved.resumeSessionId);
+});

@@ -35,7 +35,7 @@ const [root, provider, mode, id] = process.argv.slice(2);
 if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Unexpected synthetic UUID');
 const file = provider === 'copilot' ? path.join(root, id, 'events.jsonl') : path.join(root, id + '.jsonl');
 fs.mkdirSync(path.dirname(file), { recursive: true });
-const text = 'READY:' + id + ':' + mode;
+const text = 'READY:' + id + ':' + mode + ' HISTORY:' + provider + ':' + id;
 const record = provider === 'copilot'
   ? { type: 'assistant.message', data: { content: text } }
   : { type: 'assistant', message: { content: [{ type: 'text', text }] } };
@@ -112,34 +112,60 @@ console.log(text);
   first.updateDisplayName(restored[0].info.id, 'Renamed task');
   const added = first.create(workspace, 'claude', addedUuid);
   await until(() => first.getBuffer(added.id).includes(`READY:${addedUuid}:--resume`), 'added synthetic CLI');
+  for (const identity of [uuid, addedUuid]) {
+    const info = first.create(workspace, 'copilot', identity);
+    first.updateDisplayName(info.id, `Independent Copilot ${identity}`);
+    await until(() => first.getBuffer(info.id).includes(`READY:${identity}:--resume`), 'same-workspace Copilot');
+  }
   assert.equal(readState().sessions['session-2'].resumeSessionId, offlineUuid);
-  assert.equal(Object.keys(readState().sessions).length, 3);
+  assert.equal(Object.keys(readState().sessions).length, 5);
+  const identities = () => new Set(Object.values(readState().sessions).map(item =>
+    JSON.stringify([item.cli, item.resumeSessionId, item.displayName])));
+  const expected = identities();
   first.stop();
   await until(() => terms.every(term => term.exited), 'first generation to exit');
 
   fs.mkdirSync(offline);
   const restarted = newManager();
   const recovered = restarted.restoreAll();
-  assert.equal(recovered.length, 3);
+  assert.equal(recovered.length, 5);
   for (const item of recovered) {
     await until(() => restarted.getBuffer(item.info.id).includes(`READY:${item.info.resumeSessionId}:`), 'restarted synthetic CLI');
-    assert.doesNotMatch(restarted.getBuffer(item.info.id), /UNRELATED_HISTORY/);
+    const buffer = restarted.getBuffer(item.info.id);
+    assert.doesNotMatch(buffer, /UNRELATED_HISTORY/);
+    const markers = [...buffer.matchAll(/HISTORY:(claude|copilot):([0-9a-f-]{36})/g)];
+    assert.ok(markers.length > 0);
+    for (const marker of markers) {
+      assert.equal(marker[1], item.info.cli, 'provider history must stay isolated');
+      assert.equal(marker[2], item.info.resumeSessionId, 'conversation history must stay isolated');
+    }
   }
-  assert.deepEqual(new Set(restarted.list().map(info => info.resumeSessionId)), new Set([uuid, offlineUuid, addedUuid]));
+  assert.deepEqual(identities(), expected, 'renames must remain attached to the exact provider conversation');
   assert.equal(Object.values(readState().sessions).find(item => item.resumeSessionId === uuid).displayName, 'Renamed task');
   assert.deepEqual(restarted.restoreAll(), []);
-  assert.equal(restarted.list().length, 3);
+  assert.equal(restarted.list().length, 5);
   restarted.stop();
   await until(() => terms.every(term => term.exited), 'restarted generation to exit');
+
+  const third = newManager();
+  const again = third.restoreAll();
+  assert.equal(again.length, 5);
+  for (const item of again) {
+    await until(() => third.getBuffer(item.info.id).includes(
+      `HISTORY:${item.info.cli}:${item.info.resumeSessionId}`), 'second restart exact conversation');
+  }
+  assert.deepEqual(identities(), expected);
+  third.stop();
+  await until(() => terms.every(term => term.exited), 'second restart to exit');
 
   const priorTerms = terms.length;
   denyHistory = true;
   t.mock.method(console, 'error', () => {});
   const failing = newManager();
   assert.deepEqual(failing.restoreAll(), []);
-  assert.equal(terms.length - priorTerms, 3);
+  assert.equal(terms.length - priorTerms, 5);
   await until(() => terms.slice(priorTerms).every(term => term.exited), 'rolled-back native PTYs to exit');
   assert.ok(terms.slice(priorTerms).every(term => term.launches.length === 0));
-  assert.equal(Object.keys(readState().sessions).length, 3);
+  assert.equal(Object.keys(readState().sessions).length, 5);
   failing.stop();
 });

@@ -126,3 +126,61 @@ test('Copilot resume retains rendered history and live output in offset-tagged s
   assert.equal(f.manager.getBuffer(info.id).length, 512 * 1024);
   assert.equal(f.manager.getBufferSnapshot(info.id).offset, 13 + 512 * 1024);
 });
+
+test('resume requests without an exact valid identity fail before spawning or observing unrelated history', t => {
+  const f = fixture(t);
+  for (const cli of ['claude-resume', 'copilot-resume']) {
+    assert.throws(() => f.manager.create(f.home, cli), /select.*session.*launcher/i);
+  }
+  for (const cli of ['claude', 'copilot', 'claude-resume', 'copilot-resume']) {
+    for (const invalid of ['', 'not-a-uuid']) {
+      assert.throws(() => f.manager.create(f.home, cli, invalid), /invalid session UUID/i);
+    }
+  }
+  assert.throws(() => f.manager.create(f.home, 'codex', uuid), /does not support resume/i);
+  assert.deepEqual(f.terms, []);
+  assert.deepEqual(f.manager.list(), []);
+});
+
+test('one live provider conversation cannot be resumed twice, even from another directory or alias', t => {
+  const f = fixture(t);
+  const identity = 'abcdefab-cdef-4abc-8def-abcdefabcdef';
+  f.manager.create(f.home, 'copilot', identity);
+  for (const cli of ['copilot', 'copilot-resume']) {
+    assert.throws(() => f.manager.create(os.tmpdir(), cli, identity.toUpperCase()), /already.*open/i);
+    assert.throws(() => f.manager.adoptExternal(identity, os.tmpdir(), 'copilot'), /already.*open/i);
+  }
+  const claude = f.manager.create(f.home, 'claude', identity);
+  assert.equal(f.terms.length, 2, 'the same UUID in a different provider is independent');
+  f.manager.kill(claude.id);
+  assert.doesNotThrow(() => f.manager.create(f.home, 'claude-resume', identity));
+});
+
+test('discovering and adopting Claude preserve the selected UUID despite newer same-workspace conversations', async t => {
+  const f = fixture(t);
+  const previousHome = process.env.HOME;
+  process.env.HOME = f.home;
+  t.after(() => {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+  });
+  const { encodeProjectPath } = loadSource('src/main/jsonl-session-watcher.ts');
+  const project = path.join(f.home, '.claude', 'projects', encodeProjectPath(f.home));
+  fs.mkdirSync(project, { recursive: true });
+  const other = '22222222-2222-4222-8222-222222222222';
+  fs.writeFileSync(path.join(project, `${other}.jsonl`), JSON.stringify({
+    type: 'user', timestamp: new Date().toISOString(), message: { content: 'UNRELATED' },
+  }) + '\n');
+  const metadata = path.join(f.home, '.claude', 'sessions');
+  fs.mkdirSync(metadata, { recursive: true });
+  fs.writeFileSync(path.join(metadata, `${process.pid}.json`), JSON.stringify({
+    pid: process.pid, sessionId: uuid, cwd: f.home, startedAt: Date.now(),
+  }));
+  const discovered = await f.manager.discoverExternal();
+  assert.equal(discovered.length, 1);
+  assert.equal(discovered[0].sessionId, uuid);
+  const adopted = f.manager.adoptExternal(uuid, f.home, 'claude');
+  assert.equal(adopted.resumeSessionId, uuid);
+  t.mock.timers.tick(1000);
+  assert.deepEqual(f.terms[0].writes, [`synthetic-claude --resume ${uuid}\r`]);
+});

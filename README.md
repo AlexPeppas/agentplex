@@ -149,6 +149,7 @@ pnpm is pinned via `packageManager` in package.json. If you have [corepack](http
 - **Sub-agent tracking** — visualize spawned sub-agents via JSONL transcript tailing
 - **Plan & task visualization** — see plans and task lists rendered in the graph
 - **Session resume** — resume previous Claude and Copilot sessions from the same launcher UX
+  - Resume uses the selected provider and exact conversation UUID, never the newest activity in a workspace. Duplicate live resumes are rejected; requests without a UUID must use the Resume launcher.
 - **External session adoption** — discover and adopt running Claude/Copilot sessions
 - **Graphite dark / Stone light** — muted paired themes for the graph, explorers, and toolbar
 - **Inline rename** — double-click any node to rename it
