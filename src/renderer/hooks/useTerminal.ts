@@ -181,6 +181,31 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
 
     termRef.current = term;
+    let replaying = true;
+    const clipboardHandler = term.parser.registerOscHandler(52, async data => {
+      const session = useAppStore.getState().sessions[sessionId];
+      if (replaying || termRef.current !== term || !isMeasurable(term) || !session || session.readOnly) return true;
+      const separator = data.indexOf(';');
+      const selection = data.slice(0, separator);
+      const encoded = data.slice(separator + 1);
+      if (separator < 0 || (selection !== '' && selection !== 'c') || encoded === '?') {
+        console.warn('[terminal] Unsupported clipboard selection or read request');
+        return true;
+      }
+      if (encoded.length > 4 * Math.ceil(1024 * 1024 / 3)) {
+        console.warn('[terminal] Clipboard escape sequence exceeds the 1 MiB limit');
+        return true;
+      }
+      try {
+        const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+        if (bytes.length > 1024 * 1024) throw new Error('Clipboard text exceeds the 1 MiB limit');
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        await window.agentPlex.clipboardWriteText(text);
+      } catch (error) {
+        console.error('[terminal] Cannot copy CLI clipboard text:', error);
+      }
+      return true;
+    });
 
     // Register in global set for zoom/refresh
     const entry: LiveTerminal = {
@@ -194,20 +219,39 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
     const isMac = window.agentPlex.platform === 'darwin';
+    const copySelection = (selection: string) => {
+      window.agentPlex.clipboardWriteText(selection)
+        .then(() => {
+          if (liveTerminals.has(entry) && term.getSelection() === selection) term.clearSelection();
+        })
+        .catch(error => console.error('[terminal] Cannot copy selected text:', error));
+    };
+    const pasteClipboard = () => {
+      if (useAppStore.getState().sessions[sessionId]?.readOnly) return;
+      window.agentPlex.clipboardReadText()
+        .then(text => {
+          if (text && liveTerminals.has(entry) && !useAppStore.getState().sessions[sessionId]?.readOnly) term.paste(text);
+        })
+        .catch(error => console.error('[terminal] Cannot paste clipboard text:', error));
+    };
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       const modKey = isMac ? e.metaKey : e.ctrlKey;
       if (!modKey || e.type !== 'keydown') return true;
+      const key = e.key.toLowerCase();
 
       // Cmd/Ctrl+C: copy only when there's actual selected text; otherwise fall
       // through so xterm sends SIGINT (\x03). Guard on a non-empty selection —
       // xterm can report hasSelection()===true for a zero-width selection left by
       // a plain click, which would otherwise silently swallow every Ctrl+C
       // (notably inside Copilot/Claude TUIs) and never interrupt the process.
-      if (e.key === 'c') {
+      if (key === 'c') {
         const selection = term.getSelection();
         if (selection) {
-          window.agentPlex.clipboardWriteText(selection);
-          term.clearSelection();
+          copySelection(selection);
+          e.preventDefault();
+          return false;
+        }
+        if (e.shiftKey) {
           e.preventDefault();
           return false;
         }
@@ -215,11 +259,8 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       }
 
       // Cmd/Ctrl+V: paste from clipboard into terminal
-      if (e.key === 'v') {
-        const text = window.agentPlex.clipboardReadText();
-        if (text) {
-          term.paste(text);
-        }
+      if (key === 'v') {
+        pasteClipboard();
         e.preventDefault();
         return false;
       }
@@ -267,8 +308,9 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       }
     });
     if (buffer) {
-      term.write(buffer);
-    }
+      // Cancel incomplete historical escapes so a live suffix cannot replay a clipboard command.
+      term.write(buffer + '\x18', () => { replaying = false; });
+    } else replaying = false;
 
     // Handle resize
     let disposed = false;
@@ -278,14 +320,13 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
     resizeObserver.observe(containerRef.current);
 
-    // Right-click to paste
+    // Preserve terminal selection when copying; otherwise right-click pastes.
     const container = containerRef.current;
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      const text = window.agentPlex.clipboardReadText();
-      if (text) {
-        term.paste(text);
-      }
+      const selection = term.getSelection();
+      if (selection) copySelection(selection);
+      else pasteClipboard();
     };
     container.addEventListener('contextmenu', handleContextMenu);
 
@@ -296,6 +337,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       container.removeEventListener('contextmenu', handleContextMenu);
       resizeObserver.disconnect();
       cleanup();
+      clipboardHandler.dispose();
       term.dispose();
       termRef.current = null;
       fitAddonRef.current = null;

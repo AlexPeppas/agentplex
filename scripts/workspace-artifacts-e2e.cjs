@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, clipboard, Menu } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { loadSource } = require('./test-support.cjs');
+const { IPC } = loadSource('src/shared/ipc-channels.ts');
 const { createPdf } = require('./pdf-fixture.cjs');
 const { createDocx, createDoc, createXlsx } = require('./office-fixtures.cjs');
 const root = process.env.AGENTPLEX_EDITOR_E2E_ROOT;
@@ -131,8 +132,18 @@ app.whenReady().then(async () => {
     if (/Uncaught|Minified React error|Setting up fake worker|Failed to load font|Unable to load (?:font|CMap)/.test(event.message)) rendererErrors.push(event.message);
   });
   manager.setWindow(win);
+  Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'Edit', submenu: [{ role: 'copy' }, { role: 'paste' }] }]));
   await win.loadFile(path.join(rendererRoot, '.vite', 'renderer', 'main_window', 'index.html'));
   await wait(() => evaluate(`!!document.querySelector('.react-flow')`), 'full production renderer');
+  const clipboardBefore = clipboard.availableFormats().map(format => [format, clipboard.readBuffer(format)]);
+  try {
+    await evaluate(`window.agentPlex.clipboardWriteText('AGENTPLEX_CLIPBOARD_PROBE')`);
+    assert.equal(clipboard.readText(), 'AGENTPLEX_CLIPBOARD_PROBE', 'sandboxed preload must write the native clipboard');
+    assert.equal(await evaluate(`window.agentPlex.clipboardReadText()`), 'AGENTPLEX_CLIPBOARD_PROBE');
+  } finally {
+    clipboard.clear();
+    for (const [format, bytes] of clipboardBefore) clipboard.writeBuffer(format, bytes);
+  }
   // Align the fallback timer so it cannot satisfy the filesystem latency check.
   manager.discovery.stop();
   manager.discovery.start();
@@ -162,6 +173,40 @@ app.whenReady().then(async () => {
   await wait(() => evaluate(`!!document.querySelector('.xterm-rows') && document.querySelector('aside[aria-label="Workspace files"]')?.textContent.includes('result.json')`), 'terminal and workspace tree');
   await evaluate(`window.testTerminalElement = document.querySelector('.xterm')`);
   assert.equal(await evaluate(`document.querySelector('.xterm-helper-textarea').readOnly`), true);
+  const selectedText = await evaluate(`(() => {
+    const walker = document.createTreeWalker(document.querySelector('.xterm-rows'), NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.textContent.trim().length < 8) continue;
+      const range = document.createRange();
+      range.setStart(node, 0); range.setEnd(node, 8);
+      const rect = range.getBoundingClientRect();
+      return { text: node.textContent.slice(0, 8).replace(/\\u00a0/g, ' '),
+        x: Math.ceil(rect.left + 1), endX: Math.floor(rect.right + 1), y: Math.floor(rect.top + rect.height / 2) };
+    }
+    throw new Error('No terminal text available to copy');
+  })()`);
+  const savedClipboard = clipboard.availableFormats().map(format => [format, clipboard.readBuffer(format)]);
+  try {
+    for (const modifiers of [['control'], ['control', 'shift'], null]) {
+      clipboard.writeText('AGENTPLEX_COPY_NOT_YET');
+      win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, x: selectedText.x, y: selectedText.y });
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: selectedText.endX, y: selectedText.y, modifiers: ['leftButtonDown'] });
+      win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, x: selectedText.endX, y: selectedText.y });
+      if (modifiers) {
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'C', modifiers });
+        win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'C', modifiers });
+      } else {
+        const point = { x: Math.round((selectedText.x + selectedText.endX) / 2), y: selectedText.y };
+        win.webContents.sendInputEvent({ type: 'mouseDown', button: 'right', clickCount: 1, ...point });
+        win.webContents.sendInputEvent({ type: 'mouseUp', button: 'right', clickCount: 1, ...point });
+      }
+      await wait(() => clipboard.readText() === selectedText.text, 'native keyboard copies mouse-selected terminal text with the application Edit menu');
+    }
+  } finally {
+    clipboard.clear();
+    for (const [format, bytes] of savedClipboard) clipboard.writeBuffer(format, bytes);
+  }
   win.setContentSize(900, 1000);
   await wait(() => evaluate(`getComputedStyle(document.querySelector('aside[aria-label="Workspace files"]')).display === 'none'`), 'narrow panes preserve terminal space');
   win.setContentSize(1400, 1000);
@@ -357,6 +402,10 @@ app.whenReady().then(async () => {
   await wait(() => evaluate(`document.querySelector('aside[aria-label="Workspace files"]')?.textContent.includes('mounted.md')`), 'provider workspace changes refresh directory');
   await clickText('mounted.md', `document.querySelector('aside[aria-label="Workspace files"]')`);
   await wait(() => evaluate(`(${preview})?.querySelector('h1')?.textContent === 'Mounted workspace'`), 'mounted file preview');
+  const clipboardProbe = { ...manager.sessions.get(info.id), id: 'clipboard-output-probe',
+    title: 'Clipboard output probe', readOnly: false, jsonlWatcher: null, resumeSessionId: undefined,
+    buffer: 'CLI clipboard output test\r\n', outputOffset: 0 };
+  clipboardProbe.outputOffset = clipboardProbe.buffer.length;
   fs.appendFileSync(events, record('session.shutdown', {}));
   await wait(() => manager.list().length === 0, 'terminated discovered CLI removed from the main process');
   await wait(() => evaluate(`!document.querySelector('[data-id="${info.id}"]') && !document.body.innerText.includes(${JSON.stringify(info.title)})`),
@@ -364,12 +413,35 @@ app.whenReady().then(async () => {
   fs.appendFileSync(events, record('assistant.message', { content: 'External CLI continues independently.' }));
   await new Promise(resolve => setTimeout(resolve, 1800));
   assert.equal(manager.list().length, 0, 'stopped monitors must not immediately reattach');
+  manager.sessions.set(clipboardProbe.id, clipboardProbe);
+  manager.send(IPC.SESSION_CREATED, manager.list()[0]);
+  manager.send(IPC.SESSION_DATA, { id: clipboardProbe.id, data: clipboardProbe.buffer, offset: clipboardProbe.outputOffset });
+  await wait(() => evaluate(`!!document.querySelector('[data-id="${clipboardProbe.id}"]')`), 'test-owned writable session');
+  await evaluate(`document.querySelector('[data-id="${clipboardProbe.id}"] > div').click()`);
+  await wait(() => evaluate(`!!document.querySelector('.xterm-rows')?.textContent.includes('CLI clipboard output test')`), 'test-owned writable terminal');
+  const beforeCliCopy = clipboard.availableFormats().map(format => [format, clipboard.readBuffer(format)]);
+  try {
+    clipboard.writeText('NOT_YET_COPIED_BY_CLI');
+    const expected = 'Copilot native copy: Ελληνικά 😀';
+    const sequence = '\x1b]52;c;' + Buffer.from(expected).toString('base64') + '\x07';
+    for (const data of [sequence.slice(0, 12), sequence.slice(12)]) {
+      manager.appendOutput(clipboardProbe, data);
+      manager.send(IPC.SESSION_DATA, { id: clipboardProbe.id, data, offset: clipboardProbe.outputOffset });
+    }
+    await wait(() => clipboard.readText() === expected, 'CLI output writes the OS clipboard through the real sandboxed renderer and preload');
+  } finally {
+    clipboard.clear();
+    for (const [format, bytes] of beforeCliCopy) clipboard.writeBuffer(format, bytes);
+    manager.sessions.delete(clipboardProbe.id);
+    manager.send(IPC.SESSION_REMOVED, { id: clipboardProbe.id });
+  }
   assert.deepEqual(rendererErrors, []);
   console.log(JSON.stringify({ normalCliDiscovery: true, discoveryMs, liveForkPreserved: true, attributedShutdownSafe: true,
     plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true,
     htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true,
     csvTsvTables: true, plainAndCodeText: true, docxAndLegacyDoc: true, xlsxSheetsAndReload: true,
-    mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true }));
+    mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true,
+    sandboxClipboard: true, mouseSelectedTerminalCopy: true, cliOutputNativeClipboard: true }));
   manager.stop();
   win.destroy();
   app.quit();
