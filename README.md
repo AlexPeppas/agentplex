@@ -212,6 +212,12 @@ selected text; without a selection it pastes into writable sessions. Ctrl+C
 without selected text still interrupts the CLI. Copying also works in read-only
 discovered sessions.
 
+CLI-native copy actions, including Copilot's `/copy` command, can write text to
+the system clipboard through OSC 52 in visible, writable terminals. Clipboard
+reads, saved-output replay, and read-only transcript monitors cannot access the
+clipboard through terminal escape sequences. Clipboard writes are limited to
+1 MiB of UTF-8 text.
+
 ## Project Structure
 
 ```

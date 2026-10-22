@@ -181,6 +181,31 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     });
 
     termRef.current = term;
+    let replaying = true;
+    const clipboardHandler = term.parser.registerOscHandler(52, async data => {
+      const session = useAppStore.getState().sessions[sessionId];
+      if (replaying || termRef.current !== term || !isMeasurable(term) || !session || session.readOnly) return true;
+      const separator = data.indexOf(';');
+      const selection = data.slice(0, separator);
+      const encoded = data.slice(separator + 1);
+      if (separator < 0 || (selection !== '' && selection !== 'c') || encoded === '?') {
+        console.warn('[terminal] Unsupported clipboard selection or read request');
+        return true;
+      }
+      if (encoded.length > 4 * Math.ceil(1024 * 1024 / 3)) {
+        console.warn('[terminal] Clipboard escape sequence exceeds the 1 MiB limit');
+        return true;
+      }
+      try {
+        const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+        if (bytes.length > 1024 * 1024) throw new Error('Clipboard text exceeds the 1 MiB limit');
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        await window.agentPlex.clipboardWriteText(text);
+      } catch (error) {
+        console.error('[terminal] Cannot copy CLI clipboard text:', error);
+      }
+      return true;
+    });
 
     // Register in global set for zoom/refresh
     const entry: LiveTerminal = {
@@ -283,8 +308,9 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       }
     });
     if (buffer) {
-      term.write(buffer);
-    }
+      // Cancel incomplete historical escapes so a live suffix cannot replay a clipboard command.
+      term.write(buffer + '\x18', () => { replaying = false; });
+    } else replaying = false;
 
     // Handle resize
     let disposed = false;
@@ -311,6 +337,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       container.removeEventListener('contextmenu', handleContextMenu);
       resizeObserver.disconnect();
       cleanup();
+      clipboardHandler.dispose();
       term.dispose();
       termRef.current = null;
       fitAddonRef.current = null;

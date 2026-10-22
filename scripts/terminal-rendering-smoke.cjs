@@ -136,7 +136,9 @@ async function rendererTest(root) {
   render();
   await wait();
   assert.equal(terminals.length, 0, 'a pane opened during hydration must defer mounting');
-  state.sessionBuffers.demo = 'HYDRATED_HISTORY\r\n';
+  clipboardText = 'BEFORE_HISTORY';
+  const historicalCopy = '\x1b]52;c;' + btoa('HISTORICAL_CLIPBOARD');
+  state.sessionBuffers.demo = 'HYDRATED_HISTORY\r\n' + historicalCopy + '\x07' + historicalCopy.slice(0, 14);
   state.sessionBufferOffsets.demo = state.sessionBuffers.demo.length;
   state.buffersReady = true;
   render();
@@ -144,10 +146,14 @@ async function rendererTest(root) {
   const term = terminals[0];
   assert.ok(term);
   await new Promise(resolve => term.write('', resolve));
+  assert.equal(clipboardText, 'BEFORE_HISTORY', 'replaying saved output must not copy old clipboard commands');
   assert.equal(term.buffer.active.getLine(0).translateToString(true), 'HYDRATED_HISTORY');
   listeners.forEach(callback => callback({ id: 'demo', data: 'HYDRATED_HISTORY\r\n', offset: state.sessionBufferOffsets.demo }));
   await new Promise(resolve => term.write('', resolve));
   assert.equal(term.buffer.active.getLine(1).translateToString(true), '', 'late snapshot-overlapping IPC must not replay history twice');
+  output({ id: 'demo', data: historicalCopy.slice(14) + '\x07' });
+  await new Promise(resolve => term.write('', resolve));
+  assert.equal(clipboardText, 'BEFORE_HISTORY', 'a historical escape completed by live output must not copy');
   assert.deepEqual(term.options.windowsPty, { backend: 'conpty', buildNumber: 26100 });
   const key = (value, options = {}) => term.textarea.dispatchEvent(new KeyboardEvent('keydown', {
     key: value, ctrlKey: true, bubbles: true, cancelable: true, ...options,
@@ -185,6 +191,37 @@ async function rendererTest(root) {
   await wait(10);
   assert.deepEqual(typed, [], 'read-only sessions must not paste');
   state.sessions.demo.readOnly = false;
+  clipboardText = 'UNCHANGED_BEFORE_OSC52';
+  const cliCopy = '\x1b]52;c;' + btoa('CLI_COPY_RESPONSE') + '\x07';
+  output({ id: 'demo', data: cliCopy.slice(0, 13) });
+  output({ id: 'demo', data: cliCopy.slice(13) });
+  await new Promise(resolve => term.write('', resolve));
+  assert.equal(clipboardText, 'CLI_COPY_RESPONSE', 'CLI-native OSC 52 copying must update the clipboard, not just display a success toast');
+  const unicodeCopy = 'CLI copy: Ελληνικά, 日本語, 😀';
+  const unicodeSequence = '\x1b]52;;' + Buffer.from(unicodeCopy).toString('base64') + '\x1b\\';
+  // Real parser state must survive arbitrary output fragmentation, including ST.
+  for (const data of unicodeSequence) output({ id: 'demo', data });
+  await new Promise(resolve => term.write('', resolve));
+  assert.equal(clipboardText, unicodeCopy);
+  const rejectedSequences = [
+    '\x1b]52;c;?\x07',
+    '\x1b]52;p;' + btoa('PRIMARY_SELECTION') + '\x07',
+    '\x1b]52;c;not*base64\x07',
+    '\x1b]52;c;/w==\x07',
+    '\x1b]52;c;' + 'A'.repeat(4 * Math.ceil(1024 * 1024 / 3) + 4) + '\x07',
+  ];
+  const typedBeforeQuery = [...typed];
+  for (const data of rejectedSequences) {
+    output({ id: 'demo', data });
+    await new Promise(resolve => term.write('', resolve));
+    assert.equal(clipboardText, unicodeCopy, 'invalid, oversized, and clipboard-read requests must not access the clipboard');
+  }
+  assert.deepEqual(typed, typedBeforeQuery, 'clipboard queries must not send clipboard contents to the CLI');
+  state.sessions.demo.readOnly = true;
+  output({ id: 'demo', data: cliCopy });
+  await new Promise(resolve => term.write('', resolve));
+  assert.equal(clipboardText, unicodeCopy, 'read-only transcript monitors must not execute clipboard escapes');
+  state.sessions.demo.readOnly = false;
   output({ id: 'demo', data: Array.from({ length: 90 }, (_, i) => `Chat line ${i}: ${'wrapped text '.repeat(10)}\r\n`).join('') });
   await wait();
   const check = () => {
@@ -214,6 +251,9 @@ async function rendererTest(root) {
   render();
   await wait();
   assert.equal(sizes.length, count, 'hidden git-tab terminal must not resize');
+  output({ id: 'demo', data: cliCopy });
+  await new Promise(resolve => term.write('', resolve));
+  assert.equal(clipboardText, unicodeCopy, 'hidden terminals must not overwrite the clipboard');
   [...host.querySelectorAll('button')].find(button => button.textContent.includes('Demo')).click();
   await waitForLayout();
   check();
@@ -396,7 +436,7 @@ async function rendererTest(root) {
   assert.ok(oldBehavior.after < oldBehavior.before, 'reproduce scrollback pulled into viewport');
   assert.equal(fixedBehavior.after, fixedBehavior.before, 'ConPTY scrollback must stay in history');
   return { fullscreenTransitions: 12, stressTransitions, nativeFrames, dimensionsRestored: initial,
-    hiddenTabRecovery: true, terminalCopyPasteAndInterrupt: true, oldBehavior, fixedBehavior };
+    hiddenTabRecovery: true, terminalCopyPasteAndInterrupt: true, cliOsc52Clipboard: true, oldBehavior, fixedBehavior };
 }
 
 function runElectron() {

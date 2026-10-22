@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { loadSource } = require('./test-support.cjs');
+const { IPC } = loadSource('src/shared/ipc-channels.ts');
 const { createPdf } = require('./pdf-fixture.cjs');
 const { createDocx, createDoc, createXlsx } = require('./office-fixtures.cjs');
 const root = process.env.AGENTPLEX_EDITOR_E2E_ROOT;
@@ -401,6 +402,10 @@ app.whenReady().then(async () => {
   await wait(() => evaluate(`document.querySelector('aside[aria-label="Workspace files"]')?.textContent.includes('mounted.md')`), 'provider workspace changes refresh directory');
   await clickText('mounted.md', `document.querySelector('aside[aria-label="Workspace files"]')`);
   await wait(() => evaluate(`(${preview})?.querySelector('h1')?.textContent === 'Mounted workspace'`), 'mounted file preview');
+  const clipboardProbe = { ...manager.sessions.get(info.id), id: 'clipboard-output-probe',
+    title: 'Clipboard output probe', readOnly: false, jsonlWatcher: null, resumeSessionId: undefined,
+    buffer: 'CLI clipboard output test\r\n', outputOffset: 0 };
+  clipboardProbe.outputOffset = clipboardProbe.buffer.length;
   fs.appendFileSync(events, record('session.shutdown', {}));
   await wait(() => manager.list().length === 0, 'terminated discovered CLI removed from the main process');
   await wait(() => evaluate(`!document.querySelector('[data-id="${info.id}"]') && !document.body.innerText.includes(${JSON.stringify(info.title)})`),
@@ -408,13 +413,35 @@ app.whenReady().then(async () => {
   fs.appendFileSync(events, record('assistant.message', { content: 'External CLI continues independently.' }));
   await new Promise(resolve => setTimeout(resolve, 1800));
   assert.equal(manager.list().length, 0, 'stopped monitors must not immediately reattach');
+  manager.sessions.set(clipboardProbe.id, clipboardProbe);
+  manager.send(IPC.SESSION_CREATED, manager.list()[0]);
+  manager.send(IPC.SESSION_DATA, { id: clipboardProbe.id, data: clipboardProbe.buffer, offset: clipboardProbe.outputOffset });
+  await wait(() => evaluate(`!!document.querySelector('[data-id="${clipboardProbe.id}"]')`), 'test-owned writable session');
+  await evaluate(`document.querySelector('[data-id="${clipboardProbe.id}"] > div').click()`);
+  await wait(() => evaluate(`!!document.querySelector('.xterm-rows')?.textContent.includes('CLI clipboard output test')`), 'test-owned writable terminal');
+  const beforeCliCopy = clipboard.availableFormats().map(format => [format, clipboard.readBuffer(format)]);
+  try {
+    clipboard.writeText('NOT_YET_COPIED_BY_CLI');
+    const expected = 'Copilot native copy: Ελληνικά 😀';
+    const sequence = '\x1b]52;c;' + Buffer.from(expected).toString('base64') + '\x07';
+    for (const data of [sequence.slice(0, 12), sequence.slice(12)]) {
+      manager.appendOutput(clipboardProbe, data);
+      manager.send(IPC.SESSION_DATA, { id: clipboardProbe.id, data, offset: clipboardProbe.outputOffset });
+    }
+    await wait(() => clipboard.readText() === expected, 'CLI output writes the OS clipboard through the real sandboxed renderer and preload');
+  } finally {
+    clipboard.clear();
+    for (const [format, bytes] of beforeCliCopy) clipboard.writeBuffer(format, bytes);
+    manager.sessions.delete(clipboardProbe.id);
+    manager.send(IPC.SESSION_REMOVED, { id: clipboardProbe.id });
+  }
   assert.deepEqual(rendererErrors, []);
   console.log(JSON.stringify({ normalCliDiscovery: true, discoveryMs, liveForkPreserved: true, attributedShutdownSafe: true,
     plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true,
     htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true,
     csvTsvTables: true, plainAndCodeText: true, docxAndLegacyDoc: true, xlsxSheetsAndReload: true,
     mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true,
-    sandboxClipboard: true, mouseSelectedTerminalCopy: true }));
+    sandboxClipboard: true, mouseSelectedTerminalCopy: true, cliOutputNativeClipboard: true }));
   manager.stop();
   win.destroy();
   app.quit();
