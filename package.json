@@ -11,7 +11,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/agentplex.git"
+    "url": "https://github.com/AlexPeppas/agentplex.git"
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -32,6 +32,7 @@
     "generate-icons": "node scripts/generate-icons.mjs",
     "postinstall": "node -e \"try{require('fs').chmodSync(require('path').join('node_modules','node-pty','prebuilds',process.platform+'-'+process.arch,'spawn-helper'),0o755)}catch{}\"",
     "lint": "eslint src/",
+    "test": "node --test scripts/*.test.cjs",
     "start": "node scripts/start.mjs",
     "dev": "node scripts/check-startup-dependencies.mjs && electron-forge start",
     "package": "pnpm generate-icons && electron-forge package",
