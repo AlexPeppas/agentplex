@@ -16,6 +16,10 @@ const api = {
     return ipcRenderer.invoke(IPC.SESSION_CREATE, { cwd, cli, resumeSessionId });
   },
 
+  forkSession: (id: string): Promise<SessionInfo> => {
+    return ipcRenderer.invoke(IPC.SESSION_FORK, { id });
+  },
+
   pickDirectory: (): Promise<string | null> => {
     return ipcRenderer.invoke(IPC.DIALOG_OPEN_DIR);
   },

@@ -9,6 +9,7 @@ export interface AgentPlexAPI {
   onSessionCreated: (callback: (info: SessionInfo) => void) => () => void;
   platform: string;
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string) => Promise<SessionInfo>;
+  forkSession: (id: string) => Promise<SessionInfo>;
   pickDirectory: () => Promise<string | null>;
   writeSession: (id: string, data: string) => void;
   resizeSession: (id: string, cols: number, rows: number) => void;

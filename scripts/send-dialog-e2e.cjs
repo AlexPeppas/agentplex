@@ -12,7 +12,7 @@ async function rendererTest(repositoryRoot) {
   const React = require(require.resolve('react', { paths: [repositoryRoot] }));
   const { createRoot } = require(require.resolve('react-dom/client', { paths: [repositoryRoot] }));
   const { loadSource } = require(path.join(repositoryRoot, 'scripts', 'test-support.cjs'));
-  const { useAppStore } = loadSource('src/renderer/store.ts', {
+  const { useAppStore, isSendTarget } = loadSource('src/renderer/store.ts', {
     './components/panels/SettingsPanel': { getSplitPaneEnabled: () => false },
   });
   const calls = [], writes = [];
@@ -33,7 +33,7 @@ async function rendererTest(repositoryRoot) {
   });
   open('copilot');
   const { SendDialog } = loadSource('src/renderer/components/SendDialog.tsx', {
-    '../store': { useAppStore },
+    '../store': { useAppStore, isSendTarget },
   });
   const host = document.createElement('div');
   document.body.append(host);

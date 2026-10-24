@@ -286,6 +286,7 @@ export const IPC = {
   OPEN_EXTERNAL: 'app:openExternal',
   SESSION_CREATE: 'session:create',
   SESSION_CREATED: 'session:created',
+  SESSION_FORK: 'session:fork',
   SESSION_WRITE: 'session:write',
   SESSION_RESIZE: 'session:resize',
   SESSION_KILL: 'session:kill',

@@ -369,8 +369,11 @@ export class SessionManager {
    * `launchDelayMs` controls how long to wait after PTY spawn before writing the
    * auto-launch command. restoreAll passes increasing values per session to
    * stagger Claude/Copilot startups and avoid racing on shared config files.
+   *
+   * `forkFromSessionId` (Claude only) starts the session as a fork of that existing
+   * conversation: `--resume <source> --fork-session --session-id <resumeSessionId>`.
    */
-  private createWithUuid(cwd: string, cli: CliTool, resumeSessionId: string, forceResume = false, launchDelayMs: number = DEFAULT_LAUNCH_DELAY_MS): SessionInfo {
+  private createWithUuid(cwd: string, cli: CliTool, resumeSessionId: string, forceResume = false, launchDelayMs: number = DEFAULT_LAUNCH_DELAY_MS, forkFromSessionId?: string): SessionInfo {
     if (!UUID_RE.test(resumeSessionId)) {
       throw new Error(`Invalid session UUID: ${resumeSessionId}`);
     }
@@ -523,9 +526,11 @@ export class SessionManager {
         const hasConversation=forceResume||(jsonlPath!==null&&fs.existsSync(jsonlPath)&&fs.statSync(jsonlPath).size>0);
         const config=resolveClaudeConfig(workDir);
         const flagStr=config.flags.length>0? ' '+config.flags.join(' '):'';
-        command=hasConversation
-          ? `${config.command}${flagStr} --resume ${resumeSessionId}`
-          :`${config.command}${flagStr} --session-id ${resumeSessionId}`;
+        command=forkFromSessionId
+          ? `${config.command}${flagStr} --resume ${forkFromSessionId} --fork-session --session-id ${resumeSessionId}`
+          :hasConversation
+            ? `${config.command}${flagStr} --resume ${resumeSessionId}`
+            :`${config.command}${flagStr} --session-id ${resumeSessionId}`;
       } else {
         // Copilot via `gh copilot`. The flag differs for new vs existing sessions:
         //   --session-id=<uuid>  CREATES a new session at that exact UUID (used when we
@@ -595,6 +600,24 @@ export class SessionManager {
       }
     }
     this.sessions.clear();
+  }
+
+  /** Start a new Claude session that branches from `sourceId`'s conversation, leaving
+   *  the source untouched. The fork gets its own pre-minted UUID so it persists and
+   *  restores like any other session. A source with no conversation yet gets a fresh
+   *  empty session in the same directory instead. */
+  fork(sourceId: string): SessionInfo {
+    const source = this.sessions.get(sourceId);
+    if (!source || (source.cli !== 'claude' && source.cli !== 'claude-resume')) {
+      throw new Error('Only Claude sessions can be duplicated.');
+    }
+    const sourcePath = this.getJsonlPath(sourceId);
+    if (!source.resumeSessionId || !sourcePath || !fs.existsSync(sourcePath)) {
+      return this.create(source.cwd, 'claude');
+    }
+    const info = this.createWithUuid(source.cwd, 'claude', crypto.randomUUID(), false, DEFAULT_LAUNCH_DELAY_MS, source.resumeSessionId);
+    this.saveState();
+    return info;
   }
 
   create(cwd?: string, cli: CliTool = 'claude', resumeSessionId?: string): SessionInfo {

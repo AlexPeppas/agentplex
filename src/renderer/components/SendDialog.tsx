@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CornerDownLeft } from 'lucide-react';
-import { useAppStore } from '../store';
-import { SessionStatus } from '../../shared/ipc-channels';
+import { useAppStore, isSendTarget } from '../store';
 import { stripAnsi } from '../../shared/ansi-strip';
 
 const PREVIEW_MAX_CHARS = 2000;
@@ -22,11 +21,10 @@ export function SendDialog() {
   const sendingRef = useRef(false);
   const mountedRef = useRef(true);
   const instructionRef = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
 
-  // All live (non-killed) sessions except the source
-  const targetSessions = Object.values(sessions).filter(
-    (s) => s.id !== sourceId && s.status !== SessionStatus.Killed && !s.readOnly
-  );
+  // All live, writable sessions except the source
+  const targetSessions = Object.values(sessions).filter((s) => isSendTarget(s, sourceId));
 
   const sourceLabel = sourceId
     ? displayNames[sourceId] || sessions[sourceId]?.title || sourceId
@@ -47,6 +45,12 @@ export function SendDialog() {
     const tail = stripped.slice(-PREVIEW_MAX_CHARS).trim();
     setContextPreview(tail || '(no output yet)');
   }, [sourceId, sessionBuffers]);
+
+  // Show the most recent output first: keep the preview scrolled to its end.
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (preview) preview.scrollTop = preview.scrollHeight;
+  }, [contextPreview]);
 
   // Auto-select first target when dialog opens or targets change
   useEffect(() => {
@@ -195,7 +199,10 @@ export function SendDialog() {
 
         <label className="block text-xs font-medium text-fg-muted mb-1.5">To:</label>
         {targetSessions.length === 0 ? (
-          <div className="py-2 px-2.5 text-[13px] text-fg-muted mb-3">No other active sessions</div>
+          <div role="status" className="py-2 px-2.5 text-[13px] text-fg-muted mb-3 bg-surface border border-border-strong rounded-lg">
+            <div className="text-fg">No other active sessions</div>
+            <div className="text-xs mt-0.5">Start another session with New Session, then send this context to it. Read-only monitored CLIs can't receive messages.</div>
+          </div>
         ) : (
           <div className="w-full max-h-[140px] overflow-y-auto bg-surface border border-border-strong rounded-lg text-fg text-[13px] mb-3">
             <label className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border cursor-pointer hover:bg-border/30 transition-colors">
@@ -225,7 +232,7 @@ export function SendDialog() {
         )}
 
         <label className="block text-xs font-medium text-fg-muted mb-1.5">Context preview:</label>
-        <div className="w-full max-h-[200px] overflow-y-auto bg-inset border border-border rounded-lg text-fg-muted font-mono text-xs p-2.5 whitespace-pre-wrap break-all mb-3">
+        <div ref={previewRef} className="w-full max-h-[200px] overflow-y-auto bg-inset border border-border rounded-lg text-fg-muted font-mono text-xs p-2.5 whitespace-pre-wrap break-all mb-3">
           {contextPreview || '(no output yet)'}
         </div>
 

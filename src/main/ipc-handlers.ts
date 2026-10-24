@@ -104,6 +104,11 @@ export function registerIpcHandlers() {
     return sessionManager.create(cwd, safeCli, resumeSessionId);
   });
 
+  ipcMain.handle(IPC.SESSION_FORK, (_event, { id }: { id: string }) => {
+    if (typeof id !== 'string') throw new Error('Invalid session id');
+    return sessionManager.fork(id);
+  });
+
   ipcMain.handle(IPC.DIALOG_OPEN_DIR, async () => {
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return null;

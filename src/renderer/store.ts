@@ -282,6 +282,12 @@ function sortGroupsFirst(nodes: Node[]): Node[] {
   return [...groups, ...rest];
 }
 
+/** Whether `session` can receive a cross-session message from `sourceId`:
+ *  live, writable (not a monitored external CLI) and not the source itself. */
+export function isSendTarget(session: SessionInfo, sourceId: string | null): boolean {
+  return session.id !== sourceId && session.status !== SessionStatus.Killed && !session.readOnly;
+}
+
 /** Serialize current groups into the persisted shape (membership keyed by both the
  *  live node id and the stable resume UUID). Deterministically ordered so callers can
  *  diff the JSON to skip redundant disk writes. */

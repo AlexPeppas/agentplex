@@ -1,11 +1,11 @@
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Send, ClipboardList, Circle, Check, Trash2, GitBranch } from 'lucide-react';
+import { Send, CopyPlus, ClipboardList, Circle, Check, Trash2, GitBranch } from 'lucide-react';
 import { CliIcon } from './CliIcon';
 import { StatusIndicator } from './StatusIndicator';
 import { ContextMeter, SessionAge } from './SessionMetrics';
-import { useAppStore, type SessionNodeData } from '../store';
+import { useAppStore, isSendTarget, type SessionNodeData } from '../store';
 import { SessionStatus } from '../../shared/ipc-channels';
 import { useViewportMenu } from '../hooks/useViewportMenu';
 
@@ -13,6 +13,7 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
   const nodeData = data as SessionNodeData;
   const selectSession = useAppStore((s) => s.selectSession);
   const openSendDialog = useAppStore((s) => s.openSendDialog);
+  const addSession = useAppStore((s) => s.addSession);
   const renameSession = useAppStore((s) => s.renameSession);
   const deleteSession = useAppStore((s) => s.deleteSession);
   const createGroupWithMembers = useAppStore((s) => s.createGroupWithMembers);
@@ -22,6 +23,10 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
   const status = useAppStore((s) => s.sessions[nodeData.sessionId]?.status ?? nodeData.status);
   const cli = useAppStore((s) => s.sessions[nodeData.sessionId]?.cli);
   const session = useAppStore((s) => s.sessions[nodeData.sessionId]);
+  const hasSendTarget = useAppStore((s) =>
+    Object.values(s.sessions).some((target) => isSendTarget(target, nodeData.sessionId)));
+  const canDuplicate = cli === 'claude' || cli === 'claude-resume';
+  const [duplicating, setDuplicating] = useState(false);
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
   const completedTasks = nodeData.tasks
@@ -119,6 +124,19 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
   const handleSend = (e: React.MouseEvent) => {
     e.stopPropagation();
     openSendDialog(nodeData.sessionId);
+  };
+
+  const handleDuplicate = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (duplicating) return;
+    setDuplicating(true);
+    try {
+      addSession(await window.agentPlex.forkSession(nodeData.sessionId));
+    } catch (error) {
+      console.error('[duplicate] Failed to duplicate session:', error);
+    } finally {
+      setDuplicating(false);
+    }
   };
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -227,13 +245,26 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
           <div className="session-node__actions absolute right-2 top-1.5 flex items-center gap-1 p-1 bg-elevated border border-border rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
             {!isKilled && (
               <button
-                className="w-5 h-5 flex items-center justify-center rounded text-fg-muted cursor-pointer hover:bg-accent-subtle hover:text-fg"
+                className="w-5 h-5 flex items-center justify-center rounded text-fg-muted cursor-pointer hover:bg-accent-subtle hover:text-fg disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-fg-muted"
                 onClick={handleSend}
-                title="Send message to session"
+                disabled={!hasSendTarget}
+                title={hasSendTarget
+                  ? 'Send message to another session'
+                  : 'No other active session to send to. Start another session to share context.'}
               >
                 <Send size={14} />
               </button>
             )}
+            <button
+              className="w-5 h-5 flex items-center justify-center rounded text-fg-muted cursor-pointer hover:bg-accent-subtle hover:text-fg disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+              onClick={handleDuplicate}
+              disabled={!canDuplicate || duplicating}
+              title={canDuplicate
+                ? 'Duplicate Session'
+                : 'Duplicate Session is available for Claude sessions.'}
+            >
+              <CopyPlus size={14} />
+            </button>
             <button
               className="session-node__edit"
               onClick={handleEditClick}
