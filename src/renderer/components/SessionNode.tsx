@@ -27,6 +27,7 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
     Object.values(s.sessions).some((target) => isSendTarget(target, nodeData.sessionId)));
   const canDuplicate = cli === 'claude' || cli === 'claude-resume';
   const [duplicating, setDuplicating] = useState(false);
+  const duplicatingRef = useRef(false);
   const isKilled = status === SessionStatus.Killed;
   const isWaiting = status === SessionStatus.WaitingForInput;
   const completedTasks = nodeData.tasks
@@ -128,13 +129,15 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
 
   const handleDuplicate = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (duplicating) return;
+    if (duplicatingRef.current) return;
+    duplicatingRef.current = true;
     setDuplicating(true);
     try {
       addSession(await window.agentPlex.forkSession(nodeData.sessionId));
     } catch (error) {
       console.error('[duplicate] Failed to duplicate session:', error);
     } finally {
+      duplicatingRef.current = false;
       setDuplicating(false);
     }
   };
