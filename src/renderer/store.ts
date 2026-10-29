@@ -439,6 +439,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         label: info.title,
         sessionId: info.id,
         status: info.status,
+        cli: info.cli,
+        cwd: info.cwd,
         mode: 'normal',
         plans: [],
         tasks: [],
@@ -535,7 +537,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateStatus: (id: string, status: SessionStatus) => {
     set((state) => {
-      if (!state.sessions[id]) return state;
+      if (!state.sessions[id] || state.sessions[id].status === status) return state;
       return {
         sessions: {
           ...state.sessions,
@@ -552,18 +554,20 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateSessionInfo: (id: string, partial: Partial<SessionInfo>) => {
     set((state) => {
-      if (!state.sessions[id]) return state;
-      const merged = { ...state.sessions[id], ...partial };
+      const previous = state.sessions[id];
+      if (!previous || Object.entries(partial).every(([key, value]) => Object.is(previous[key as keyof SessionInfo], value))) return state;
+      const merged = { ...previous, ...partial };
+      const graphChanged = previous.cli !== merged.cli || previous.cwd !== merged.cwd || previous.status !== merged.status;
       return {
         sessions: {
           ...state.sessions,
           [id]: merged,
         },
-        nodes: state.nodes.map((n) =>
+        nodes: graphChanged ? state.nodes.map((n) =>
           n.id === id && n.type === 'sessionNode'
-            ? { ...n, data: { ...n.data, cli: merged.cli, cwd: merged.cwd } }
+            ? { ...n, data: { ...n.data, cli: merged.cli, cwd: merged.cwd, status: merged.status } }
             : n
-        ),
+        ) : state.nodes,
       };
     });
   },
