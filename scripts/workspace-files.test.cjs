@@ -71,6 +71,57 @@ test('previews reject unsupported, binary, invalid UTF-8, directory and oversize
   await assert.rejects(readWorkspaceFile(root, 'directory.md'), /regular file/);
 });
 
+test('small previews allocate proportional buffers, including compact Office payloads', async t => {
+  const { root } = fixture(t);
+  const allocations = [], payloads = [];
+  const { readWorkspaceFile: read } = loadSource('src/main/workspace-files.ts', {
+    'node:fs/promises': {
+      ...fs.promises,
+      async open(...args) {
+        const handle = await fs.promises.open(...args);
+        return {
+          stat: () => handle.stat(), close: () => handle.close(),
+          read(buffer, ...rest) { allocations.push(buffer.length); return handle.read(buffer, ...rest); },
+        };
+      },
+    },
+    './office-preview': { readOfficePreview: async bytes => {
+      payloads.push(bytes);
+      return { kind: 'document', format: 'text', content: 'preview', warnings: [] };
+    } },
+  });
+  fs.writeFileSync(path.join(root, 'tiny.txt'), 'tiny');
+  fs.writeFileSync(path.join(root, 'tiny.docx'), 'synthetic office bytes');
+  assert.equal((await read(root, 'tiny.txt')).content, 'tiny');
+  await read(root, 'tiny.docx');
+  assert.ok(Math.max(...allocations) <= 23);
+  assert.equal(payloads[0].toString(), 'synthetic office bytes');
+  assert.ok(payloads[0].buffer.byteLength <= 23);
+});
+
+test('a preview growing after stat is read completely but cannot evade its size limit', async t => {
+  const { root } = fixture(t);
+  let suffix = 'after stat';
+  const { readWorkspaceFile: read } = loadSource('src/main/workspace-files.ts', {
+    'node:fs/promises': {
+      ...fs.promises,
+      async open(file, ...args) {
+        const handle = await fs.promises.open(file, ...args);
+        return {
+          async stat() { const stat = await handle.stat(); fs.appendFileSync(file, suffix); return stat; },
+          read: (...rest) => handle.read(...rest), close: () => handle.close(),
+        };
+      },
+    },
+  });
+  const file = path.join(root, 'growing.txt');
+  fs.writeFileSync(file, '');
+  assert.equal((await read(root, file)).content, suffix);
+  suffix = 'x'.repeat(1024 * 1024 + 1);
+  fs.writeFileSync(file, '');
+  await assert.rejects(read(root, file), /1 MiB/);
+});
+
 test('CSV/TSV preserve quoting, multiline values and literals; large tables are explicitly limited', async t => {
   const { root } = fixture(t);
   fs.writeFileSync(path.join(root, 'data.csv'), '\ufeffName,Notes,Formula\r\n"Last, First","line 1\nline 2",=1+1\r\nshort\r\n');
