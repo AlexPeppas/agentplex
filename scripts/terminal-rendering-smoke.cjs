@@ -46,6 +46,7 @@ async function rendererTest(root) {
   `;
   document.head.append(style);
   const terminals = [];
+  const replayGeometry = [];
   const fits = new Map();
   const sizes = [];
   const listeners = new Set();
@@ -94,6 +95,10 @@ async function rendererTest(root) {
     } },
     '@xterm/xterm': { Terminal: class extends Terminal {
       constructor(options) { super(options); terminals.push(this); }
+      write(data, callback) {
+        if (data.startsWith('HYDRATED_HISTORY')) replayGeometry.push({ cols: this.cols, rows: this.rows });
+        return super.write(data, callback);
+      }
     } },
     '@xterm/xterm/css/xterm.css': {},
     '../monaco-theme': { defineAgentPlexTheme() {} },
@@ -148,6 +153,7 @@ async function rendererTest(root) {
   await new Promise(resolve => term.write('', resolve));
   assert.equal(clipboardText, 'BEFORE_HISTORY', 'replaying saved output must not copy old clipboard commands');
   assert.equal(term.buffer.active.getLine(0).translateToString(true), 'HYDRATED_HISTORY');
+  assert.deepEqual(replayGeometry[0], { cols: term.cols, rows: term.rows }, 'history must be parsed at the visible pane geometry, not the default 80x24');
   listeners.forEach(callback => callback({ id: 'demo', data: 'HYDRATED_HISTORY\r\n', offset: state.sessionBufferOffsets.demo }));
   await new Promise(resolve => term.write('', resolve));
   assert.equal(term.buffer.active.getLine(1).translateToString(true), '', 'late snapshot-overlapping IPC must not replay history twice');
@@ -222,8 +228,44 @@ async function rendererTest(root) {
   await new Promise(resolve => term.write('', resolve));
   assert.equal(clipboardText, unicodeCopy, 'read-only transcript monitors must not execute clipboard escapes');
   state.sessions.demo.readOnly = false;
+  output({ id: 'demo', data: '\x1b[2J\x1b[H\x1b[10Gtop\nbottom' });
+  await new Promise(resolve => term.write('', resolve));
+  assert.equal(term.buffer.active.getLine(term.buffer.active.baseY + 1).translateToString(true),
+    ' '.repeat(12) + 'bottom', 'PTY line feeds must preserve cursor columns rather than inject carriage returns');
+  output({ id: 'demo', data: '\x1b[2J\x1b[H' });
   output({ id: 'demo', data: Array.from({ length: 90 }, (_, i) => `Chat line ${i}: ${'wrapped text '.repeat(10)}\r\n`).join('') });
   await wait();
+  const checkScrolledRows = () => {
+    const buffer = term.buffer.active;
+    const rows = [...term.element.querySelectorAll('.xterm-rows > div')];
+    assert.equal(rows.length, term.rows);
+    rows.forEach((row, index) => assert.equal(row.textContent.replace(/\u00a0/g, ' ').trimEnd(),
+      buffer.getLine(buffer.viewportY + index).translateToString(true).trimEnd(),
+      `scrolled DOM row ${index} must match terminal history`));
+  };
+  term.scrollToTop();
+  await wait(60);
+  checkScrolledRows();
+  const readingAt = term.buffer.active.viewportY;
+  for (let index = 0; index < 12; index++) {
+    output({ id: 'demo', data: `Live while reading ${index}\r\n` });
+    await wait(20);
+    assert.equal(term.buffer.active.viewportY, readingAt, 'live output must not pull the reader out of scrollback');
+    checkScrolledRows();
+  }
+  for (let index = 0; index < 12; index++) {
+    term.element.querySelector('.xterm-scrollable-element').dispatchEvent(new WheelEvent('wheel', {
+      deltaY: index % 3 === 0 ? -70 : 110, bubbles: true, cancelable: true,
+    }));
+    await wait(30);
+    checkScrolledRows();
+  }
+  term.scrollToBottom();
+  await wait(60);
+  term.focus();
+  typed.length = 0;
+  term.textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+  assert.deepEqual(typed.splice(0), ['\r'], 'sending from scrollback must reach the PTY without a delayed input queue');
   const check = () => {
     assert.equal(terminals.length, 1, 'fullscreen must not recreate or replay the terminal');
     const viewport = term.element.querySelector('.xterm-screen').getBoundingClientRect();
@@ -436,7 +478,8 @@ async function rendererTest(root) {
   assert.ok(oldBehavior.after < oldBehavior.before, 'reproduce scrollback pulled into viewport');
   assert.equal(fixedBehavior.after, fixedBehavior.before, 'ConPTY scrollback must stay in history');
   return { fullscreenTransitions: 12, stressTransitions, nativeFrames, dimensionsRestored: initial,
-    hiddenTabRecovery: true, terminalCopyPasteAndInterrupt: true, cliOsc52Clipboard: true, oldBehavior, fixedBehavior };
+    hiddenTabRecovery: true, terminalCopyPasteAndInterrupt: true, cliOsc52Clipboard: true,
+    scrollbackDuringOutput: true, initialReplayGeometry: true, ptyLineFeedSemantics: true, oldBehavior, fixedBehavior };
 }
 
 function runElectron() {
