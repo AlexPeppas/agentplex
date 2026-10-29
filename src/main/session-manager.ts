@@ -17,6 +17,7 @@ import { CopilotSessionDiscovery } from './copilot-session-discovery';
 import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
 import { readHistoryLines } from './history-reader';
+import { conversationIdentity } from '../shared/conversation-identity';
 
 const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
 
@@ -315,11 +316,12 @@ export class SessionManager {
         this.pendingRestores.delete(oldId);
         continue;
       }
-      const normalizedCli = persisted.cli === 'claude-resume' ? 'claude' :
-        persisted.cli === 'copilot-resume' ? 'copilot' : persisted.cli;
-      if (Array.from(this.sessions.values()).some(session => session.resumeSessionId === persisted.resumeSessionId &&
-        session.cwd === persisted.cwd && session.cli === normalizedCli)) {
-        this.pendingRestores.delete(oldId);
+      const existing = Array.from(this.sessions.values()).find(session => session.status !== SessionStatus.Killed &&
+        conversationIdentity(session.cli, session.resumeSessionId?.toLowerCase() ?? null) ===
+        conversationIdentity(persisted.cli, persisted.resumeSessionId?.toLowerCase() ?? null));
+      if (existing) {
+        console.warn(`[restore] Skipping duplicate conversation: ${oldId}`);
+        if (!existing.readOnly) this.pendingRestores.delete(oldId);
         continue;
       }
       try {
@@ -382,6 +384,15 @@ export class SessionManager {
       : cli === 'copilot-resume'
         ? 'copilot'
         : cli;
+    const existing = [...this.sessions.values()].find(session => session.status !== SessionStatus.Killed &&
+      conversationIdentity(session.cli, session.resumeSessionId?.toLowerCase() ?? null) ===
+      conversationIdentity(normalizedCli, resumeSessionId.toLowerCase()));
+    if (existing?.readOnly) {
+      throw new Error('This CLI is already running outside AgentPlex. Stop it before resuming another copy.');
+    }
+    if (existing) {
+      throw new Error('This conversation is already open. Use its existing session instead.');
+    }
     const id = this.allocateSessionId();
     const workDir = cwd;
     const dirName = workDir.replace(/\\/g, '/').split('/').pop() || workDir;
@@ -598,27 +609,27 @@ export class SessionManager {
   }
 
   create(cwd?: string, cli: CliTool = 'claude', resumeSessionId?: string): SessionInfo {
-    if (resumeSessionId && [...this.sessions.values()].some(session => session.readOnly
-      && session.resumeSessionId === resumeSessionId && session.status !== SessionStatus.Killed)) {
-      throw new Error('This CLI is already running outside AgentPlex. Stop it before resuming another copy.');
+    if (resumeSessionId !== undefined && !UUID_RE.test(resumeSessionId)) {
+      throw new Error(`Invalid session UUID: ${resumeSessionId}`);
+    }
+    if ((cli === 'claude-resume' || cli === 'copilot-resume') && resumeSessionId === undefined) {
+      throw new Error('Select a session in the Resume launcher; an exact session UUID is required.');
     }
     // Direct resume by UUID — delegate to createWithUuid which knows the per-CLI shape.
     // forceResume=true (Claude path) because the session was picked from the scanner or
     // a template, so we know the JSONL exists — avoids a path-encoding mismatch that
     // could cause a fallback to --session-id instead of --resume.
-    if (resumeSessionId && UUID_RE.test(resumeSessionId)) {
+    if (resumeSessionId !== undefined) {
       const workDir = cwd || homedir();
-      const resumeCli: CliTool = (cli === 'copilot' || cli === 'copilot-resume') ? 'copilot' : 'claude';
-      const info = this.createWithUuid(workDir, resumeCli, resumeSessionId, true);
+      const info = this.createWithUuid(workDir, cli, resumeSessionId, true);
       this.saveState();
       return info;
     }
 
-    // New Copilot session: mint a UUID upfront and launch via --resume=<uuid> so the
-    // session can be restored on app restart and saved into templates with parity to Claude.
-    if (cli === 'copilot') {
+    // Mint the identity before launching; never infer it from workspace activity.
+    if (cli === 'copilot' || cli === 'claude') {
       const workDir = cwd || homedir();
-      const info = this.createWithUuid(workDir, 'copilot', crypto.randomUUID(), false);
+      const info = this.createWithUuid(workDir, cli, crypto.randomUUID(), false);
       this.saveState();
       return info;
     }
@@ -644,29 +655,6 @@ export class SessionManager {
       cwd: workDir,
       env: getSafeEnv(),
     });
-
-    // Set up JSONL watcher for Claude CLI sessions
-    let jsonlWatcher: JsonlSessionWatcher | null = null;
-    let sessionUuid: string | null = null;
-    const home = homedir();
-    const encodedPath = encodeProjectPath(workDir);
-
-    if (cli === 'claude') {
-      // New session: generate UUID upfront so we know the JSONL path immediately
-      sessionUuid = crypto.randomUUID();
-      const jsonlPath = path.join(home, '.claude', 'projects', encodedPath, `${sessionUuid}.jsonl`);
-      jsonlWatcher = this.createJsonlWatcher(jsonlPath, id);
-      jsonlWatcher.start();
-    } else if (cli === 'claude-resume') {
-      // Resume: the user picks the session interactively, so we discover the
-      // session ID by polling ~/.claude/sessions/<pid>.json after the CLI starts.
-      this.discoverResumedSession(term.pid, home, encodedPath, id);
-    } else if (cli === 'copilot-resume') {
-      // Same idea for Copilot: launch `gh copilot --resume` (no UUID), let the CLI's
-      // native picker take input, then poll ~/.copilot/session-state for whichever
-      // events.jsonl gets newly written to. That tells us which session was picked.
-      this.discoverResumedCopilotSession(home, id);
-    }
 
     const planDetector = new PlanTaskDetector((event) => {
       switch (event.type) {
@@ -713,9 +701,9 @@ export class SessionManager {
       displayName: title,
       cli,
       cwd: workDir,
-      resumeSessionId: sessionUuid,
+      resumeSessionId: null,
       pty: term,
-      status: cli === 'copilot-resume' ? SessionStatus.Idle : SessionStatus.Running,
+      status: SessionStatus.Running,
       startedAt: Date.now(),
       lastActivityAt: Date.now(),
       usage: null,
@@ -725,7 +713,7 @@ export class SessionManager {
       waitingOutputOffset: 0,
       buffer: '',
       outputOffset: 0,
-      jsonlWatcher,
+      jsonlWatcher: null,
       planTaskDetector: planDetector,
     };
 
@@ -752,19 +740,7 @@ export class SessionManager {
     // Auto-start the selected CLI tool after a short delay for shell to initialize.
     // Raw shell sessions (powershell/bash) skip this — the PTY is already the shell.
     if (!isRawShell) {
-      let command: string;
-      if (cli === 'claude' || cli === 'claude-resume') {
-        const config = resolveClaudeConfig(workDir);
-        const flagStr = config.flags.length > 0 ? ' ' + config.flags.join(' ') : '';
-        if (sessionUuid) {
-          command = `${config.command}${flagStr} --session-id ${sessionUuid}`;
-        } else {
-          // claude-resume: interactive picker
-          command = `${config.command}${flagStr} --resume`;
-        }
-      } else {
-        command = toolDef.command;
-      }
+      const command = toolDef.command;
 
       setTimeout(() => {
         try {
@@ -1007,157 +983,6 @@ export class SessionManager {
   }
 
   /**
-   * For `claude --resume`: we don't know the session ID upfront because the
-   * user picks it interactively. Watch the projects JSONL directory for
-   * whichever .jsonl file starts receiving new writes after launch.
-   */
-  private discoverResumedSession(
-    _ptyPid: number,
-    home: string,
-    encodedPath: string,
-    sessionId: string,
-  ): void {
-    const projectDir = path.join(home, '.claude', 'projects', encodedPath);
-    const launchTime = Date.now();
-    let attempts = 0;
-    const maxAttempts = 120; // 60 seconds at 500ms intervals
-
-    // Snapshot existing file mtimes so we can detect which one changes
-    const baselineMtimes = new Map<string, number>();
-    try {
-      for (const file of fs.readdirSync(projectDir)) {
-        if (!file.endsWith('.jsonl')) continue;
-        try {
-          const stat = fs.statSync(path.join(projectDir, file));
-          baselineMtimes.set(file, stat.mtimeMs);
-        } catch { /* skip */ }
-      }
-    } catch { /* dir may not exist yet */ }
-
-    const poll = setInterval(() => {
-      attempts++;
-      const session = this.sessions.get(sessionId);
-      if (!session || session.status === SessionStatus.Killed || attempts > maxAttempts) {
-        clearInterval(poll);
-        return;
-      }
-
-      try {
-        const files = fs.readdirSync(projectDir);
-        for (const file of files) {
-          if (!file.endsWith('.jsonl')) continue;
-          try {
-            const stat = fs.statSync(path.join(projectDir, file));
-            const baseline = baselineMtimes.get(file) ?? 0;
-            // File was modified after we launched — this is the resumed session
-            if (stat.mtimeMs > launchTime && stat.mtimeMs > baseline) {
-              const jsonlPath = path.join(projectDir, file);
-              const watcher = this.createJsonlWatcher(jsonlPath, sessionId, 'claude', true);
-              session.jsonlWatcher = watcher;
-              watcher.start();
-              // Extract UUID from filename and persist so session can be restored
-              const discoveredUuid = file.replace('.jsonl', '');
-              if (UUID_RE.test(discoveredUuid)) {
-                session.resumeSessionId = discoveredUuid;
-                session.cli = 'claude'; // normalize — it's a regular Claude session now
-                this.saveState();
-              }
-              clearInterval(poll);
-              return;
-            }
-          } catch { /* skip */ }
-        }
-      } catch { /* dir doesn't exist yet */ }
-    }, 500);
-  }
-
-  /**
-   * For `gh copilot --resume` (no UUID, interactive picker): the user picks the
-   * session in the CLI's UI, so we discover the chosen UUID by polling
-   * ~/.copilot/session-state for whichever session's events.jsonl starts
-   * receiving new writes after launch. The directory name IS the UUID.
-   *
-   * Also reads workspace.yaml for the original session's cwd and updates
-   * session.cwd so the AgentPlex UI shows the correct directory.
-   */
-  private discoverResumedCopilotSession(home: string, sessionId: string): void {
-    const stateDir = path.join(home, '.copilot', 'session-state');
-    const launchTime = Date.now();
-    let attempts = 0;
-    const maxAttempts = 120; // 60 seconds at 500ms intervals
-
-    // Snapshot existing events.jsonl mtimes per session-state dir.
-    // Sessions without an events.jsonl get baseline 0 (they'd appear as "newly written"
-    // if the user picks one and the CLI starts writing).
-    const baselineMtimes = new Map<string, number>();
-    try {
-      for (const dir of fs.readdirSync(stateDir)) {
-        if (!UUID_RE.test(dir)) continue;
-        const eventsPath = path.join(stateDir, dir, 'events.jsonl');
-        try {
-          baselineMtimes.set(dir, fs.statSync(eventsPath).mtimeMs);
-        } catch {
-          baselineMtimes.set(dir, 0);
-        }
-      }
-    } catch { /* stateDir may not exist yet */ }
-
-    const poll = setInterval(() => {
-      attempts++;
-      const session = this.sessions.get(sessionId);
-      if (!session || session.status === SessionStatus.Killed || attempts > maxAttempts) {
-        clearInterval(poll);
-        return;
-      }
-
-      try {
-        for (const dir of fs.readdirSync(stateDir)) {
-          if (!UUID_RE.test(dir)) continue;
-          const eventsPath = path.join(stateDir, dir, 'events.jsonl');
-          let stat: fs.Stats;
-          try {
-            stat = fs.statSync(eventsPath);
-          } catch { continue; }
-          const baseline = baselineMtimes.get(dir) ?? 0;
-          if (stat.mtimeMs > launchTime && stat.mtimeMs > baseline) {
-            // Discovered the picked session.
-            session.resumeSessionId = dir;
-            session.cli = 'copilot'; // normalize — picker is done, it's a regular Copilot session
-            // Wire the events.jsonl watcher (sub-agent + plan + permission detection).
-            const watcher = this.createJsonlWatcher(eventsPath, sessionId, 'copilot', true, true);
-            session.jsonlWatcher = watcher;
-            watcher.start();
-            // Update session.cwd from workspace.yaml so the UI / git panel reflect the
-            // session's real working directory rather than wherever the PTY was spawned.
-            try {
-              const wsPath = path.join(stateDir, dir, 'workspace.yaml');
-              const wsContent = fs.readFileSync(wsPath, 'utf-8');
-              const cwdMatch = wsContent.match(/^cwd:\s*(.+)$/m);
-              if (cwdMatch) {
-                const realCwd = cwdMatch[1].trim();
-                if (realCwd && fs.existsSync(realCwd) && fs.statSync(realCwd).isDirectory()) {
-                  session.cwd = realCwd;
-                }
-              }
-            } catch { /* workspace.yaml absent or unreadable — keep PTY cwd */ }
-            // Push the corrected SessionInfo to the renderer so templates pick up the
-            // real cwd and the git/explorer panels use the right directory.
-            this.send(IPC.SESSION_INFO_UPDATE, {
-              id: sessionId,
-              cli: session.cli,
-              cwd: session.cwd,
-              resumeSessionId: session.resumeSessionId,
-            });
-            this.saveState();
-            clearInterval(poll);
-            return;
-          }
-        }
-      } catch { /* stateDir doesn't exist yet */ }
-    }, 500);
-  }
-
-  /**
    * Scan for external sessions (Claude + Copilot) that are not already managed.
    */
   async discoverExternal(signal?: AbortSignal): Promise<ExternalSession[]> {
@@ -1219,10 +1044,7 @@ export class SessionManager {
           continue;
         }
 
-        const activeSessionId = this.resolveActiveSessionId(cwd, sessionId, managedClaudeUuids);
-        if (managedClaudeUuids.has(activeSessionId)) continue;
-
-        results.push({ cli: 'claude', pid, sessionId: activeSessionId, cwd, startedAt, name });
+        results.push({ cli: 'claude', pid, sessionId, cwd, startedAt, name });
       } catch {
         continue;
       }
@@ -1295,60 +1117,6 @@ export class SessionManager {
     return results;
   }
 
-  /**
-   * Find the JSONL with the most recent user/assistant message in a project
-   * directory. Returns the UUID of that file, or the fallback if none found.
-   * File mtime alone is unreliable because /clear writes file-history-snapshots
-   * to the OLD jsonl after creating the new one.
-   */
-  private resolveActiveSessionId(cwd: string, fallback: string, excludeUuids?: Set<string>): string {
-    const home = homedir();
-    const encodedPath = encodeProjectPath(cwd);
-    const projectDir = path.join(home, '.claude', 'projects', encodedPath);
-    let activeId = fallback;
-    try {
-      const jsonls = fs.readdirSync(projectDir).filter((f) => f.endsWith('.jsonl'));
-      let latestMsgTime = '';
-      for (const jf of jsonls) {
-        // Skip JSONL files belonging to AgentPlex-managed sessions
-        const uuid = jf.replace('.jsonl', '');
-        if (excludeUuids && UUID_RE.test(uuid) && excludeUuids.has(uuid)) continue;
-
-        try {
-          const filePath = path.join(projectDir, jf);
-          const stat = fs.statSync(filePath);
-          // file-history-snapshots after /clear can push messages 100KB+
-          // from the end — read enough tail to reliably find them
-          const tailSize = Math.min(128 * 1024, stat.size);
-          const fd = fs.openSync(filePath, 'r');
-          try {
-            const buf = Buffer.alloc(tailSize);
-            fs.readSync(fd, buf, 0, tailSize, Math.max(0, stat.size - tailSize));
-            const tail = buf.toString('utf-8');
-            const lines = tail.split('\n').filter((l) => l.trim());
-            for (let i = lines.length - 1; i >= 0; i--) {
-              try {
-                const obj = JSON.parse(lines[i]);
-                if ((obj.type === 'user' || obj.type === 'assistant') && obj.timestamp) {
-                  if (obj.timestamp > latestMsgTime) {
-                    latestMsgTime = obj.timestamp;
-                    if (UUID_RE.test(uuid)) activeId = uuid;
-                  }
-                  break;
-                }
-              } catch { /* skip */ }
-            }
-          } finally {
-            try {
-              fs.closeSync(fd);
-            } catch { /* ignore close errors */ }
-          }
-        } catch { /* skip */ }
-      }
-    } catch { /* project dir may not exist */ }
-    return activeId;
-  }
-
   /** Adopt an externally-running session into AgentPlex. */
   adoptExternal(sessionUuid: string, cwd: string, cli: 'claude' | 'copilot' = 'claude'): SessionInfo {
     if (!UUID_RE.test(sessionUuid)) {
@@ -1357,27 +1125,7 @@ export class SessionManager {
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
       throw new Error(`Working directory does not exist: ${cwd}`);
     }
-    if (cli === 'copilot') {
-      const info = this.createWithUuid(cwd, 'copilot', sessionUuid, true);
-      this.saveState();
-      return info;
-    }
-
-    // Re-resolve at adoption time, excluding AgentPlex-managed Claude sessions.
-    const managedUuids = new Set<string>();
-    for (const s of this.sessions.values()) {
-      if (s.resumeSessionId && (s.cli === 'claude' || s.cli === 'claude-resume')) {
-        managedUuids.add(s.resumeSessionId);
-      }
-    }
-    const persisted = this.loadState();
-    for (const ps of Object.values(persisted.sessions)) {
-      if (ps.resumeSessionId && (ps.cli === 'claude' || ps.cli === 'claude-resume')) {
-        managedUuids.add(ps.resumeSessionId);
-      }
-    }
-    const activeUuid = this.resolveActiveSessionId(cwd, sessionUuid, managedUuids);
-    const info = this.createWithUuid(cwd, 'claude', activeUuid, true);
+    const info = this.createWithUuid(cwd, cli, sessionUuid, true);
     this.saveState();
     return info;
   }
