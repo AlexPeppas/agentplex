@@ -135,7 +135,7 @@ test('attach hydrates current lifecycle without replaying old UI events; resume 
   t.after(() => { attached.stop(); launched.stop(); });
   // This append must be consumed by poll, not read ahead by snapshot hydration.
   log.append(approved('new-permission'));
-  await Promise.resolve();
+  await Promise.all([attached.ready, launched.ready]);
   assert.equal(attached.lifecycleStatus, 'waiting-for-input');
   assert.equal(launched.lifecycleStatus, 'idle');
   assert.deepEqual(uiEvents, []);
@@ -152,7 +152,7 @@ test('a record split across startup snapshot and live tail is not lost', async t
   const watcher = new JsonlSessionWatcher(log.file, 'copilot', true, true);
   watcher.start();
   t.after(() => watcher.stop());
-  await Promise.resolve();
+  await watcher.ready;
   fs.appendFileSync(log.file, '"data":{"turnId":"live"}}\n');
   watcher.poll();
   assert.equal(watcher.lifecycleStatus, 'running');
