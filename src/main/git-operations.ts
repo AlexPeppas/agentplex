@@ -253,20 +253,22 @@ export async function gitLog(repoRoot: string, count = 20): Promise<GitLogEntry[
   }
 }
 
-export async function gitBranchInfo(repoRoot: string): Promise<GitBranchInfo> {
+export async function gitBranchName(cwd: string): Promise<string | null> {
   // symbolic-ref works on unborn branches (fresh `git init` with no commits);
   // rev-parse --abbrev-ref HEAD throws there. Fall back to short SHA on detached HEAD.
-  let current: string;
   try {
-    current = (await git(['symbolic-ref', '--short', 'HEAD'], repoRoot)).trim();
+    return (await git(['symbolic-ref', '--quiet', '--short', 'HEAD'], cwd)).trim();
   } catch {
     try {
-      current = (await git(['rev-parse', '--short', 'HEAD'], repoRoot)).trim();
+      return (await git(['rev-parse', '--short', 'HEAD'], cwd)).trim();
     } catch {
-      current = 'HEAD';
+      return null;
     }
   }
+}
 
+export async function gitBranchInfo(repoRoot: string): Promise<GitBranchInfo> {
+  const current = await gitBranchName(repoRoot) ?? 'HEAD';
   let tracking: string | null = null;
   let ahead = 0;
   let behind = 0;

@@ -8,6 +8,7 @@ import { ContextMeter, SessionAge } from './SessionMetrics';
 import { useAppStore, type SessionNodeData } from '../store';
 import { SessionStatus } from '../../shared/ipc-channels';
 import { useViewportMenu } from '../hooks/useViewportMenu';
+import { useGitBranchName } from '../hooks/useGitBranchName';
 
 export const SessionNode = memo(function SessionNode({ data, id, parentId }: NodeProps) {
   const nodeData = data as SessionNodeData;
@@ -34,7 +35,7 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
   const viewportMoveCount = useAppStore((s) => s.viewportMoveCount);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
-  const [branchName, setBranchName] = useState<string | null>(null);
+  const branchName = useGitBranchName(nodeData.sessionId, session?.cwd, !isKilled);
   const inputRef = useRef<HTMLInputElement>(null);
   const [projectMenu, setProjectMenu] = useState<{ x: number; y: number } | null>(null);
   const [groupSubmenuOpen, setGroupSubmenuOpen] = useState(false);
@@ -48,23 +49,6 @@ export const SessionNode = memo(function SessionNode({ data, id, parentId }: Nod
   useEffect(() => {
     if (editing) inputRef.current?.select();
   }, [editing]);
-
-  // Fetch git branch name on mount and periodically
-  useEffect(() => {
-    if (isKilled) return;
-    let cancelled = false;
-    const fetchBranch = () => {
-      window.agentPlex.gitBranchInfo(nodeData.sessionId).then((info) => {
-        if (!cancelled) setBranchName(info?.current ?? null);
-      }).catch(() => {
-        if (!cancelled) setBranchName(null);
-      });
-    };
-    fetchBranch();
-    const interval = setInterval(fetchBranch, 30_000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [nodeData.sessionId, isKilled]);
-
 
   // Dismiss on viewport pan/zoom (React Flow's onMove)
   useEffect(() => {

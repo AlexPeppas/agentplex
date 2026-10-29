@@ -22,7 +22,7 @@ import {
 import { searchSessions } from './session-search';
 import type { HistoryRequestKind } from '../shared/ipc-channels';
 import { summarizeWithCopilot } from './copilot-summary-proxy';
-import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, stageAll, unstageAll, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo } from './git-operations';
+import { getGitStatus, getFileDiff, saveFile, stageFile, unstageFile, stageAll, unstageAll, gitCommit, gitPush, gitPull, gitLog, gitBranchInfo, gitBranchName } from './git-operations';
 import { listWorkspaceDirectory, readWorkspaceFile } from './workspace-files';
 
 const VALID_CLI_IDS = new Set<string>([
@@ -542,10 +542,14 @@ ${safeContext}
     return gitLog(status.repoRoot);
   });
 
-  ipcMain.handle(IPC.GIT_BRANCH_INFO, async (_event, { sessionId }: { sessionId: string }) => {
+  ipcMain.handle(IPC.GIT_BRANCH_INFO, async (_event, { sessionId, details = true }: { sessionId: string; details?: boolean }) => {
     if (typeof sessionId !== 'string') return null;
     const cwd = sessionManager.getSessionCwd(sessionId);
     if (!cwd) return null;
+    if (details === false) {
+      const current = await gitBranchName(cwd);
+      return current === null ? null : { current, tracking: null, ahead: 0, behind: 0 };
+    }
     const status = await getGitStatus(cwd);
     if (!status.isRepo) return null;
     return gitBranchInfo(status.repoRoot);
