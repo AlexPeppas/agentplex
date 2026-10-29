@@ -5,11 +5,12 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 GlobalWorkerOptions.workerSrc = workerUrl;
 const MAX_CANVAS_PIXELS = 16 * 1024 * 1024;
 
-export function PdfPreview({ base64 }: { base64: string }) {
+export function PdfPreview({ base64, page, scale, onPageChange, onScaleChange }: {
+  base64: string; page: number; scale: number;
+  onPageChange: (page: number) => void; onScaleChange: (scale: number) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
-  const [page, setPage] = useState(1);
-  const [scale, setScale] = useState(1);
   const [error, setError] = useState('');
   const [rendering, setRendering] = useState(true);
 
@@ -29,7 +30,6 @@ export function PdfPreview({ base64 }: { base64: string }) {
       canvasMaxAreaInBytes: MAX_CANVAS_PIXELS * 4,
     });
     setDocument(null);
-    setPage(1);
     setError('');
     setRendering(true);
     loading.onPassword = () => {
@@ -48,7 +48,11 @@ export function PdfPreview({ base64 }: { base64: string }) {
   }, [base64]);
 
   useEffect(() => {
-    if (!document || !canvasRef.current) return;
+    if (document && page > document.numPages) onPageChange(document.numPages);
+  }, [document, page, onPageChange]);
+
+  useEffect(() => {
+    if (!document || !canvasRef.current || page > document.numPages) return;
     let cancelled = false;
     let task: RenderTask | undefined;
     setRendering(true);
@@ -82,10 +86,10 @@ export function PdfPreview({ base64 }: { base64: string }) {
   return (
     <div className="flex flex-col flex-1 min-h-0" aria-label="PDF reader">
       <div className="flex items-center gap-3 p-2 text-xs border-b border-border">
-        <button disabled={!document || page === 1} onClick={() => setPage(page - 1)}>Previous page</button>
+        <button disabled={!document || page === 1} onClick={() => onPageChange(page - 1)}>Previous page</button>
         <span aria-live="polite">Page {page} of {document?.numPages ?? '...'}</span>
-        <button disabled={!document || page === document.numPages} onClick={() => setPage(page + 1)}>Next page</button>
-        <label className="ml-auto">Zoom <select aria-label="PDF zoom" value={scale} onChange={event => setScale(Number(event.target.value))}>
+        <button disabled={!document || page === document.numPages} onClick={() => onPageChange(page + 1)}>Next page</button>
+        <label className="ml-auto">Zoom <select aria-label="PDF zoom" value={scale} onChange={event => onScaleChange(Number(event.target.value))}>
           {[0.5, 0.75, 1, 1.25, 1.5, 2].map(value => <option key={value} value={value}>{value * 100}%</option>)}
         </select></label>
       </div>

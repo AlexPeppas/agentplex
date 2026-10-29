@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import type { PreviewSheet } from '../../shared/artifact-formats';
 
 function columnName(index: number): string {
@@ -9,16 +8,18 @@ function columnName(index: number): string {
   return name;
 }
 
-export function TablePreview({ sheets, truncated = false }: { sheets: PreviewSheet[]; truncated?: boolean }) {
-  const [selected, setSelected] = useState(0);
-  const sheet = sheets[selected] ?? sheets[0];
+export function TablePreview({ sheets, truncated = false, selected, onSelect }: {
+  sheets: PreviewSheet[]; truncated?: boolean; selected: number; onSelect: (index: number) => void;
+}) {
+  const selectedIndex = selected < sheets.length ? selected : 0;
+  const sheet = sheets[selectedIndex];
   const columns = sheet?.rows.reduce((max, row) => Math.max(max, row.length), 0) ?? 0;
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {sheets.length > 1 && <div role="tablist" aria-label="Workbook sheets" className="flex shrink-0 gap-2 overflow-x-auto p-2 border-b border-border">
-        {sheets.map((value, index) => <button key={index} role="tab" aria-selected={index === selected}
-          className={`px-2 py-1 rounded ${index === selected ? 'bg-accent text-surface' : 'text-fg-muted'}`}
-          onClick={() => setSelected(index)}>{value.name}</button>)}
+        {sheets.map((value, index) => <button key={index} role="tab" aria-selected={index === selectedIndex}
+          className={`px-2 py-1 rounded ${index === selectedIndex ? 'bg-accent text-surface' : 'text-fg-muted'}`}
+          onClick={() => onSelect(index)}>{value.name}</button>)}
       </div>}
       {(truncated || sheet?.truncated) && <div role="status" className="px-3 py-2 text-xs text-warning">
         Limited preview: up to 20 sheets, 1,000 rows and 100 columns per sheet, 20,000 cells total. Long cell text may be shortened.

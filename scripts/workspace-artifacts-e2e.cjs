@@ -19,6 +19,7 @@ fs.mkdirSync(workspace);
 fs.mkdirSync(path.join(workspace, 'nested'));
 fs.writeFileSync(path.join(workspace, 'result.json'), '{"verified":"first"}');
 fs.writeFileSync(path.join(workspace, 'report.pdf'), createPdf());
+for (let index = 2; index <= 4; index++) fs.copyFileSync(path.join(workspace, 'report.pdf'), path.join(workspace, `report-${index}.pdf`));
 fs.writeFileSync(path.join(workspace, 'broken.pdf'), '%PDF-1.7\nbroken document');
 fs.writeFileSync(path.join(workspace, 'data.csv'), 'Name,Notes,Formula\n"Last, First","line 1\nline 2",=1+1');
 fs.writeFileSync(path.join(workspace, 'data.tsv'), 'A\tB\n1\t2');
@@ -278,6 +279,17 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`window.testTerminalElement.isConnected`), true);
   await clickText(info.title);
   await wait(() => evaluate(`document.querySelector('.xterm-rows').textContent.includes('report.pdf')`), 'PDF terminal link');
+  await evaluate(`(() => {
+    const NativeWorker = window.Worker;
+    window.previewWorkers = { created: 0, terminated: 0 };
+    window.Worker = class extends NativeWorker {
+      constructor(...args) { super(...args); window.previewWorkers.created++; }
+      terminate() {
+        if (!this.previewTerminated) { this.previewTerminated = true; window.previewWorkers.terminated++; }
+        return super.terminate();
+      }
+    };
+  })()`);
   await clickTerminalText('report.pdf');
   const pdfCanvas = `(${preview})?.querySelector('canvas[data-rendered="true"]')`;
   await wait(() => evaluate(`!!(${pdfCanvas})`), 'PDF renders from terminal link');
@@ -297,6 +309,20 @@ app.whenReady().then(async () => {
   assert.deepEqual(await evaluate(`Array.from((${pdfCanvas}).getContext('2d').getImageData(5, 5, 1, 1).data)`), [0, 0, 255, 255]);
   await evaluate(`(() => { const zoom = (${preview}).querySelector('select[aria-label="PDF zoom"]'); zoom.value = '1.5'; zoom.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   await wait(() => evaluate(`!!(${pdfCanvas}) && (${pdfCanvas}).style.width === '360px'`), 'PDF zoom');
+  for (let index = 2; index <= 4; index++) {
+    await clickText(`report-${index}.pdf`, `document.querySelector('aside[aria-label="Workspace files"]')`);
+    await wait(() => evaluate(`!!(${pdfCanvas})`), 'new PDF tab renders');
+    await wait(() => evaluate(`window.previewWorkers.created - window.previewWorkers.terminated === 1`), 'inactive PDF workers are terminated');
+    assert.equal(await evaluate(`document.querySelectorAll('section[aria-label="File preview"]').length`), 1);
+    assert.equal(await evaluate(`document.querySelectorAll('section[aria-label="File preview"] canvas').length`), 1);
+  }
+  await clickText('report.pdf', `document.querySelector('.terminal-pane__header')`);
+  await wait(() => evaluate(`!!(${pdfCanvas}) && (${preview}).textContent.includes('Page 2 of 2') && (${pdfCanvas}).style.width === '360px'`), 'evicted PDF restores page and zoom');
+  await clickText(info.title);
+  await wait(() => evaluate(`document.querySelectorAll('section[aria-label="File preview"]').length === 0 && window.previewWorkers.created === window.previewWorkers.terminated`), 'terminal tab releases every preview canvas and PDF worker');
+  assert.equal(await evaluate(`window.testTerminalElement.isConnected`), true, 'eviction never unmounts the live terminal');
+  await clickText('report.pdf', `document.querySelector('.terminal-pane__header')`);
+  await wait(() => evaluate(`!!(${pdfCanvas}) && (${preview}).textContent.includes('Page 2 of 2')`), 'PDF restores after returning from the terminal');
   await clickText('Previous page', `(${preview})`);
   await wait(() => evaluate(`!!(${pdfCanvas}) && (${preview}).textContent.includes('Page 1 of 2')`), 'PDF previous page');
   await clickText('Reload', `(${preview})`);
@@ -379,6 +405,7 @@ app.whenReady().then(async () => {
     await wait(() => evaluate(`!!(${preview})?.querySelector('table tbody tr')`), `native table: ${name}`);
   }
   await openTree('data.csv');
+  await wait(() => evaluate(`!!(${preview})?.querySelector('table tbody tr:nth-child(2)')`), 'CSV reloads on tab revisit');
   assert.equal(await evaluate(`(${preview}).querySelector('tbody tr:nth-child(2) td').textContent`), 'Last, First');
   assert.equal(await evaluate(`(${preview}).querySelector('tbody tr:nth-child(2) td:nth-of-type(2)').textContent`), 'line 1\nline 2');
   assert.equal(await evaluate(`(${preview}).querySelector('tbody tr:nth-child(2) td:nth-of-type(3)').textContent`), '=1+1');
@@ -392,6 +419,11 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate(`(${preview}).querySelector('table').textContent.includes('84')`), true);
   await evaluate(`(${preview}).querySelector('[role="tablist"] button:nth-child(2)').click()`);
   await wait(() => evaluate(`(${preview})?.querySelector('table')?.textContent.includes('Second sheet')`), 'workbook sheet selection');
+  await openTree('notes.txt');
+  await wait(() => evaluate(`(${preview})?.querySelector('pre')?.textContent.includes('Plain text')`), 'inactive workbook is evicted');
+  assert.equal(await evaluate(`document.querySelectorAll('.artifact-table').length`), 0);
+  await openTree('book.xlsx');
+  await wait(() => evaluate(`(${preview})?.querySelector('table')?.textContent.includes('Second sheet')`), 'evicted workbook restores sheet selection');
   await clickText('Reload', `(${preview})`);
   await wait(() => evaluate(`(${preview})?.querySelector('table')?.textContent.includes('Revenue')`), 'workbook reload resets sheet safely');
   await openTree('legacy.doc');
@@ -401,6 +433,11 @@ app.whenReady().then(async () => {
   const available = new Map(), sandboxTargets = new Set(), enabled = new Set();
   const sandboxListener = (_event, method, params, sessionId) => {
     if (method === 'Target.attachedToTarget' && params.targetInfo.type === 'iframe') sandboxTargets.add(params.sessionId);
+    if (method === 'Target.detachedFromTarget') {
+      sandboxTargets.delete(params.sessionId);
+      enabled.delete(params.sessionId);
+      for (const [key, value] of available) if (value.sessionId === params.sessionId) available.delete(key);
+    }
     if (method === 'Runtime.executionContextCreated' && params.context.auxData?.isDefault) {
       available.set(`${sessionId}:${params.context.id}`, { contextId: params.context.id, sessionId });
     }
@@ -505,7 +542,7 @@ app.whenReady().then(async () => {
   }
   assert.deepEqual(rendererErrors, []);
   console.log(JSON.stringify({ normalCliDiscovery: true, discoveryMs, liveForkPreserved: true, attributedShutdownSafe: true,
-    plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true,
+    plainAndOsc8Links: true, jsonMarkdownHtml: true, pdfPagesZoomReload: true, boundedPreviewResources: true, previewStateRestored: true,
     htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true,
     csvTsvTables: true, plainAndCodeText: true, docxAndLegacyDoc: true, xlsxSheetsAndReload: true,
     mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true,
