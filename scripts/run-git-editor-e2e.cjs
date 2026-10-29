@@ -5,7 +5,7 @@ const { spawn } = require('node:child_process');
 
 async function main() {
   const script = process.argv[2] || 'git-editor-e2e.cjs';
-  if (!['git-editor-e2e.cjs', 'terminal-rendering-smoke.cjs', 'send-dialog-e2e.cjs', 'copilot-runtime-smoke.cjs', 'desktop-priorities-e2e.cjs', 'workspace-artifacts-e2e.cjs'].includes(script)) {
+  if (!['git-editor-e2e.cjs', 'terminal-rendering-smoke.cjs', 'terminal-input-e2e.cjs', 'send-dialog-e2e.cjs', 'copilot-runtime-smoke.cjs', 'desktop-priorities-e2e.cjs', 'workspace-artifacts-e2e.cjs'].includes(script)) {
     throw new Error(`Unsupported Electron E2E script: ${script}`);
   }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agentplex-editor-e2e-'));

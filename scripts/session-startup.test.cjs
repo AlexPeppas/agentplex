@@ -98,6 +98,7 @@ test('successful initialization still publishes ownership, launches once and for
   assert.deepEqual(f.terms[0].writes, [`synthetic-claude --resume ${uuid}\r`]);
   f.terms[0].data('visible output\n');
   assert.equal(f.manager.getBuffer(info.id), 'visible output\n');
+  t.mock.timers.tick(8);
   assert.ok(f.events.some(event => event.channel === IPC.SESSION_DATA && event.event.data === 'visible output\n'));
   f.manager.kill(info.id);
   assert.equal(f.terms[0].kills, 1);
@@ -121,10 +122,35 @@ test('Copilot resume retains rendered history and live output in offset-tagged s
   assert.deepEqual(f.manager.getBufferSnapshot(info.id), { buffer: 'HISTORY\n', offset: 8 });
   f.terms[0].data('LIVE\n');
   assert.deepEqual(f.manager.getBufferSnapshot(info.id), { buffer: 'HISTORY\nLIVE\n', offset: 13 });
+  t.mock.timers.tick(8);
   assert.deepEqual(f.events.filter(e => e.channel === IPC.SESSION_DATA).map(e => e.event.offset), [8, 13]);
   f.terms[0].data('x'.repeat(512 * 1024));
   assert.equal(f.manager.getBuffer(info.id).length, 512 * 1024);
   assert.equal(f.manager.getBufferSnapshot(info.id).offset, 13 + 512 * 1024);
+});
+
+test('output bursts are bounded while input and snapshots stay immediate, with final output before exit', t => {
+  const f = fixture(t);
+  const info = f.manager.create(f.home, 'copilot', uuid);
+  for (let index = 0; index < 2000; index++) f.terms[0].data('fragment ');
+  assert.equal(f.manager.getBufferSnapshot(info.id).offset, 18000);
+  assert.equal(f.events.filter(event => event.channel === IPC.SESSION_DATA).length, 0);
+  f.manager.write(info.id, 'message\r');
+  assert.deepEqual(f.terms[0].writes, ['message\r'], 'input must never wait for the output batch timer');
+  t.mock.timers.tick(8);
+  const output = f.events.filter(event => event.channel === IPC.SESSION_DATA);
+  assert.equal(output.length, 1);
+  assert.deepEqual(output[0].event, { id: info.id, data: 'fragment '.repeat(2000), offset: 18000 });
+  f.terms[0].data('FINAL');
+  f.terms[0].exit({ exitCode: 0 });
+  const final = f.events.findIndex(event => event.channel === IPC.SESSION_DATA && event.event.data === 'FINAL');
+  const exited = f.events.findIndex(event => event.channel === IPC.SESSION_EXIT);
+  assert.ok(final >= 0 && final < exited);
+  f.manager.stop();
+  const count = f.events.length;
+  f.terms[0].data('STALE');
+  t.mock.timers.tick(100);
+  assert.equal(f.events.length, count, 'shutdown must not leave output callbacks or timers publishing');
 });
 
 test('resume requests without an exact valid identity fail before spawning or observing unrelated history', t => {
