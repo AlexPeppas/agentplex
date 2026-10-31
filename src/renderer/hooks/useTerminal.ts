@@ -152,7 +152,6 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       fontSize: terminalFontSize,
       fontFamily: 'MesloLGS Nerd Font Mono, Menlo, Monaco, Cascadia Code, Consolas, monospace',
       cursorBlink: true,
-      convertEol: true,
       windowsPty: useAppStore.getState().sessions[sessionId]?.windowsPty,
       linkHandler: {
         allowNonHttpProtocols: true,
@@ -215,6 +214,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     };
     liveTerminals.add(entry);
 
+    entry.resize.initialize();
     fitWhenFontReady(entry);
 
     // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts

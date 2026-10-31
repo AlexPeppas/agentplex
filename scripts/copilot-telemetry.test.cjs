@@ -73,7 +73,7 @@ test('restored log tail keeps authoritative snapshot despite newer auxiliary cal
   const updates = [];
   watcher.on('telemetry', value => updates.push(value));
   watcher.start();
-  await Promise.resolve();
+  await watcher.ready;
   assert.equal(updates.at(-1).contextTokens, 215271);
   assert.equal(updates.at(-1).snapshotSource, 'copilot-shutdown');
 });
@@ -151,7 +151,7 @@ test('restore and incremental events.jsonl polling use current durable usage rec
   const updates = [];
   watcher.on('telemetry', usage => updates.push(usage));
   watcher.start();
-  await Promise.resolve();
+  await watcher.ready;
   assert.equal(updates.at(-1).contextTokens, 119000);
   const live = JSON.stringify(usageRecord(121000, 5, sessionId)) + '\n';
   fs.appendFileSync(file, live.slice(0, 50));
@@ -206,7 +206,7 @@ test('managed session header receives restored and newly appended durable usage 
     fs.rmSync(home, { recursive: true, force: true });
   });
   const info = manager.create(home, 'copilot', uuid);
-  await Promise.resolve();
+  await manager.sessions.get(info.id).jsonlWatcher.ready;
   assert.equal(manager.list()[0].usage.contextTokens, 119000);
   fs.appendFileSync(file, JSON.stringify(usageRecord(121000, 5, uuid)) + '\n');
   manager.sessions.get(info.id).jsonlWatcher.poll();

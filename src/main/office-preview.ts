@@ -10,8 +10,10 @@ export async function readOfficePreview(bytes: Buffer, extension: string): Promi
   let worker: Worker | undefined;
   try {
     return await new Promise<OfficePreview>((resolve, reject) => {
+      const payload = Uint8Array.from(bytes);
       worker = new Worker(path.join(__dirname, 'office-preview-worker.js'), {
-        workerData: { bytes, extension }, resourceLimits: { maxOldGenerationSizeMb: 192 },
+        workerData: { bytes: payload, extension }, transferList: [payload.buffer],
+        resourceLimits: { maxOldGenerationSizeMb: 192 },
       });
       let settled = false;
       const finish = (error?: Error, value?: OfficePreview) => {

@@ -119,9 +119,9 @@ test('forked CLI history cannot kill a fresh monitor before its first resume, in
       + timed('assistant.message', began - 10000, { content: n === 2 ? 'x'.repeat(2 * 1024 * 1024) : 'inherited result' })
       + timed('session.shutdown', began - 5000));
     manager.monitorCopilotSession(uuid(n), f.home);
-    await Promise.resolve();
     const info = manager.list().find(info => info.resumeSessionId === uuid(n));
     const watcher = manager.sessions.get(info.id).jsonlWatcher;
+    await watcher.ready;
     assert.equal(manager.list().find(session => session.id === info.id).status, 'idle', 'an inherited shutdown predates the new fork');
     assert.notEqual(watcher.timer, null);
     fs.appendFileSync(file, timed('session.shutdown', began - 4000));
@@ -148,9 +148,9 @@ test('an attributed sub-agent shutdown cannot stop its independently monitored p
   const manager = new SessionManager();
   f.disposers.push(() => manager.stop());
   manager.monitorCopilotSession(uuid(1), f.home);
-  await Promise.resolve();
   const info = manager.list()[0];
   const watcher = manager.sessions.get(info.id).jsonlWatcher;
+  await watcher.ready;
   assert.equal(manager.list()[0].status, 'running');
   fs.appendFileSync(file, JSON.stringify({ type: 'session.shutdown', agentId: 'finished-worker', data: {} }) + '\n');
   watcher.poll();
@@ -168,8 +168,8 @@ test('monitored CLIs replay and tail exactly once, preserve UTF-8, follow worksp
   manager.setWindow({ isDestroyed: () => false, webContents: { send: (channel, data) => events.push({ channel, data }) } });
   f.disposers.push(() => manager.stop());
   manager.monitorCopilotSession(uuid(1), f.home);
-  await Promise.resolve();
   const info = manager.list()[0];
+  await manager.sessions.get(info.id).jsonlWatcher.ready;
   assert.equal(info.readOnly, true);
   assert.equal(info.windowsPty, undefined);
   assert.equal(info.pid, 0);
@@ -218,7 +218,7 @@ test('initial monitor hydration uses the latest workspace and does not revive a 
   manager.monitorCopilotSession(uuid(1), f.home);
   const session = manager.sessions.get(manager.list()[0].id);
   const watcher = session.jsonlWatcher;
-  await Promise.resolve();
+  await watcher.ready;
   assert.equal(session.cwd, mounted);
   assert.deepEqual(manager.list(), []);
   assert.match(session.buffer, /last result/);
@@ -232,8 +232,8 @@ test('a shutdown followed by a resume in the same watcher batch keeps the live d
   const manager = new SessionManager();
   f.disposers.push(() => manager.stop());
   manager.monitorCopilotSession(uuid(1), f.home);
-  await Promise.resolve();
   const info = manager.list()[0];
+  await manager.sessions.get(info.id).jsonlWatcher.ready;
   fs.appendFileSync(file, record('session.shutdown', {}) + record('session.resume', { context: { cwd: f.home } }));
   manager.sessions.get(info.id).jsonlWatcher.poll();
   assert.equal(manager.list()[0].id, info.id);

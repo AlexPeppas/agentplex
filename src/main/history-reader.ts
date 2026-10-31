@@ -9,6 +9,7 @@ export async function* readHistoryLines(
   maxBytes: number,
   tail = false,
   signal?: AbortSignal,
+  completeLinesOnly = false,
 ): AsyncGenerator<string> {
   signal?.throwIfAborted();
   let handle: fs.promises.FileHandle;
@@ -53,7 +54,7 @@ export async function* readHistoryLines(
     }
     signal?.throwIfAborted();
     pending += decoder.end();
-    if (pending) yield pending;
+    if (pending && !completeLinesOnly) yield pending;
   } finally {
     await handle.close();
   }

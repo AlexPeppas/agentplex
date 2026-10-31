@@ -30,8 +30,12 @@ export async function startupFingerprint(root) {
       (name.startsWith('VITE_') && !['VITE_CJS_IGNORE_WARNING', 'VITE_CONFIG_NATIVE_IGNORE_WARNING'].includes(name)) ||
       name === 'NODE_ENV').sort(),
   }));
-  for (const filename of files) {
-    hash.update(path.relative(root, filename)).update('\0').update(await fs.readFile(filename)).update('\0');
+  for (let offset = 0; offset < files.length; offset += 16) {
+    const batch = files.slice(offset, offset + 16);
+    const contents = await Promise.all(batch.map(filename => fs.readFile(filename)));
+    batch.forEach((filename, index) => {
+      hash.update(path.relative(root, filename)).update('\0').update(contents[index]).update('\0');
+    });
   }
   return hash.digest('hex');
 }
@@ -122,7 +126,7 @@ export async function buildStartupApp(root) {
         root, configFile: false, mode: 'production', logLevel: 'warn', clearScreen: false, define,
         resolve: { conditions: ['node'], mainFields: ['module', 'jsnext:main', 'jsnext'] },
         build: {
-          outDir: '.vite/build', emptyOutDir: false, copyPublicDir: false, minify: false,
+          outDir: '.vite/build', emptyOutDir: false, copyPublicDir: false, minify: true,
           ...(preload ? {} : { lib: { entry: target.entry, fileName: () => '[name].js', formats: ['cjs'] } }),
           rollupOptions: { external, ...(preload ? { input: target.entry,
             output: { format: 'cjs', inlineDynamicImports: true, entryFileNames: '[name].js',
@@ -135,7 +139,7 @@ export async function buildStartupApp(root) {
         path.resolve(root, target.config), root, 'warn');
       await build(mergeConfig({
         root, configFile: false, mode: 'production', base: './', logLevel: 'warn', clearScreen: false,
-        build: { outDir: `.vite/renderer/${target.name}`, emptyOutDir: true, minify: false },
+        build: { outDir: `.vite/renderer/${target.name}`, emptyOutDir: true, minify: true },
       }, user.config));
     }),
   ]);

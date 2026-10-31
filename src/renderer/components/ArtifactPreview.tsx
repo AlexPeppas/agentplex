@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { WorkspaceFile } from '../../shared/ipc-channels';
@@ -8,12 +8,33 @@ import { TablePreview } from './TablePreview';
 const PdfPreview = lazy(() => import('./PdfPreview').then(module => ({ default: module.PdfPreview })));
 const MermaidPreview = lazy(() => import('./MermaidPreview').then(module => ({ default: module.MermaidPreview })));
 
-export function ArtifactPreview({ sessionId, cwd, reference, onOpenFile }: {
+interface ArtifactPreviewProps {
   sessionId: string; cwd: string; reference: string; onOpenFile: (reference: string) => void;
+}
+
+interface PreviewView {
+  page: number;
+  scale: number;
+  sheet: number;
+}
+
+const INITIAL_VIEW: PreviewView = { page: 1, scale: 1, sheet: 0 };
+
+export function ArtifactPreview({ active = true, ...props }: ArtifactPreviewProps & { active?: boolean }) {
+  const [view, setView] = useState(INITIAL_VIEW);
+  const updateView = useCallback((patch: Partial<PreviewView>) => setView(previous => ({ ...previous, ...patch })), []);
+  return active ? <LoadedArtifactPreview {...props} view={view} onViewChange={updateView} /> : null;
+}
+
+function LoadedArtifactPreview({ sessionId, cwd, reference, onOpenFile, view, onViewChange }: ArtifactPreviewProps & {
+  view: PreviewView; onViewChange: (patch: Partial<PreviewView>) => void;
 }) {
   const [file, setFile] = useState<WorkspaceFile | null>(null);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
+  const setPage = useCallback((page: number) => onViewChange({ page }), [onViewChange]);
+  const setScale = useCallback((scale: number) => onViewChange({ scale }), [onViewChange]);
+  const setSheet = useCallback((sheet: number) => onViewChange({ sheet }), [onViewChange]);
   useEffect(() => {
     let cancelled = false;
     setFile(null);
@@ -34,13 +55,13 @@ export function ArtifactPreview({ sessionId, cwd, reference, onOpenFile }: {
       <div className="flex shrink-0 items-center gap-2 px-3 py-2 text-xs border-b border-border">
         <span className="truncate flex-1" title={file?.path || reference}>{file?.path || reference}</span>
         <span className="text-fg-muted">Read only</span>
-        <button onClick={() => setRevision(revision + 1)} title="Reload file">Reload</button>
+        <button onClick={() => { onViewChange(INITIAL_VIEW); setRevision(revision + 1); }} title="Reload file">Reload</button>
       </div>
       {error && <div role="alert" className="p-4 text-red-400 break-words">{error}</div>}
       {!file && !error && <div className="p-4 text-fg-muted">Loading file...</div>}
       {file?.kind === 'text' && <pre className="overflow-auto p-4 text-xs whitespace-pre-wrap break-words">{file.content}</pre>}
-      {file?.kind === 'table' && <TablePreview key={`${file.path}:${revision}`} sheets={[file.sheet]} />}
-      {file?.kind === 'workbook' && <TablePreview key={`${file.path}:${revision}`} sheets={file.sheets} truncated={file.truncated} />}
+      {file?.kind === 'table' && <TablePreview sheets={[file.sheet]} selected={view.sheet} onSelect={setSheet} />}
+      {file?.kind === 'workbook' && <TablePreview sheets={file.sheets} truncated={file.truncated} selected={view.sheet} onSelect={setSheet} />}
       {file?.kind === 'document' && <>
         <div className="shrink-0 max-h-24 overflow-auto text-xs text-fg-muted px-3 py-2">
           {file.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
@@ -53,7 +74,7 @@ export function ArtifactPreview({ sessionId, cwd, reference, onOpenFile }: {
         <MermaidPreview key={`${file.path}:${revision}`} content={file.content} />
       </Suspense>}
       {file?.kind === 'pdf' && <Suspense fallback={<div className="p-4 text-fg-muted">Loading PDF reader...</div>}>
-        <PdfPreview key={revision} base64={file.base64} />
+        <PdfPreview key={revision} base64={file.base64} page={view.page} scale={view.scale} onPageChange={setPage} onScaleChange={setScale} />
       </Suspense>}
       {file?.kind === 'json' && <div className="overflow-auto p-4 text-xs">
         {jsonError && <div role="alert" className="text-red-400 mb-3">{jsonError}</div>}

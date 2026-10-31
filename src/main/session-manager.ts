@@ -18,6 +18,7 @@ import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
 import { readHistoryLines } from './history-reader';
 import { conversationIdentity } from '../shared/conversation-identity';
+import { TerminalOutputBatcher } from './terminal-output';
 
 const STATE_PATH = path.join(homedir(), '.agentplex', 'state.json');
 
@@ -157,6 +158,7 @@ export class SessionManager {
   private stateLoaded = false;
   private stateWritable = true;
   private discovery: CopilotSessionDiscovery | null = null;
+  private output = new TerminalOutputBatcher((id, data, offset) => this.send(IPC.SESSION_DATA, { id, data, offset }));
 
   setWindow(win: BrowserWindow) {
     this.window = win;
@@ -496,11 +498,12 @@ export class SessionManager {
         // ~/.claude/plans/<slug>.md, TodoWrite checkbox glyphs). Don't feed Copilot
         // output through it — plan/permission state for Copilot comes from events.jsonl.
         if(isClaude) planDetector.feed(data);
-        this.send(IPC.SESSION_DATA,{ id,data, offset: session.outputOffset });
+        this.output.push(id, data, session.outputOffset);
       });
 
       term.onExit(({ exitCode }: { exitCode: number }) => {
         if(this.sessions.get(id)!==session) return;
+        this.output.flush(id);
         if(session.launchTimer) clearTimeout(session.launchTimer);
         session.status=SessionStatus.Killed;
         if(session.jsonlWatcher) session.jsonlWatcher.stop();
@@ -589,6 +592,7 @@ export class SessionManager {
   }
 
   stop() {
+    this.output.flushAll();
     this.discovery?.stop();
     // Flush state to disk before shutting down
     this.saveState();
@@ -718,6 +722,7 @@ export class SessionManager {
     };
 
     term.onData((data: string) => {
+      if (this.sessions.get(id) !== session) return;
       session.lastOutput = Date.now();
       if (stripAnsi(data).trim()) {
         session.lastVisibleOutput = Date.now();
@@ -725,10 +730,12 @@ export class SessionManager {
       }
       this.appendOutput(session, data);
       planDetector.feed(data);
-      this.send(IPC.SESSION_DATA, { id, data, offset: session.outputOffset });
+      this.output.push(id, data, session.outputOffset);
     });
 
     term.onExit(({ exitCode }: { exitCode: number }) => {
+      if (this.sessions.get(id) !== session) return;
+      this.output.flush(id);
       session.status = SessionStatus.Killed;
       if (session.jsonlWatcher) session.jsonlWatcher.stop();
       this.send(IPC.SESSION_STATUS, { id, status: SessionStatus.Killed });
@@ -798,6 +805,7 @@ export class SessionManager {
   kill(id: string) {
     const session = this.sessions.get(id);
     if (session) {
+      this.output.flush(id);
       if (session.readOnly) {
         this.removeDiscoveredSession(session);
         return;

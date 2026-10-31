@@ -4,12 +4,13 @@ import * as path from 'path';
 import type { DetectedShell } from '../shared/ipc-channels';
 
 let cachedShells: DetectedShell[] | null = null;
+let detectingShells: Promise<DetectedShell[]> | null = null;
 
 const VERSION_TIMEOUT_MS = 2000;
 
 function execAsync(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = execFile(cmd, args, { timeout: VERSION_TIMEOUT_MS }, (err, stdout) => {
+    execFile(cmd, args, { timeout: VERSION_TIMEOUT_MS, windowsHide: true }, (err, stdout) => {
       if (err) reject(err);
       else resolve(stdout.trim());
     });
@@ -78,7 +79,7 @@ async function detectWindows(): Promise<DetectedShell[]> {
   // Query versions in parallel
   const [pwshVersionRaw, psVersionRaw] = await Promise.all([
     pwshPath ? getVersion(pwshPath, ['--version']) : Promise.resolve(null),
-    getVersion(powershellPath, ['-Command', '$PSVersionTable.PSVersion.ToString()']),
+    getVersion(powershellPath, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()']),
   ]);
 
   if (pwshPath) {
@@ -152,13 +153,12 @@ async function detectUnix(): Promise<DetectedShell[]> {
 
 export async function detectShells(): Promise<DetectedShell[]> {
   if (cachedShells) return cachedShells;
-
-  const shells = process.platform === 'win32'
-    ? await detectWindows()
-    : await detectUnix();
-
-  cachedShells = shells;
-  return shells;
+  if (!detectingShells) {
+    detectingShells = (process.platform === 'win32' ? detectWindows() : detectUnix())
+      .then(shells => { cachedShells = shells; return shells; })
+      .finally(() => { detectingShells = null; });
+  }
+  return detectingShells;
 }
 
 export function getCachedShells(): DetectedShell[] {

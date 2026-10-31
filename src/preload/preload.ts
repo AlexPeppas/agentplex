@@ -280,8 +280,8 @@ const api = {
     return ipcRenderer.invoke(IPC.GIT_LOG, { sessionId });
   },
 
-  gitBranchInfo: (sessionId: string): Promise<GitBranchInfo> => {
-    return ipcRenderer.invoke(IPC.GIT_BRANCH_INFO, { sessionId });
+  gitBranchInfo: (sessionId: string, details = true): Promise<GitBranchInfo | null> => {
+    return ipcRenderer.invoke(IPC.GIT_BRANCH_INFO, { sessionId, details });
   },
 
   onZoom: (callback: (direction: 'in' | 'out' | 'reset') => void): (() => void) => {

@@ -75,6 +75,17 @@ test('fullscreen bursts settle once, drain old output before resize and repaint 
   assert.deepEqual(f.calls, ['fit', ['refresh', 0, 24]]);
 });
 
+test('initial geometry is synchronized before historical output can be parsed', t => {
+  const f = fixture(t);
+  f.controller.initialize();
+  assert.deepEqual(f.calls, ['fit', ['resize', 90, 25], ['refresh', 0, 24]]);
+  assert.equal(f.writes.length, 0, 'there is no old output to drain before initialization');
+  f.controller.dispose();
+  f.calls.length = 0;
+  f.controller.initialize();
+  assert.deepEqual(f.calls, []);
+});
+
 test('hidden or invalid geometry never reaches the PTY, and reveal recovers', t => {
   const f = fixture(t);
   f.container.clientHeight = 0;

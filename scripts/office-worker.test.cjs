@@ -11,6 +11,9 @@ test('Office workers report parser failures, unexpected exits and enforce concur
       workers.push(this);
       assert.ok(filename.endsWith('office-preview-worker.js'));
       assert.equal(options.resourceLimits.maxOldGenerationSizeMb, 192);
+      assert.equal(options.workerData.bytes.buffer.byteLength, options.workerData.bytes.byteLength);
+      assert.deepEqual(options.transferList, [options.workerData.bytes.buffer]);
+      assert.equal(options.workerData.bytes.byteOffset, 0);
     }
     terminate() { this.terminated = true; return Promise.resolve(0); }
   }

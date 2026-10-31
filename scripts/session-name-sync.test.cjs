@@ -63,3 +63,32 @@ test('restore preserves custom names in saved state before renderer involvement'
   assert.deepEqual(manager.getDisplayNames(), expected);
   assert.deepEqual(restored.map(session => session.displayName), Object.values(expected));
 });
+
+test('activity and usage updates preserve graph identities while metadata and status changes remain visible', () => {
+  const { useAppStore: store } = loadSource('src/renderer/store.ts', {
+    './components/panels/SettingsPanel': { getSplitPaneEnabled: () => false },
+  });
+  const info = { id: 'one', title: 'One', cli: 'copilot', cwd: 'original', status: 'idle', lastActivityAt: 1 };
+  store.getState().addSession(info);
+  store.getState().addSession({ ...info, id: 'two' });
+  const nodes = store.getState().nodes;
+  for (let index = 0; index < 100; index++) {
+    store.getState().updateSessionInfo('one', { lastActivityAt: index + 2, usage: { contextTokens: index } });
+  }
+  assert.equal(store.getState().nodes, nodes);
+  assert.equal(store.getState().sessions.one.usage.contextTokens, 99);
+  assert.equal(store.getState().sessions.one.lastActivityAt, 101);
+  const snapshot = store.getState();
+  snapshot.updateSessionInfo('one', { cwd: 'original' });
+  snapshot.updateStatus('one', 'idle');
+  assert.equal(store.getState(), snapshot, 'unchanged updates must not publish');
+  snapshot.updateSessionInfo('one', { cwd: 'changed', cli: 'claude', status: 'running' });
+  const changed = store.getState();
+  assert.notEqual(changed.nodes, nodes);
+  assert.equal(changed.nodes[1], nodes[1]);
+  assert.equal(changed.nodes[0].data.cwd, 'changed');
+  assert.equal(changed.nodes[0].data.cli, 'claude');
+  assert.equal(changed.nodes[0].data.status, 'running');
+  changed.updateStatus('one', 'waiting-for-input');
+  assert.equal(store.getState().nodes[0].data.status, 'waiting-for-input');
+});

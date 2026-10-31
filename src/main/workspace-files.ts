@@ -74,9 +74,15 @@ export async function readWorkspaceFile(root: string, reference: string, artifac
     const limit = binary ? MAX_PDF_BYTES : MAX_FILE_BYTES;
     const limitError = `File exceeds the ${binary ? '20' : '1'} MiB preview limit`;
     if (stat.size > limit) throw new Error(limitError);
-    const buffer = Buffer.alloc(limit + 1);
+    let buffer = Buffer.alloc(stat.size + 1);
     let bytesRead = 0;
-    while (bytesRead < buffer.length) {
+    while (true) {
+      if (bytesRead === buffer.length) {
+        if (bytesRead > limit) throw new Error(limitError);
+        const grown = Buffer.alloc(Math.min(limit + 1, buffer.length * 2));
+        buffer.copy(grown);
+        buffer = grown;
+      }
       const next = await handle.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
       if (!next.bytesRead) break;
       bytesRead += next.bytesRead;

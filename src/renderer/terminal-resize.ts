@@ -66,6 +66,9 @@ export function createTerminalResizeController(
   };
 
   return {
+    initialize() {
+      if (!disposed) apply(revision);
+    },
     schedule(reassert = false) {
       if (disposed) return;
       failures = 0;

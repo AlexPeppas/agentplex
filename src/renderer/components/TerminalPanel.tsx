@@ -8,6 +8,7 @@ import { SessionStatus } from '../../shared/ipc-channels';
 import { StatusIndicator } from './StatusIndicator';
 import { WorkspaceExplorer } from './WorkspaceExplorer';
 import { ContextMeter, SessionAge } from './SessionMetrics';
+import { useGitBranchName } from '../hooks/useGitBranchName';
 
 // Lazy-load GitDiffPanel so Monaco is only loaded when needed
 const GitDiffPanel = lazy(() =>
@@ -33,9 +34,9 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
   const [terminalTab, setTerminalTab] = useState('session');
   const [files, setFiles] = useState<string[]>([]);
   const [showFiles, setShowFiles] = useState(true);
-  const [branchName, setBranchName] = useState<string | null>(null);
   const isActive = activePaneId === sessionId;
   const sessionStatus = session?.status;
+  const branchName = useGitBranchName(sessionId, session?.cwd, Boolean(sessionStatus && sessionStatus !== SessionStatus.Killed));
 
   const openFile = useCallback((reference: string) => {
     setFiles(previous => previous.includes(reference) ? previous : [...previous, reference]);
@@ -50,22 +51,6 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
       defineAgentPlexTheme();
     }
   }, [terminalTab]);
-
-  useEffect(() => {
-    if (!sessionStatus || sessionStatus === SessionStatus.Killed) return;
-    let cancelled = false;
-    const refresh = () => {
-      window.agentPlex.gitBranchInfo(sessionId)
-        .then((info) => { if (!cancelled) setBranchName(info?.current ?? null); })
-        .catch(() => { if (!cancelled) setBranchName(null); });
-    };
-    refresh();
-    const timer = setInterval(refresh, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [sessionId, sessionStatus]);
 
   const handleActivate = useCallback(() => {
     useAppStore.getState().openPane(sessionId);
@@ -193,7 +178,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
       )}
       {files.map(reference => <div key={reference} className="flex-1 min-h-0 overflow-hidden" style={{ display: terminalTab === `file:${reference}` ? undefined : 'none' }}>
         <Suspense fallback={<div className="p-4 text-fg-muted">Loading preview...</div>}>
-          <ArtifactPreview sessionId={sessionId} cwd={session?.cwd || ''} reference={reference} onOpenFile={openFile} />
+          <ArtifactPreview key={session?.cwd} active={terminalTab === `file:${reference}`} sessionId={sessionId} cwd={session?.cwd || ''} reference={reference} onOpenFile={openFile} />
         </Suspense>
       </div>)}
       </div>

@@ -4,6 +4,7 @@ import * as path from 'path';
 import { StringDecoder } from 'string_decoder';
 import { SessionStatus } from '../shared/ipc-channels';
 import { CopilotLifecycle } from './copilot-lifecycle';
+import { readHistoryLines } from './history-reader';
 
 export interface AgentSpawnEvent {
   toolUseId: string;
@@ -192,6 +193,9 @@ export class JsonlSessionWatcher extends EventEmitter {
   private copilotStartedAt = 0;
   private lastLifecycleStatus: SessionStatus | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private hydration: AbortController | null = null;
+  private initialization: Promise<void> = Promise.resolve();
+  get ready(): Promise<void> { return this.initialization; }
   /** When true, prime the read offset to the current end-of-file on start so
    *  pre-existing content (a resumed/restored session's history) is NOT replayed
    *  as fresh sub-agent/plan/task events. Only genuinely new appends are emitted. */
@@ -223,24 +227,28 @@ export class JsonlSessionWatcher extends EventEmitter {
     }
     this.timer = setInterval(() => this.poll(), 500);
     const snapshotEnd = this.offset;
-    queueMicrotask(() => {
-      if (!this.timer) return;
+    const controller = new AbortController();
+    this.hydration = controller;
+    this.initialization = Promise.resolve().then(async () => {
+      if (controller.signal.aborted) return;
       if (this.skipExisting) {
-        try {
-          if (this.format === 'copilot') this.hydrateCopilotTasks(snapshotEnd);
-          this.readLatestTelemetry(snapshotEnd);
-        } catch (error) {
-          this.stop();
-          if (this.listenerCount('watch-error')) this.emit('watch-error', error);
-          else console.error('[session-watcher] Cannot hydrate provider events:', error);
-          return;
-        }
+        if (this.format === 'copilot') await this.hydrateCopilotTasks(snapshotEnd, controller.signal);
+        controller.signal.throwIfAborted();
+        this.readLatestTelemetry(snapshotEnd);
       }
       this.publishLifecycle();
+    }).catch(error => {
+      if (controller.signal.aborted) return;
+      this.stop();
+      if (this.listenerCount('watch-error')) this.emit('watch-error', error);
+      else console.error('[session-watcher] Cannot hydrate provider events:', error);
+    }).finally(() => {
+      if (this.hydration === controller) this.hydration = null;
     });
   }
 
   stop(): void {
+    this.hydration?.abort();
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -248,6 +256,7 @@ export class JsonlSessionWatcher extends EventEmitter {
   }
 
   private poll(): void {
+    if (this.hydration) return;
     let fd: number;
     try {
       fd = fs.openSync(this.jsonlPath, 'r');
@@ -315,39 +324,17 @@ export class JsonlSessionWatcher extends EventEmitter {
     this.emit('record', record);
   }
 
-  private hydrateCopilotTasks(snapshotEnd: number): void {
-    let fd: number;
-    try {
-      fd = fs.openSync(this.jsonlPath, 'r');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-      throw error;
+  private async hydrateCopilotTasks(snapshotEnd: number, signal: AbortSignal): Promise<void> {
+    this.pendingTodoSql.clear();
+    this.copilotTasksById.clear();
+    this.nextCopilotTaskNumber = 1;
+    for await (const line of readHistoryLines(this.jsonlPath, snapshotEnd, false, signal, true)) {
+      let record;
+      try { record = JSON.parse(line); } catch { continue; }
+      this.processCopilotTodoRecord(record);
     }
-    try {
-      this.pendingTodoSql.clear();
-      this.copilotTasksById.clear();
-      this.nextCopilotTaskNumber = 1;
-      const decoder = new StringDecoder('utf8');
-      const buffer = Buffer.alloc(64 * 1024);
-      const end = Math.min(snapshotEnd, fs.fstatSync(fd).size);
-      let offset = 0;
-      let partial = '';
-      while (offset < end) {
-        const count = fs.readSync(fd, buffer, 0, Math.min(buffer.length, end - offset), offset);
-        if (!count) break;
-        offset += count;
-        const lines = (partial + decoder.write(buffer.subarray(0, count))).split('\n');
-        partial = lines.pop() || '';
-        for (const line of lines) {
-          let record;
-          try { record = JSON.parse(line); } catch { continue; }
-          this.processCopilotTodoRecord(record);
-        }
-      }
-      this.emit('task-list', { tasks: this.getCopilotTaskList() } satisfies TaskListEvent);
-    } finally {
-      fs.closeSync(fd);
-    }
+    signal.throwIfAborted();
+    this.emit('task-list', { tasks: this.getCopilotTaskList() } satisfies TaskListEvent);
   }
 
   private processCopilotTodoRecord(record: any): boolean {
