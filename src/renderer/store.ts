@@ -436,7 +436,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         y: GRID_OFFSET_Y + row * GRID_SPACING_Y,
       },
       data: {
-        label: info.title,
+        label: info.displayName ?? info.title,
         sessionId: info.id,
         status: info.status,
         cli: info.cli,
@@ -450,6 +450,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       nodes: [...nodes, newNode],
       sessions: { ...get().sessions, [info.id]: normalizedInfo },
+      displayNames: info.displayName === undefined ? get().displayNames
+        : { ...get().displayNames, [info.id]: info.displayName },
       // Restore can deliver a rendered Copilot transcript before the async
       // restore result adds its node. Preserve that already-received history.
       sessionBuffers: {

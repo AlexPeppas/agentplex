@@ -78,6 +78,22 @@ test('resume hydrates identities beyond telemetry tail without historical UI act
   assert.equal(updates.at(-1)[0].taskNumber, 2);
 });
 
+test('task hydration preserves JSON-escaped event types and keys while skipping unrelated messages', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentplex-task-escaped-'));
+  const file = path.join(root, 'events.jsonl');
+  const records = [
+    JSON.stringify(event('assistant.message', { content: 'unrelated message' })),
+    JSON.stringify(start('seed', seed)).replace('"tool.execution_start"', '"\\u0074ool.execution_start"'),
+    JSON.stringify(done('seed')).replace('"type"', '"t\\u0079pe"'),
+  ];
+  fs.writeFileSync(file, records.join('\n') + '\n');
+  const watcher = new JsonlSessionWatcher(file, 'copilot', true);
+  t.after(() => { watcher.stop(); fs.rmSync(root, { recursive: true, force: true }); });
+  watcher.start();
+  await watcher.ready;
+  assert.deepEqual(watcher.getCopilotTaskList(), [{ taskNumber: 1, description: 'Original', status: 'pending' }]);
+});
+
 test('full-history hydration yields, freezes its snapshot and orders live SQL after restored tasks', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentplex-task-yield-'));
   const file = path.join(root, 'events.jsonl');

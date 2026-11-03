@@ -172,13 +172,16 @@ export function App() {
             throw new Error(`Terminal replay outpaced hydration: ${info.id}`);
           }
         }
-      } else {
-        // Fresh launch — don't load old display names (stale IDs would collide
-        // with new session IDs since sessionCounter resets to 0).
-        // The restore loop below will set correct display names for restored sessions.
+      }
+      useAppStore.setState({ buffersReady: true });
+
+      // Discovery can populate the session list before the renderer connects.
+      // Always ask the main process to restore its remaining saved identities.
+      {
         try {
           const restored = await window.agentPlex.restoreAllSessions();
           for (const { info, displayName } of restored) {
+            if (removedSessions.current.has(info.id)) continue;
             addSession(info);
             if (displayName) {
               applySessionName(info.id, displayName);
@@ -205,8 +208,6 @@ export function App() {
           console.error('[restore] Failed:', err);
         }
       }
-
-      useAppStore.setState({ buffersReady: true });
 
       // Re-create persisted node groups now that all sessions exist, then allow
       // saving. Gating on groupsReadyRef prevents the save subscription from

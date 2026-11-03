@@ -37,6 +37,8 @@ export interface SessionInfo {
   windowsPty?: { backend: 'conpty' | 'winpty'; buildNumber: number };
   id: string;
   title: string;
+  /** Current user-facing name, including during incremental startup restore. */
+  displayName?: string;
   status: SessionStatus;
   pid: number;
   cwd: string;

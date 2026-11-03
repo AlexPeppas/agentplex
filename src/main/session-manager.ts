@@ -37,12 +37,11 @@ function getWindowsPty(): SessionInfo['windowsPty'] {
 const DEFAULT_LAUNCH_DELAY_MS = 1000;
 
 /**
- * Per-session stagger added during restoreAll to avoid concurrent writes to
+ * Claude-only stagger added during restoreAll to avoid concurrent writes to
  * shared CLI config files (notably ~/.claude.json). The Claude CLI auto-saves
  * its config on every launch; if N processes spawn simultaneously they race
  * on read-modify-write and produce malformed JSON, which Claude then resets
- * to defaults — wiping the user's project history. Spreading launches by 1s
- * means each Claude finishes its config write before the next one starts.
+ * to defaults — wiping the user's project history.
  */
 const RESTORE_STAGGER_MS = 300;
 
@@ -61,11 +60,14 @@ const BUFFER_CAP = 512 * 1024; // 512KB per session
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Env vars to strip from PTY sessions to prevent secret leakage */
+/** Do not leak app secrets or attribute a new PTY to the parent terminal. */
 const REDACTED_ENV_KEYS = new Set([
   'AGENTPLEX_API_KEY',
   'ANTHROPIC_API_KEY',
   'OPENAI_API_KEY',
+  'WT_SESSION',
+  'WT_PROFILE_ID',
+  'TERM_PROGRAM_VERSION',
 ]);
 
 function getSafeEnv(): Record<string, string> {
@@ -75,6 +77,8 @@ function getSafeEnv(): Record<string, string> {
       env[key] = value;
     }
   }
+  env.TERM_PROGRAM = 'AgentPlex';
+  env.TERM = 'xterm-256color';
   return env;
 }
 
@@ -157,6 +161,9 @@ export class SessionManager {
   private pendingRestores = new Map<string, PersistedSession>();
   private stateLoaded = false;
   private stateWritable = true;
+  private restoring: Promise<{ info: SessionInfo; displayName: string }[]> | null = null;
+  private restoreGeneration = 0;
+  private stopped = false;
   private discovery: CopilotSessionDiscovery | null = null;
   private output = new TerminalOutputBatcher((id, data, offset) => this.send(IPC.SESSION_DATA, { id, data, offset }));
 
@@ -178,6 +185,10 @@ export class SessionManager {
     try {
       const state = parsePersistedState(JSON.parse(contents));
       this.stateWritable = true;
+      this.pendingRestores = new Map(Object.entries(state.sessions).filter(([, saved]) =>
+        ![...this.sessions.values()].some(session => !session.readOnly &&
+          conversationIdentity(session.cli, session.resumeSessionId?.toLowerCase() ?? null) ===
+          conversationIdentity(saved.cli, saved.resumeSessionId?.toLowerCase() ?? null))));
       return state;
     } catch (error) {
       this.stateWritable = false;
@@ -194,7 +205,14 @@ export class SessionManager {
     }
   }
 
+  private ensureStateLoaded(): void {
+    if (!this.stateLoaded) {
+      this.loadState();
+    }
+  }
+
   private allocateSessionId(): string {
+    this.ensureStateLoaded();
     let id: string;
     do {
       id = `session-${++sessionCounter}`;
@@ -204,14 +222,22 @@ export class SessionManager {
 
   /** Persist all sessions in the Map to disk */
   private saveState() {
-    if (!this.stateLoaded) this.loadState();
+    this.ensureStateLoaded();
     if (!this.stateWritable) {
       console.error('[state] Refusing to overwrite unreadable session state');
       return;
     }
     const state: PersistedState = { sessions: Object.fromEntries(this.pendingRestores) };
-    for (const session of this.sessions.values()) {
-      if (session.readOnly) continue;
+    const managed = [...this.sessions.values()].filter(session => !session.readOnly);
+    const latest = new Map(managed.map(session =>
+      [conversationIdentity(session.cli, session.resumeSessionId?.toLowerCase() ?? null), session.id]));
+    for (const [id, saved] of this.pendingRestores) {
+      const identity = conversationIdentity(saved.cli, saved.resumeSessionId?.toLowerCase() ?? null);
+      if (identity && latest.has(identity)) delete state.sessions[id];
+    }
+    for (const session of managed) {
+      const identity = conversationIdentity(session.cli, session.resumeSessionId?.toLowerCase() ?? null);
+      if (identity && latest.get(identity) !== session.id) continue;
       state.sessions[session.id] = {
         displayName: session.displayName,
         cwd: session.cwd,
@@ -251,6 +277,8 @@ export class SessionManager {
   }
 
   start() {
+    if (this.stopped) this.stateLoaded = false;
+    this.stopped = false;
     this.statusInterval = setInterval(() => this.checkStatuses(), 500);
     this.discovery = new CopilotSessionDiscovery(
       path.join(homedir(), '.copilot', 'session-state'),
@@ -262,6 +290,7 @@ export class SessionManager {
   }
 
   private monitorCopilotSession(uuid: string, cwd: string): void {
+    if (this.stopped) return;
     const id = this.allocateSessionId();
     const now = Date.now();
     const title = `Copilot ${uuid.slice(0, 8)} - ${path.basename(cwd)}`;
@@ -292,18 +321,25 @@ export class SessionManager {
    * Restore persisted sessions (Claude + Copilot) from state.json.
    * Returns SessionInfo[] for each restored session so the renderer can add them.
    */
-  restoreAll(): { info: SessionInfo; displayName: string }[] {
+  restoreAll(): Promise<{ info: SessionInfo; displayName: string }[]> {
+    if (this.stopped) return Promise.resolve([]);
+    if (!this.restoring) {
+      this.restoring = this.restorePersisted().finally(() => { this.restoring = null; });
+    }
+    return this.restoring;
+  }
+
+  private async restorePersisted(): Promise<{ info: SessionInfo; displayName: string }[]> {
+    const generation = this.restoreGeneration;
     const state = this.loadState();
     const results: { info: SessionInfo; displayName: string }[] = [];
     if (!this.stateWritable) return results;
     this.pendingRestores = new Map(Object.entries(state.sessions));
 
-    // Stagger CLI launches so multiple Claude/Copilot processes don't race on
-    // shared config files (notably ~/.claude.json — a known Windows footgun
-    // when 10+ sessions all `claude --resume` within the same second).
     let staggerIndex = 0;
 
     for (const [oldId, persisted] of Object.entries(state.sessions)) {
+      if (generation !== this.restoreGeneration) break;
       // Only sessions with a known resume ID for a supported CLI can be restored
       if (!persisted.resumeSessionId) {
         this.pendingRestores.delete(oldId);
@@ -318,7 +354,7 @@ export class SessionManager {
         this.pendingRestores.delete(oldId);
         continue;
       }
-      const existing = Array.from(this.sessions.values()).find(session => session.status !== SessionStatus.Killed &&
+      const existing = Array.from(this.sessions.values()).find(session => (!session.readOnly || session.status !== SessionStatus.Killed) &&
         conversationIdentity(session.cli, session.resumeSessionId?.toLowerCase() ?? null) ===
         conversationIdentity(persisted.cli, persisted.resumeSessionId?.toLowerCase() ?? null));
       if (existing) {
@@ -332,8 +368,10 @@ export class SessionManager {
           console.warn(`[restore] Skipping ${oldId}: cwd "${persisted.cwd}" does not exist`);
           continue;
         }
-        const launchDelayMs = DEFAULT_LAUNCH_DELAY_MS + staggerIndex * RESTORE_STAGGER_MS;
-        staggerIndex++;
+        const isClaude = persisted.cli === 'claude' || persisted.cli === 'claude-resume';
+        const launchDelayMs = isClaude
+          ? DEFAULT_LAUNCH_DELAY_MS + staggerIndex++ * RESTORE_STAGGER_MS
+          : 0;
         const info = this.createWithUuid(
           persisted.cwd,
           persisted.cli,
@@ -343,18 +381,25 @@ export class SessionManager {
         );
         const session = this.sessions.get(info.id);
         if (session) session.displayName = persisted.displayName;
+        info.displayName = persisted.displayName;
         this.pendingRestores.delete(oldId);
         results.push({ info, displayName: persisted.displayName });
-        console.log(`[restore] Restored "${persisted.displayName}" (${persisted.cli}: ${persisted.resumeSessionId}) — launch in ${launchDelayMs}ms`);
+        this.send(IPC.SESSION_CREATED, info);
+        console.log(`[restore] Restored "${persisted.displayName}" (${persisted.cli}: ${persisted.resumeSessionId})`);
       } catch (err: any) {
         console.error(`[restore] Failed to restore ${oldId}:`, err.message);
       }
+      await new Promise<void>(resolve => setImmediate(resolve));
     }
 
-    // Save state once after all sessions are restored (not during each createWithUuid)
+    if (generation !== this.restoreGeneration) return [];
     this.saveState();
-
-    return results;
+    const current = new Map(this.list().map(info => [info.id, info]));
+    return results.flatMap(({ info }) => {
+      const session = this.sessions.get(info.id);
+      const latest = current.get(info.id);
+      return session && latest ? [{ info: latest, displayName: session.displayName }] : [];
+    });
   }
 
   /**
@@ -370,11 +415,11 @@ export class SessionManager {
    * a new session (no events on disk yet) instead launches with --session-id to
    * create the session at our pre-minted UUID; only existing sessions use --resume.
    *
-   * `launchDelayMs` controls how long to wait after PTY spawn before writing the
-   * auto-launch command. restoreAll passes increasing values per session to
-   * stagger Claude/Copilot startups and avoid racing on shared config files.
+   * Copilot runs as the shell's startup command, not simulated terminal input.
+   * `launchDelayMs` only applies to Claude's configurable shell command.
    */
   private createWithUuid(cwd: string, cli: CliTool, resumeSessionId: string, forceResume = false, launchDelayMs: number = DEFAULT_LAUNCH_DELAY_MS): SessionInfo {
+    if (this.stopped) throw new Error('Session manager is shutting down');
     if (!UUID_RE.test(resumeSessionId)) {
       throw new Error(`Invalid session UUID: ${resumeSessionId}`);
     }
@@ -401,15 +446,31 @@ export class SessionManager {
     const title = `Session ${sessionCounter} — ${dirName}`;
     const isClaude = normalizedCli === 'claude';
 
-    const shell = resolveDefaultShell();
-    const term = pty.spawn(shell, [], {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 30,
-      cwd: workDir,
-      env: getSafeEnv(),
-    });
-
+    const env = getSafeEnv();
+    let executable = resolveDefaultShell();
+    let args: string[] = [];
+    if (!isClaude) {
+      const history = path.join(homedir(), '.copilot', 'session-state', resumeSessionId, 'events.jsonl');
+      const hasConversation = forceResume || (fs.existsSync(history) && fs.statSync(history).size > 0);
+      for (const key of ['COPILOT_AGENT_SESSION_ID', 'COPILOT_CLI', 'COPILOT_LOADER_PID',
+        'COPILOT_CLI_RESOLVED_DIST_DIR', 'COPILOT_CLI_BINARY_VERSION', 'ELECTRON_RUN_AS_NODE']) {
+        delete env[key];
+      }
+      const flag = `--${hasConversation ? 'resume' : 'session-id'}=${resumeSessionId}`;
+      const command = `gh copilot ${flag}`;
+      const shellName = path.basename(executable).toLowerCase();
+      if (/^(?:powershell|pwsh)(?:\.exe)?$/.test(shellName)) {
+        args = ['-NoLogo', '-NoProfile', '-Command', `${command}; exit $LASTEXITCODE`];
+      } else if (shellName === 'cmd.exe' || shellName === 'cmd') {
+        args = ['/d', '/s', '/c', command];
+      } else if (/^(?:bash|zsh|sh)(?:\.exe)?$/.test(shellName)) {
+        args = ['-c', command];
+      } else {
+        executable = 'gh';
+        args = ['copilot', flag];
+      }
+    }
+    let ownedTerm: pty.IPty | undefined;
     let launchTimer: ReturnType<typeof setTimeout> | undefined;
     let jsonlWatcher: JsonlSessionWatcher | null = null;
     try {
@@ -428,6 +489,14 @@ export class SessionManager {
         jsonlWatcher=this.createJsonlWatcher(jsonlPath,id,'copilot',true);
         jsonlWatcher.start();
       }
+
+      const term = ownedTerm = pty.spawn(executable, args, {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 30,
+        cwd: workDir,
+        env,
+      });
 
       const planDetector=new PlanTaskDetector((event) => {
         switch(event.type) {
@@ -529,7 +598,6 @@ export class SessionManager {
       }
 
       // Build the launch command for the chosen CLI.
-      let command: string;
       if(isClaude) {
         // Use --resume if we know this is a real conversation to resume (forceResume from
         // smart-resume flow, or JSONL file exists on disk). Fall back to --session-id only
@@ -537,28 +605,26 @@ export class SessionManager {
         const hasConversation=forceResume||(jsonlPath!==null&&fs.existsSync(jsonlPath)&&fs.statSync(jsonlPath).size>0);
         const config=resolveClaudeConfig(workDir);
         const flagStr=config.flags.length>0? ' '+config.flags.join(' '):'';
-        command=hasConversation
+        const command=hasConversation
           ? `${config.command}${flagStr} --resume ${resumeSessionId}`
           :`${config.command}${flagStr} --session-id ${resumeSessionId}`;
-      } else {
-        // Copilot via `gh copilot`. The flag differs for new vs existing sessions:
-        //   --session-id=<uuid>  CREATES a new session at that exact UUID (used when we
-        //                        mint the UUID upfront for a brand-new session).
-        //   --resume=<uuid>      RESUMES a session that already exists on disk.
-        // Using --resume on a freshly minted UUID makes Copilot start a *different*
-        // session, so the UUID we persisted never matches disk and restore can't find
-        // it. Mirror the Claude path: probe events.jsonl to decide which flag to use.
-        const hasConversation=forceResume||(jsonlPath!==null&&fs.existsSync(jsonlPath)&&fs.statSync(jsonlPath).size>0);
-        command=hasConversation
-          ? `gh copilot --resume=${resumeSessionId}`
-          :`gh copilot --session-id=${resumeSessionId}`;
+        launchTimer=session.launchTimer=setTimeout(() => {
+          try {
+            term.write(command+'\r');
+          } catch (error) {
+            if (this.sessions.get(id) === session && session.status !== SessionStatus.Killed) {
+              console.error('[session] Cannot launch CLI:', error);
+              const message = '\r\n[AgentPlex could not launch the CLI. See application logs.]\r\n';
+              this.appendOutput(session, message);
+              this.output.push(id, message, session.outputOffset);
+              jsonlWatcher?.stop();
+              this.updateStatus(session, SessionStatus.Killed);
+              try { term.kill(); }
+              catch (cleanupError) { console.error('[session] Cannot release failed CLI:', cleanupError); }
+            }
+          }
+        },launchDelayMs);
       }
-
-      launchTimer=session.launchTimer=setTimeout(() => {
-        try {
-          term.write(command+'\r');
-        } catch { /* session may have been killed */ }
-      },launchDelayMs);
 
       const info: SessionInfo={
         id,
@@ -585,13 +651,16 @@ export class SessionManager {
       if(launchTimer) clearTimeout(launchTimer);
       try { jsonlWatcher?.stop(); }
       catch(cleanupError) { console.error('[session] Failed to stop initialization watcher:',cleanupError); }
-      try { term.kill(); }
+      try { ownedTerm?.kill(); }
       catch(cleanupError) { console.error('[session] Failed to release initialization PTY:',cleanupError); }
       throw error;
     }
   }
 
   stop() {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.restoreGeneration++;
     this.output.flushAll();
     this.discovery?.stop();
     // Flush state to disk before shutting down
@@ -613,6 +682,7 @@ export class SessionManager {
   }
 
   create(cwd?: string, cli: CliTool = 'claude', resumeSessionId?: string): SessionInfo {
+    if (this.stopped) throw new Error('Session manager is shutting down');
     if (resumeSessionId !== undefined && !UUID_RE.test(resumeSessionId)) {
       throw new Error(`Invalid session UUID: ${resumeSessionId}`);
     }
@@ -854,6 +924,7 @@ export class SessionManager {
     return Array.from(this.sessions.values()).map((s) => ({
       id: s.id,
       title: s.title,
+      displayName: s.displayName,
       status: s.status,
       pid: s.pty?.pid ?? 0,
       readOnly: s.readOnly,

@@ -66,6 +66,17 @@ test('bounded readers release handles on early exit, cancellation and read failu
   assert.equal(closed, true);
 });
 
+test('multi-megabyte records span chunks without losing blank lines, Unicode or snapshot boundaries', async t => {
+  const f = fixture(t), file = path.join(f.home, 'events.jsonl');
+  const large = ('x'.repeat(65533) + '\u6f22\ud83d\ude80').repeat(128);
+  fs.writeFileSync(file, `${large}\n\nlast`);
+  const { readHistoryLines } = loadSource('src/main/history-reader.ts', f.overrides);
+  assert.deepEqual(await Array.fromAsync(readHistoryLines(file, Infinity)), [large, '', 'last']);
+  const boundary = Buffer.byteLength(large);
+  assert.deepEqual(await Array.fromAsync(readHistoryLines(file, boundary, false, undefined, true)), []);
+  assert.deepEqual(await Array.fromAsync(readHistoryLines(file, boundary + 1, false, undefined, true)), [large]);
+});
+
 async function measure(operation) {
   let last = performance.now(), maxGap = 0, ticks = 0;
   const timer = setInterval(() => {
