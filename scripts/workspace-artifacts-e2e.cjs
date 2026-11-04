@@ -54,7 +54,10 @@ const clickText = async (text, scope = 'document') => {
   await evaluate(`(() => {
     const button = [...${scope}.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)});
     if (!button) throw new Error('Missing button: ' + ${JSON.stringify(text)});
-    button.click();
+    const header = button.closest('.terminal-pane__header');
+    const log = header && button === header.querySelector('button')
+      ? [...header.querySelectorAll('button')].find(candidate => candidate.textContent.trim() === 'Log') : null;
+    (log || button).click();
   })()`);
 };
 const preview = `[...document.querySelectorAll('section[aria-label="File preview"]')].find(element => element.getBoundingClientRect().width > 0)`;
@@ -220,6 +223,8 @@ app.whenReady().then(async () => {
   assert.equal(manager.list().length, 1);
   assert.equal(manager.list()[0].status, 'running', 'a sub-agent shutdown must not kill its parent');
   await evaluate(`document.querySelector('[data-id="${info.id}"] > div').click()`);
+  await wait(() => evaluate(`!!document.querySelector('.copilot-conversation')`), 'monitored conversation is the default view');
+  await clickText('Log');
   await wait(() => evaluate(`!!document.querySelector('.xterm-rows') && document.querySelector('aside[aria-label="Workspace files"]')?.textContent.includes('result.json')`), 'terminal and workspace tree');
   await evaluate(`window.testTerminalElement = document.querySelector('.xterm')`);
   await assertThemedSurfaces('light');

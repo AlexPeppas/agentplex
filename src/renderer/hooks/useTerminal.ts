@@ -118,6 +118,7 @@ function ensureGlobalListeners() {
     else newSize = DEFAULT_FONT_SIZE;
     if (newSize !== terminalFontSize) {
       terminalFontSize = newSize;
+      document.documentElement.style.setProperty('--terminal-font-size', `${newSize}px`);
       for (const entry of liveTerminals) {
         entry.term.options.fontSize = newSize;
         syncTerminalSize(entry);
@@ -133,7 +134,7 @@ function ensureGlobalListeners() {
   window.addEventListener('resize', scheduleRefreshAllTerminals);
 }
 
-export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string, onOpenFile?: (reference: string) => void) {
+export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string, onOpenFile?: (reference: string) => void, enabled = true) {
   const openFileRef = useRef(onOpenFile);
   useEffect(() => { openFileRef.current = onOpenFile; }, [onOpenFile]);
   const termRef = useRef<Terminal | null>(null);
@@ -141,9 +142,8 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
   const buffersReady = useAppStore(s => s.buffersReady);
 
   useEffect(() => {
-    if (!containerRef.current || !sessionId || !buffersReady) return;
-
     ensureGlobalListeners();
+    if (!enabled || !containerRef.current || !sessionId || !buffersReady) return;
 
     // Create terminal
     const term = new Terminal({
@@ -342,5 +342,5 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       termRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sessionId, buffersReady]); // intentionally exclude the stable container ref
+  }, [sessionId, buffersReady, enabled]); // intentionally exclude the stable container ref
 }

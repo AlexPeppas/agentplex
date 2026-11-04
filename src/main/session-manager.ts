@@ -7,12 +7,14 @@ import { BrowserWindow } from 'electron';
 import { homedir, release } from 'os';
 import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL } from '../shared/ipc-channels';
 import type { SessionInfo, SessionUsage, CliTool, ExternalSession } from '../shared/ipc-channels';
+import type { ConversationSnapshot } from '../shared/ipc-channels';
+import { EMPTY_CONVERSATION, upsertConversation } from '../shared/conversation';
 import { getShellById } from './shell-detector';
 import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
 import { JsonlSessionWatcher, encodeProjectPath, type WatcherFormat } from './jsonl-session-watcher';
 import { renderJsonlTranscript } from './claude-session-scanner';
-import { renderCopilotTranscript, renderCopilotRecord } from './copilot-session-scanner';
+import { renderCopilotTranscript, renderCopilotRecord, readCopilotTranscript, parseCopilotConversationEntry } from './copilot-session-scanner';
 import { CopilotSessionDiscovery } from './copilot-session-discovery';
 import { PlanTaskDetector } from './plan-task-detector';
 import { resolveClaudeConfig } from './config-loader';
@@ -104,6 +106,8 @@ interface Session {
   resumeSessionId: string | null;
   pty: pty.IPty | null;
   readOnly?: boolean;
+  conversation?: ConversationSnapshot;
+  conversationError?: string;
   status: SessionStatus;
   startedAt: number;
   lastActivityAt: number;
@@ -298,6 +302,7 @@ export class SessionManager {
       id, 'copilot', true, true);
     const session: Session = {
       id, title, displayName: title, cli: 'copilot', cwd, resumeSessionId: uuid, pty: null, readOnly: true,
+      conversation: EMPTY_CONVERSATION,
       status: SessionStatus.Idle, startedAt: now, lastActivityAt: now, usage: null, lastOutput: now,
       lastVisibleOutput: now, waitingSince: 0, waitingOutputOffset: 0, buffer: '', outputOffset: 0,
       jsonlWatcher: watcher, planTaskDetector: new PlanTaskDetector(() => {}),
@@ -306,12 +311,14 @@ export class SessionManager {
     this.send(IPC.SESSION_CREATED, this.list().find(info => info.id === id));
     try {
       watcher.start();
-      const transcript = renderCopilotTranscript(watcher.jsonlPath, watcher.snapshotOffset, 'monitor');
-      const data = '\r\n[Monitoring an independently launched Copilot CLI - read only]\r\n' + transcript;
+      const preview = readCopilotTranscript(watcher.jsonlPath, watcher.snapshotOffset, 'monitor');
+      session.conversation = preview.conversation;
+      const data = '\r\n[Monitoring an independently launched Copilot CLI - read only]\r\n' + preview.transcript;
       this.appendOutput(session, data);
       this.send(IPC.SESSION_DATA, { id, data, offset: session.outputOffset });
     } catch (error) {
       watcher.stop();
+      session.conversationError = error instanceof Error ? error.message : String(error);
       this.updateStatus(session, SessionStatus.Killed);
       console.error('[discovery] Cannot monitor Copilot session:', uuid, error);
     }
@@ -911,6 +918,13 @@ export class SessionManager {
     return { buffer: session.buffer, offset: session.outputOffset };
   }
 
+  getConversationSnapshot(id: string): ConversationSnapshot {
+    const session = this.sessions.get(id);
+    if (session?.conversationError) throw new Error(session.conversationError);
+    if (!session?.readOnly || !session.conversation) throw new Error('This session has no monitored conversation');
+    return session.conversation;
+  }
+
   private appendOutput(session: Session, data: string): void {
     session.outputOffset += data.length;
     session.buffer = (session.buffer + data).slice(-BUFFER_CAP);
@@ -986,6 +1000,12 @@ export class SessionManager {
         }
       }
       if (!session.readOnly) return;
+      const input = parseCopilotConversationEntry(record);
+      if (input && session.conversation) {
+        const { entry, snapshot } = upsertConversation(session.conversation, input);
+        session.conversation = snapshot;
+        this.send(IPC.SESSION_CONVERSATION_DATA, { id: sessionId, entry, revision: snapshot.revision, truncated: snapshot.truncated });
+      }
       const rendered = renderCopilotRecord(record);
       if (rendered) {
         const text = rendered + '\r\n';

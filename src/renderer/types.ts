@@ -1,6 +1,7 @@
 import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SessionStatus, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
 import type { HistoryRequestKind } from '../shared/ipc-channels';
 import type { WorkspaceDirectory, WorkspaceFile } from '../shared/ipc-channels';
+import type { ConversationSnapshot, ConversationUpdate } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   listWorkspaceDirectory: (sessionId: string, directory?: string) => Promise<WorkspaceDirectory>;
@@ -16,6 +17,8 @@ export interface AgentPlexAPI {
   listSessions: () => Promise<SessionInfo[]>;
   getSessionBuffer: (id: string) => Promise<string>;
   getSessionBufferSnapshot: (id: string) => Promise<{ buffer: string; offset: number }>;
+  getConversationSnapshot: (id: string) => Promise<ConversationSnapshot>;
+  onConversationData: (callback: (data: ConversationUpdate) => void) => () => void;
   getSessionCwd: (id: string) => Promise<string | null>;
   onSessionData: (callback: (data: { id: string; data: string; offset: number }) => void) => () => void;
   onSessionStatus: (callback: (data: { id: string; status: SessionStatus }) => void) => () => void;

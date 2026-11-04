@@ -55,6 +55,28 @@ export interface SessionInfo {
   resumeSessionId: string | null;
 }
 
+export interface ConversationEntry {
+  key: string;
+  kind: 'user' | 'assistant' | 'tool';
+  text: string;
+  detail?: string;
+  status?: 'running' | 'success' | 'error';
+  timestamp?: string;
+}
+
+export interface ConversationSnapshot {
+  entries: ConversationEntry[];
+  revision: number;
+  truncated: boolean;
+}
+
+export interface ConversationUpdate {
+  id: string;
+  entry: ConversationEntry;
+  revision: number;
+  truncated: boolean;
+}
+
 export interface SessionUsage {
   snapshotSource?: 'copilot-checkpoint' | 'copilot-shutdown' | 'copilot-compaction' | 'copilot-usage' | 'copilot-compaction-start';
   /** Tokens in the latest request context. */
@@ -294,6 +316,8 @@ export const IPC = {
   SESSION_LIST: 'session:list',
   SESSION_GET_BUFFER: 'session:getBuffer',
   SESSION_GET_BUFFER_SNAPSHOT: 'session:getBufferSnapshot',
+  SESSION_GET_CONVERSATION: 'session:getConversation',
+  SESSION_CONVERSATION_DATA: 'session:conversationData',
   SESSION_GET_CWD: 'session:getCwd',
   SESSION_DATA: 'session:data',
   SESSION_STATUS: 'session:status',

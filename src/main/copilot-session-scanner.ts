@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import type { DiscoveredProject, DiscoveredSession } from '../shared/ipc-channels';
 import { getPinnedProjects } from './claude-session-scanner';
 import { readHistoryLines } from './history-reader';
+import { EMPTY_CONVERSATION, upsertConversation, type ConversationInput } from '../shared/conversation';
 
 const COPILOT_STATE_DIR = path.join(homedir(), '.copilot', 'session-state');
 const MAX_SESSIONS = 50;
@@ -36,12 +37,18 @@ const TRANSCRIPT_MAX_BYTES = 512 * 1024; // 512KB
  * empty string if the file cannot be read or has no renderable messages.
  */
 export function renderCopilotTranscript(eventsPath: string, snapshotEnd?: number, mode: 'resume' | 'monitor' = 'resume'): string {
+  return readCopilotTranscript(eventsPath, snapshotEnd, mode).transcript;
+}
+
+export function readCopilotTranscript(eventsPath: string, snapshotEnd?: number, mode: 'resume' | 'monitor' = 'resume') {
   let text: string;
+  let conversation = EMPTY_CONVERSATION;
   try {
     const stat = fs.statSync(eventsPath);
     const end = Math.min(stat.size, snapshotEnd ?? stat.size);
     const bytesToRead = Math.min(end, TRANSCRIPT_MAX_BYTES);
     const offset = Math.max(0, end - bytesToRead);
+    if (offset > 0) conversation = { ...conversation, truncated: true };
     const fd = fs.openSync(eventsPath, 'r');
     const buf = Buffer.alloc(bytesToRead);
     fs.readSync(fd, buf, 0, bytesToRead, offset);
@@ -52,8 +59,9 @@ export function renderCopilotTranscript(eventsPath: string, snapshotEnd?: number
       const nl = text.indexOf('\n');
       if (nl !== -1) text = text.slice(nl + 1);
     }
-  } catch {
-    return '';
+  } catch (error) {
+    if (mode === 'monitor' && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return { transcript: '', conversation };
   }
 
   const lines: string[] = [];
@@ -71,13 +79,51 @@ export function renderCopilotTranscript(eventsPath: string, snapshotEnd?: number
 
     const rendered = renderCopilotRecord(record);
     if (rendered) lines.push(rendered);
+    if (mode === 'monitor') {
+      const entry = parseCopilotConversationEntry(record);
+      if (entry) conversation = upsertConversation(conversation, entry).snapshot;
+    }
   }
 
-  if (lines.length === 0) return '';
+  if (lines.length === 0) return { transcript: '', conversation };
   const separator = `${DIM}${YELLOW}${'─'.repeat(60)}${RESET}`;
   const header = `${DIM}${YELLOW}  Session transcript (from events.jsonl)${RESET}`;
   const footer = `${DIM}${YELLOW}  ${mode === 'monitor' ? 'Live transcript - read only' : 'Resuming session…'}${RESET}`;
-  return [separator, header, separator, '', ...lines, separator, footer, separator, ''].join('\r\n');
+  return { transcript: [separator, header, separator, '', ...lines, separator, footer, separator, ''].join('\r\n'), conversation };
+}
+
+export function parseCopilotConversationEntry(record: unknown): ConversationInput | null {
+  if (!record || typeof record !== 'object' || !('type' in record) || !('data' in record)) return null;
+  const { type, data } = record;
+  if (!data || typeof data !== 'object') return null;
+  const timestamp = 'timestamp' in record && typeof record.timestamp === 'string' ? record.timestamp : undefined;
+  const key = 'id' in record && typeof record.id === 'string' ? record.id : undefined;
+  if (type === 'user.message' || type === 'assistant.message') {
+    if (!('content' in data) || typeof data.content !== 'string' || !data.content.trim()) return null;
+    return { key, kind: type === 'user.message' ? 'user' : 'assistant', text: data.content, timestamp };
+  }
+  const callId = 'toolCallId' in data && typeof data.toolCallId === 'string' ? data.toolCallId : undefined;
+  if (type === 'tool.execution_start') {
+    const name = 'toolName' in data && typeof data.toolName === 'string' ? data.toolName : 'tool';
+    const args = 'arguments' in data && data.arguments && typeof data.arguments === 'object' ? data.arguments : {};
+    const description = 'description' in args && typeof args.description === 'string' ? args.description
+      : 'command' in args && typeof args.command === 'string' ? args.command
+        : 'pattern' in args && typeof args.pattern === 'string' ? args.pattern
+          : 'file_path' in args && typeof args.file_path === 'string' ? args.file_path : '';
+    return { key: callId ? `tool:${callId}` : key, kind: 'tool',
+      text: `${name}${description ? ': ' + description : ''}`, status: 'running', timestamp };
+  }
+  if (type === 'tool.execution_complete' && callId) {
+    const result = 'result' in data ? data.result : undefined;
+    const error = 'error' in data ? data.error : undefined;
+    const detail = typeof result === 'string' ? result
+      : result && typeof result === 'object' && 'content' in result && typeof result.content === 'string' ? result.content
+        : typeof error === 'string' ? error
+          : error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : undefined;
+    return { key: `tool:${callId}`, kind: 'tool', text: '', detail,
+      status: 'success' in data && typeof data.success === 'boolean' ? data.success ? 'success' : 'error' : undefined };
+  }
+  return null;
 }
 
 export function renderCopilotRecord(record: unknown): string {
@@ -125,7 +171,7 @@ export function renderCopilotRecord(record: unknown): string {
     }
     // Skip session.*, system.*, hooks, turns, permissions, subagent.started
     // (already covered by tool.execution_start), tool.execution_complete, etc.
-    return lines.join('\r\n');
+    return lines.join('\r\n').replace(/\r?\n/g, '\r\n');
 }
 
 export async function readWorkspaceCwd(workspaceYamlPath: string, signal?: AbortSignal): Promise<string | null> {

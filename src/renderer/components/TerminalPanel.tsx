@@ -15,6 +15,7 @@ const GitDiffPanel = lazy(() =>
   import('./GitDiffPanel').then((m) => ({ default: m.GitDiffPanel }))
 );
 const ArtifactPreview = lazy(() => import('./ArtifactPreview').then(module => ({ default: module.ArtifactPreview })));
+const CopilotConversation = lazy(() => import('./CopilotConversation').then(module => ({ default: module.CopilotConversation })));
 
 // Initialize Monaco theme once
 let themeInitialized = false;
@@ -34,6 +35,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
   const [terminalTab, setTerminalTab] = useState('session');
   const [files, setFiles] = useState<string[]>([]);
   const [showFiles, setShowFiles] = useState(true);
+  const [rawLogOpened, setRawLogOpened] = useState(false);
   const isActive = activePaneId === sessionId;
   const sessionStatus = session?.status;
   const branchName = useGitBranchName(sessionId, session?.cwd, Boolean(sessionStatus && sessionStatus !== SessionStatus.Killed));
@@ -42,7 +44,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
     setFiles(previous => previous.includes(reference) ? previous : [...previous, reference]);
     setTerminalTab(`file:${reference}`);
   }, []);
-  useTerminal(containerRef, sessionId, openFile);
+  useTerminal(containerRef, sessionId, openFile, !session?.readOnly || rawLogOpened);
 
   // Initialize Monaco theme on first git tab open
   useEffect(() => {
@@ -70,16 +72,22 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
       <div className={`terminal-pane__header flex shrink-0 items-center justify-between py-0 px-1 bg-surface border-b ${isActive ? 'border-accent-border' : 'border-border'}`}>
         <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto">
           <button
-            className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium border-b transition-colors ${
+            className={`flex items-center gap-1.5 min-w-0 px-2.5 py-2 text-xs font-medium border-b transition-colors ${
               terminalTab === 'session'
                 ? 'text-fg border-accent'
                 : 'text-fg-muted border-transparent hover:text-fg'
             }`}
             onClick={() => setTerminalTab('session')}
+            title={sessionTitle}
           >
             <CliIcon cli={cli} size={12} />
-            {sessionTitle}
+            <span className="truncate">{sessionTitle}</span>
           </button>
+          {session?.readOnly && <button
+            className={`px-2.5 py-2 text-xs border-b ${terminalTab === 'log' ? 'text-fg border-accent' : 'text-fg-muted border-transparent hover:text-fg'}`}
+            onClick={() => { setRawLogOpened(true); setTerminalTab('log'); }}
+            title="Original read-only terminal log"
+          >Log</button>}
           <button
             className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium border-b transition-colors ${
               terminalTab === 'git'
@@ -122,7 +130,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
-      {session && terminalTab === 'session' && (
+      {session && (terminalTab === 'session' || (session.readOnly && terminalTab === 'log')) && (
         <div className="flex shrink-0 items-center gap-3 min-h-9 px-3 py-1.5 bg-surface border-b border-border overflow-hidden">
           <span className="flex items-center gap-1.5 shrink-0">
             <StatusIndicator status={session.status} />
@@ -132,7 +140,7 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
           </span>
           <div className="h-4 w-px bg-border shrink-0" />
           <ContextMeter usage={session.usage} supported={session.telemetrySupported} />
-          {session.readOnly && <span className="text-[10px] text-fg-muted shrink-0" title="This CLI owns its original terminal. AgentPlex only monitors its log.">Live log - read only</span>}
+          {session.readOnly && <span className="text-[10px] text-fg-muted shrink-0" title="This CLI owns its original terminal. AgentPlex only monitors its log.">{terminalTab === 'log' ? 'Live log - read only' : 'Read only'}</span>}
           <div className="h-4 w-px bg-border shrink-0" />
           <SessionAge startedAt={session.startedAt} lastActivityAt={session.lastActivityAt} />
           {branchName && (
@@ -155,9 +163,14 @@ function TerminalPane({ sessionId }: { sessionId: string }) {
       {showFiles && session && <WorkspaceExplorer sessionId={sessionId} cwd={session.cwd} onOpenFile={openFile} />}
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
       {/* Terminal body */}
+      {session?.readOnly && <div className="flex-1 min-h-0 min-w-0 bg-terminal" style={{ display: terminalTab === 'session' ? undefined : 'none' }}>
+        <Suspense fallback={<div className="p-3 text-sm text-fg-muted">Loading conversation...</div>}>
+          <CopilotConversation sessionId={sessionId} active={terminalTab === 'session'} onOpenFile={openFile} />
+        </Suspense>
+      </div>}
       <div
         className="terminal-body flex-1 min-h-0 min-w-0 p-1 overflow-hidden bg-terminal"
-        style={{ display: terminalTab === 'session' ? undefined : 'none' }}
+        style={{ display: terminalTab === (session?.readOnly ? 'log' : 'session') ? undefined : 'none' }}
       >
         <div ref={containerRef} className="h-full w-full overflow-hidden" />
       </div>
