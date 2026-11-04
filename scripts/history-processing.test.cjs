@@ -6,6 +6,85 @@ const os = require('node:os');
 const { EventEmitter } = require('node:events');
 const { performance } = require('node:perf_hooks');
 const { loadSource } = require('./test-support.cjs');
+const { parseCopilotConversationEntry, renderCopilotRecord, readCopilotTranscript } = loadSource('src/main/copilot-session-scanner.ts');
+const { EMPTY_CONVERSATION, upsertConversation, applyConversationUpdate } = loadSource('src/shared/conversation.ts');
+
+test('conversation code highlighting escapes source HTML and preserves unsupported language text', () => {
+  const React = require('react');
+  const { renderToStaticMarkup } = require('react-dom/server');
+  const { ConversationCode } = loadSource('src/renderer/components/ConversationCode.tsx');
+  const content = 'const ready = "<img src=x onerror=alert(1)>";';
+  const highlighted = renderToStaticMarkup(React.createElement(ConversationCode, { className: 'language-ts', content }));
+  assert.ok(highlighted.includes('hljs-keyword'));
+  assert.ok(highlighted.includes('&lt;img'));
+  assert.ok(!highlighted.includes('<img'));
+  const plain = renderToStaticMarkup(React.createElement(ConversationCode, { className: 'language-unrecognized', content }));
+  assert.ok(plain.includes('&lt;img'));
+  assert.ok(!plain.includes('hljs-'));
+});
+test('conversation entries preserve original text, pair tool results and normalize only synthesized terminal newlines', () => {
+  const content = 'First paragraph.\n\n**Second paragraph**.\r\nLast.';
+  const user = parseCopilotConversationEntry({ type: 'user.message', data: { content, transformedContent: 'hidden reminder' } });
+  assert.equal(user.text, content);
+  assert.ok(!/(?<!\r)\n/.test(renderCopilotRecord({ type: 'assistant.message', data: { content } })));
+  let snapshot = upsertConversation(EMPTY_CONVERSATION, user).snapshot;
+  const started = parseCopilotConversationEntry({ type: 'tool.execution_start',
+    data: { toolCallId: 'one', toolName: 'powershell', arguments: { description: 'Run tests', command: 'pnpm test' } } });
+  snapshot = upsertConversation(snapshot, started).snapshot;
+  const completed = parseCopilotConversationEntry({ type: 'tool.execution_complete',
+    data: { toolCallId: 'one', success: false, error: { message: 'Test failed' } } });
+  snapshot = upsertConversation(snapshot, completed).snapshot;
+  assert.equal(snapshot.entries.length, 2);
+  assert.equal(snapshot.entries[1].text, 'powershell: Run tests');
+  assert.equal(snapshot.entries[1].detail, 'Test failed');
+  assert.equal(snapshot.entries[1].status, 'error');
+});
+
+test('conversation hydration orders queued updates without duplicating snapshot events or reverting completed tools', () => {
+  const seed = upsertConversation(EMPTY_CONVERSATION, { key: 'tool:a', kind: 'tool', text: 'read', status: 'running' });
+  const live = upsertConversation(seed.snapshot, { key: 'tool:a', kind: 'tool', text: '', detail: 'Read complete', status: 'success' });
+  const event = { id: 'session', entry: live.entry, revision: live.snapshot.revision, truncated: false };
+  const hydrated = applyConversationUpdate(seed.snapshot, event);
+  assert.equal(hydrated.entries.length, 1);
+  assert.equal(hydrated.entries[0].status, 'success');
+  assert.equal(applyConversationUpdate(hydrated, event), hydrated);
+  assert.equal(applyConversationUpdate(hydrated, { ...event, entry: seed.entry, revision: seed.snapshot.revision }), hydrated);
+});
+
+test('monitored history stays bounded and visibly reports omitted content', () => {
+  let snapshot = EMPTY_CONVERSATION;
+  for (let index = 0; index < 220; index++) {
+    snapshot = upsertConversation(snapshot, { kind: 'assistant', text: `Message ${index}: ` + 'x'.repeat(4096) }).snapshot;
+  }
+  assert.ok(snapshot.truncated);
+  assert.ok(snapshot.entries.length < 220);
+  assert.ok(snapshot.entries.at(-1).text.startsWith('Message 219'));
+  assert.ok(snapshot.entries.reduce((total, value) => total + value.text.length, 0) <= 512 * 1024);
+});
+
+test('conversation history limits include oversized provider metadata, not just message bodies', () => {
+  let snapshot = EMPTY_CONVERSATION;
+  for (let i = 0; i < 4; i++) snapshot = upsertConversation(snapshot,
+    { key: `${i}:` + 'x'.repeat(200000), kind: 'assistant', text: 'Small message' }).snapshot;
+  assert.ok(snapshot.truncated);
+  assert.ok(snapshot.entries.reduce((total, value) => total + value.key.length + value.text.length, 0) <= 512 * 1024);
+});
+test('snapshot and live conversation parsing agree, and unreadable monitored histories fail visibly', t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentplex-conversation-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const file = path.join(home, 'events.jsonl');
+  const events = [{ id: 'prompt', type: 'user.message', data: { content: 'Original prompt' } },
+    { id: 'response', type: 'assistant.message', data: { content: 'A paragraph.\n\nA second paragraph.' } }];
+  fs.writeFileSync(file, events.map(JSON.stringify).join('\n') + '\n');
+  const preview = readCopilotTranscript(file, undefined, 'monitor');
+  const live = events.reduce((snapshot, record) => upsertConversation(snapshot, parseCopilotConversationEntry(record)).snapshot, EMPTY_CONVERSATION);
+  assert.deepEqual(preview.conversation, live);
+  assert.ok(!/(?<!\r)\n/.test(preview.transcript));
+  const denied = loadSource('src/main/copilot-session-scanner.ts', { fs: { ...fs, statSync() {
+    throw Object.assign(new Error('History denied'), { code: 'EACCES' });
+  } } });
+  assert.throws(() => denied.readCopilotTranscript(file, undefined, 'monitor'), /History denied/);
+});
 
 function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentplex-history-'));
@@ -64,6 +143,17 @@ test('bounded readers release handles on early exit, cancellation and read failu
   }) } } });
   await assert.rejects(Array.fromAsync(failing.readHistoryLines(file, 100)), /synthetic disk failure/);
   assert.equal(closed, true);
+});
+
+test('multi-megabyte records span chunks without losing blank lines, Unicode or snapshot boundaries', async t => {
+  const f = fixture(t), file = path.join(f.home, 'events.jsonl');
+  const large = ('x'.repeat(65533) + '\u6f22\ud83d\ude80').repeat(128);
+  fs.writeFileSync(file, `${large}\n\nlast`);
+  const { readHistoryLines } = loadSource('src/main/history-reader.ts', f.overrides);
+  assert.deepEqual(await Array.fromAsync(readHistoryLines(file, Infinity)), [large, '', 'last']);
+  const boundary = Buffer.byteLength(large);
+  assert.deepEqual(await Array.fromAsync(readHistoryLines(file, boundary, false, undefined, true)), []);
+  assert.deepEqual(await Array.fromAsync(readHistoryLines(file, boundary + 1, false, undefined, true)), [large]);
 });
 
 async function measure(operation) {

@@ -17,6 +17,57 @@
 .artifact-markdown :is(th, td) { padding: .4em .7em; border: 1px solid var(--border); }
 .artifact-markdown blockquote { border-left: 3px solid var(--border); padding-left: 1em; }
 
+.copilot-conversation {
+  position: relative; height: 100%; min-width: 0;
+  color: #e4e8ed; background: #121619;
+  font: var(--terminal-font-size, 14px)/1.45 'MesloLGS Nerd Font Mono', Menlo, Monaco, 'Cascadia Code', Consolas, monospace;
+}
+.copilot-conversation-scroll { height: 100%; overflow: auto; padding: 12px 12px 24px; }
+.copilot-conversation-scroll:focus-visible { outline: 1px solid #9fb5ce; outline-offset: -1px; }
+.copilot-conversation ::selection { background: #343b43; }
+.copilot-message { display: flex; gap: 1ch; align-items: baseline; margin-bottom: 1.45em; min-width: 0; }
+.copilot-message-marker { flex: 0 0 1ch; color: #9fb5ce; }
+.copilot-message--user .copilot-message-marker { color: #e4e8ed; }
+.copilot-message-content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.copilot-prompt { white-space: pre-wrap; }
+.copilot-message-time { flex-shrink: 0; font-size: .85em; color: #9ca8b6; margin-left: 1ch; }
+.copilot-markdown :is(p, ul, ol, pre, blockquote, table) { margin: 0 0 1.45em; }
+.copilot-markdown > :last-child { margin-bottom: 0; }
+.copilot-markdown :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: 700; margin: 1.45em 0 .7em; }
+.copilot-markdown > :first-child { margin-top: 0; }
+.copilot-markdown ul { list-style: disc; padding-left: 2ch; }
+.copilot-markdown ol { list-style: decimal; padding-left: 3ch; }
+.copilot-markdown li > p { margin-bottom: 0; }
+.copilot-markdown pre, .copilot-tool pre { overflow: auto; white-space: pre; font: inherit; }
+.copilot-markdown code { font: inherit; color: #b3d2d0; }
+.copilot-markdown pre code { color: inherit; }
+.copilot-markdown .hljs-keyword, .copilot-markdown .hljs-selector-tag { color: #ff7b72; }
+.copilot-markdown .hljs-string, .copilot-markdown .hljs-regexp { color: #a5d6ff; }
+.copilot-markdown .hljs-comment, .copilot-markdown .hljs-quote { color: #9ca8b6; }
+.copilot-markdown .hljs-number, .copilot-markdown .hljs-literal, .copilot-markdown .hljs-attr { color: #79c0ff; }
+.copilot-markdown .hljs-title, .copilot-markdown .hljs-built_in { color: #d2a8ff; }
+.copilot-markdown .hljs-addition { color: #a4b9ac; }
+.copilot-markdown .hljs-deletion { color: #e4b2b2; }
+.copilot-markdown blockquote { border-left: 1px solid #566373; padding-left: 2ch; color: #bac4ce; }
+.copilot-conversation a { color: #b4c8df; text-decoration: underline; text-underline-offset: 3px; }
+.copilot-conversation a:focus-visible { outline: 1px solid #b4c8df; outline-offset: 2px; }
+.copilot-table { overflow: auto; max-width: 100%; }
+.copilot-table :is(th, td) { border: 1px solid #566373; padding: .35em 1ch; text-align: left; }
+.copilot-tool summary { display: flex; align-items: baseline; gap: .6ch; cursor: pointer; list-style: none; }
+.copilot-tool summary::-webkit-details-marker { display: none; }
+.copilot-tool summary:focus-visible { outline: 1px solid #9fb5ce; }
+.copilot-tool-chevron { flex-shrink: 0; }
+.copilot-tool[open] .copilot-tool-chevron { transform: rotate(90deg); }
+.copilot-tool pre { margin: .7em 0 0 2ch; max-height: 24em; }
+.copilot-tool-note { color: #9ca8b6; margin: 0 0 1em; font-size: .85em; }
+.copilot-tool-note, .copilot-conversation-error { overflow-wrap: anywhere; }
+.copilot-tool-error, .copilot-conversation-error { color: #e4b2b2; }
+.copilot-tool-spinner { flex-shrink: 0; animation: copilot-tool-spin 1s linear infinite; }
+@keyframes copilot-tool-spin { to { transform: rotate(360deg); } }
+.copilot-conversation-error button, .copilot-jump-latest { color: #e4e8ed; background: #27313d; border: 1px solid #566373; border-radius: 4px; padding: .3em .7em; cursor: pointer; }
+.copilot-jump-latest { position: absolute; right: 12px; bottom: 12px; font-size: .85em; }
+@media (prefers-reduced-motion: reduce) { .copilot-tool-spinner { animation: none; } }
+
 .artifact-table { min-width: 100%; }
 .artifact-table :is(th, td) { border: 1px solid var(--border); padding: .4rem .6rem; text-align: left; }
 .artifact-table th { background: var(--bg-inset); color: var(--text-muted); font-weight: 500; }

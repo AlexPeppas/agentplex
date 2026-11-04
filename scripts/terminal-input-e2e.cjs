@@ -13,6 +13,8 @@ const { loadSource } = require('./test-support.cjs');
 const { IPC } = loadSource('src/shared/ipc-channels.ts');
 let manager, win, native, injectOutput;
 let nativeChunks = 0, deliveredChunks = 0;
+const owned = [];
+const restoredUuid = '11111111-1111-4111-8111-111111111111';
 const errors = [];
 const wait = async (predicate, label) => {
   const end = Date.now() + 15000;
@@ -39,6 +41,7 @@ const child = `
   let input = '', sequence = 0, quietUntil = 0;
   process.stdin.on('data', data => {
     for (const char of data.toString()) {
+      if (char === '\\x11') process.exit(0);
       if (char === '\\x10') {
         quietUntil = Date.now() + 10000;
         process.stdout.write('\\r\\nSTREAM_PAUSED\\r\\n');
@@ -69,24 +72,34 @@ app.whenReady().then(async () => {
       detectShells: async () => [],
     },
     'node-pty': {
-      spawn(_shell, _args, options) {
-        native = require('node-pty').spawn(executable, ['-e', child], options);
+      spawn(shell, _args, options) {
+        const fixture = shell === 'gh'
+          ? "process.stdin.setRawMode(true); process.stdin.resume(); process.stdin.on('data', data => { if (data.includes(17)) process.exit(0); }); process.stdout.write('RESTORE_READY\\r\\n');" : child;
+        const term = native = require('node-pty').spawn(executable, ['-e', fixture], options);
+        const item = { term, exited: false };
+        owned.push(item);
+        term.onExit(() => { item.exited = true; });
         return {
-          pid: native.pid,
+          pid: term.pid,
           onData(callback) {
             injectOutput = callback;
-            return native.onData(data => { nativeChunks++; callback(data); });
+            return term.onData(data => { nativeChunks++; callback(data); });
           },
-          onExit: callback => native.onExit(callback),
-          write: data => native.write(data),
-          resize: (cols, rows) => native.resize(cols, rows),
-          kill: () => native.kill(),
+          onExit: callback => term.onExit(callback),
+          write: data => term.write(data),
+          resize: (cols, rows) => term.resize(cols, rows),
+          kill: () => { if (!item.exited) term.kill(); },
         };
       },
     },
   };
+  fs.mkdirSync(path.join(root, '.agentplex'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.agentplex', 'state.json'), JSON.stringify({ sessions: {
+    saved: { cwd: root, cli: 'copilot', resumeSessionId: restoredUuid, displayName: 'ORIGINAL_RESTORED_CONVERSATION' },
+  } }));
   const { SessionManager } = loadSource('src/main/session-manager.ts', overrides);
   manager = new SessionManager();
+  manager.monitorCopilotSession('22222222-2222-4222-8222-222222222222', root);
   loadSource('src/main/ipc-handlers.ts', { ...overrides, './session-manager': { sessionManager: manager } }).registerIpcHandlers();
   win = new BrowserWindow({ show: false, width: 1400, height: 900,
     ...(process.platform === 'win32' ? { titleBarStyle: 'hidden',
@@ -104,6 +117,11 @@ app.whenReady().then(async () => {
   manager.setWindow(win);
   await win.loadFile(path.join(repository, '.vite', 'renderer', 'main_window', 'index.html'));
   await wait(() => evaluate(`!!document.querySelector('.react-flow')`), 'production renderer');
+  await wait(() => manager.list().some(info => info.resumeSessionId === restoredUuid),
+    'saved conversation restores even when discovery populated the initial session list');
+  await wait(() => evaluate(`document.body.textContent.includes('ORIGINAL_RESTORED_CONVERSATION')`),
+    'restored name stays attached to its own conversation');
+  assert.equal(manager.list().filter(info => info.resumeSessionId === restoredUuid).length, 1);
   const info = manager.create(root, 'input-fixture');
   manager.send(IPC.SESSION_CREATED, info);
   await wait(() => evaluate(`!!document.querySelector('[data-id="${info.id}"]')`), 'managed PTY card');
@@ -139,7 +157,10 @@ app.whenReady().then(async () => {
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ nativeInputEchoMs: latencies, maximumInputEchoMs: Math.max(...latencies),
     nativeChunks, deliveredChunks, fragmentedBurstMessages: deliveredChunks - before,
-    productionRenderer: true, realPty: true, nativeKeyboardAndPreload: true }));
+    productionRenderer: true, realPty: true, nativeKeyboardAndPreload: true,
+    restoredDespiteEarlyDiscovery: true, originalRestoreName: true }));
+  for (const item of owned) if (!item.exited) item.term.write('\x11');
+  await wait(() => owned.every(item => item.exited), 'owned PTYs exited');
   manager.stop();
   win.destroy();
   app.quit();

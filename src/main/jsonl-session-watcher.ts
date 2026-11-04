@@ -329,6 +329,8 @@ export class JsonlSessionWatcher extends EventEmitter {
     this.copilotTasksById.clear();
     this.nextCopilotTaskNumber = 1;
     for await (const line of readHistoryLines(this.jsonlPath, snapshotEnd, false, signal, true)) {
+      // Only tool start/completion events can change tasks; escaped types still need parsing.
+      if (!line.includes('tool.execution_start') && !line.includes('tool.execution_complete') && !line.includes('\\u')) continue;
       let record;
       try { record = JSON.parse(line); } catch { continue; }
       this.processCopilotTodoRecord(record);

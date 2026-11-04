@@ -41,6 +41,7 @@ const record = provider === 'copilot'
   : { type: 'assistant', message: { content: [{ type: 'text', text }] } };
 fs.appendFileSync(file, JSON.stringify(record) + '\\n');
 console.log(text);
+if (provider === 'copilot') setInterval(() => {}, 1000);
 `);
   const quote = value => `"${value}"`;
   const command = (cwd, provider) => {
@@ -66,9 +67,16 @@ console.log(text);
       './config-loader': { resolveClaudeConfig: cwd => ({ command: command(cwd, 'claude'), flags: [] }) },
       'node-pty': {
         ...nativePty,
-        spawn(shell, _args, options) {
-          const term = nativePty.spawn(shell, process.platform === 'win32' ? ['/d', '/q'] : ['-i'], options);
+        spawn(shell, args, options) {
+          const launch = args.find(arg => arg.startsWith('gh copilot '));
+          const directCopilot = !!launch;
+          const match = directCopilot && launch.match(/--(resume|session-id)=([0-9a-f-]{36})/i);
+          const term = directCopilot
+            ? nativePty.spawn(process.execPath, [helper, path.join(home, '.copilot', 'session-state'),
+              'copilot', `--${match[1]}`, match[2]], options)
+            : nativePty.spawn(shell, process.platform === 'win32' ? ['/d', '/q'] : ['-i'], options);
           const owned = { term, exited: false, launches: [] };
+          if (directCopilot) owned.launches.push(launch);
           terms.push(owned);
           term.onExit(() => { owned.exited = true; });
           const kill = term.kill.bind(term);
@@ -106,7 +114,7 @@ console.log(text);
   fs.writeFileSync(path.join(unrelated, 'events.jsonl'), JSON.stringify({ type: 'user.message', data: { content: 'UNRELATED_HISTORY' } }) + '\n');
 
   const first = newManager();
-  const restored = first.restoreAll();
+  const restored = await first.restoreAll();
   assert.equal(restored.length, 1);
   await until(() => first.getBuffer(restored[0].info.id).includes(`READY:${uuid}:--session-id`), 'first synthetic CLI');
   first.updateDisplayName(restored[0].info.id, 'Renamed task');
@@ -127,7 +135,7 @@ console.log(text);
 
   fs.mkdirSync(offline);
   const restarted = newManager();
-  const recovered = restarted.restoreAll();
+  const recovered = await restarted.restoreAll();
   assert.equal(recovered.length, 5);
   for (const item of recovered) {
     await until(() => restarted.getBuffer(item.info.id).includes(`READY:${item.info.resumeSessionId}:`), 'restarted synthetic CLI');
@@ -142,13 +150,13 @@ console.log(text);
   }
   assert.deepEqual(identities(), expected, 'renames must remain attached to the exact provider conversation');
   assert.equal(Object.values(readState().sessions).find(item => item.resumeSessionId === uuid).displayName, 'Renamed task');
-  assert.deepEqual(restarted.restoreAll(), []);
+  assert.deepEqual(await restarted.restoreAll(), []);
   assert.equal(restarted.list().length, 5);
   restarted.stop();
   await until(() => terms.every(term => term.exited), 'restarted generation to exit');
 
   const third = newManager();
-  const again = third.restoreAll();
+  const again = await third.restoreAll();
   assert.equal(again.length, 5);
   for (const item of again) {
     await until(() => third.getBuffer(item.info.id).includes(
@@ -162,8 +170,8 @@ console.log(text);
   denyHistory = true;
   t.mock.method(console, 'error', () => {});
   const failing = newManager();
-  assert.deepEqual(failing.restoreAll(), []);
-  assert.equal(terms.length - priorTerms, 5);
+  assert.deepEqual(await failing.restoreAll(), []);
+  assert.equal(terms.length - priorTerms, 0, 'unreadable histories fail before a provider can start');
   await until(() => terms.slice(priorTerms).every(term => term.exited), 'rolled-back native PTYs to exit');
   assert.ok(terms.slice(priorTerms).every(term => term.launches.length === 0));
   assert.equal(Object.keys(readState().sessions).length, 5);

@@ -38,7 +38,7 @@ test('incoming names never echo rename commands or duplicate existing nodes', ()
   }
 });
 
-test('restore preserves custom names in saved state before renderer involvement', () => {
+test('restore preserves custom names in saved state before renderer involvement', async () => {
   const { SessionManager } = loadSource('src/main/session-manager.ts', {
     'node-pty': {}, electron: {}, './shell-detector': {}, './settings-manager': {},
     './claude-session-scanner': {}, './copilot-session-scanner': {},
@@ -57,7 +57,7 @@ test('restore preserves custom names in saved state before renderer involvement'
   };
   const savedNames = [];
   manager.saveState = () => savedNames.push(manager.getDisplayNames());
-  const restored = manager.restoreAll();
+  const restored = await manager.restoreAll();
   const expected = { 'session-1': 'Copilot project', 'session-2': 'Claude project' };
   assert.deepEqual(savedNames, [expected]);
   assert.deepEqual(manager.getDisplayNames(), expected);

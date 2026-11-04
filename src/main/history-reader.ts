@@ -31,7 +31,7 @@ export async function* readHistoryLines(
       await handle.read(previous, 0, 1, offset - 1);
       skipPartial = previous[0] !== 10;
     }
-    let pending = '';
+    let fragments: string[] = [];
     while (offset < end) {
       signal?.throwIfAborted();
       const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, end - offset), offset);
@@ -45,16 +45,24 @@ export async function* readHistoryLines(
         chunk = chunk.subarray(newline + 1);
         skipPartial = false;
       }
-      const lines = (pending + decoder.write(chunk)).split('\n');
-      pending = lines.pop() ?? '';
+      const lines = decoder.write(chunk).split('\n');
+      const pending = lines.pop() ?? '';
       for (const line of lines) {
         signal?.throwIfAborted();
-        yield line;
+        if (fragments.length) {
+          fragments.push(line);
+          yield fragments.join('');
+          fragments = [];
+        } else {
+          yield line;
+        }
       }
+      if (pending) fragments.push(pending);
     }
     signal?.throwIfAborted();
-    pending += decoder.end();
-    if (pending && !completeLinesOnly) yield pending;
+    const remaining = decoder.end();
+    if (remaining) fragments.push(remaining);
+    if (fragments.length && !completeLinesOnly) yield fragments.join('');
   } finally {
     await handle.close();
   }

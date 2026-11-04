@@ -48,6 +48,7 @@
     "csv-parse": "^7.0.3",
     "dompurify": "^3.4.17",
     "exceljs": "^4.4.0",
+    "highlight.js": "^11.11.1",
     "lucide-react": "^1.7.0",
     "mammoth": "^1.13.0",
     "mermaid": "^12.2.0",

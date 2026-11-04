@@ -37,6 +37,8 @@ export interface SessionInfo {
   windowsPty?: { backend: 'conpty' | 'winpty'; buildNumber: number };
   id: string;
   title: string;
+  /** Current user-facing name, including during incremental startup restore. */
+  displayName?: string;
   status: SessionStatus;
   pid: number;
   cwd: string;
@@ -51,6 +53,28 @@ export interface SessionInfo {
   telemetrySupported: boolean;
   /** Per-CLI session ID used to resume on restart (Claude UUID, Copilot UUID, …) */
   resumeSessionId: string | null;
+}
+
+export interface ConversationEntry {
+  key: string;
+  kind: 'user' | 'assistant' | 'tool';
+  text: string;
+  detail?: string;
+  status?: 'running' | 'success' | 'error';
+  timestamp?: string;
+}
+
+export interface ConversationSnapshot {
+  entries: ConversationEntry[];
+  revision: number;
+  truncated: boolean;
+}
+
+export interface ConversationUpdate {
+  id: string;
+  entry: ConversationEntry;
+  revision: number;
+  truncated: boolean;
 }
 
 export interface SessionUsage {
@@ -292,6 +316,8 @@ export const IPC = {
   SESSION_LIST: 'session:list',
   SESSION_GET_BUFFER: 'session:getBuffer',
   SESSION_GET_BUFFER_SNAPSHOT: 'session:getBufferSnapshot',
+  SESSION_GET_CONVERSATION: 'session:getConversation',
+  SESSION_CONVERSATION_DATA: 'session:conversationData',
   SESSION_GET_CWD: 'session:getCwd',
   SESSION_DATA: 'session:data',
   SESSION_STATUS: 'session:status',

@@ -3,6 +3,7 @@ import { IPC, SessionStatus } from '../shared/ipc-channels';
 import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, PlanInfo, TaskInfo, TaskUpdateInfo, TaskListInfo, ExternalSession, DiscoveredProject, DiscoveredSession, PinnedProject, GitStatusResult, GitFileDiffResult, GitLogEntry, GitBranchInfo, GitCommandResult, DrawingData, WorkspaceTemplate, SessionSearchResult, PersistedGroups } from '../shared/ipc-channels';
 import type { HistoryRequestKind } from '../shared/ipc-channels';
 import type { WorkspaceDirectory, WorkspaceFile } from '../shared/ipc-channels';
+import type { ConversationSnapshot, ConversationUpdate } from '../shared/ipc-channels';
 
 const api = {
   listWorkspaceDirectory: (sessionId: string, directory = ''): Promise<WorkspaceDirectory> =>
@@ -48,6 +49,14 @@ const api = {
 
   getSessionBufferSnapshot: (id: string): Promise<{ buffer: string; offset: number }> => {
     return ipcRenderer.invoke(IPC.SESSION_GET_BUFFER_SNAPSHOT, { id });
+  },
+
+  getConversationSnapshot: (id: string): Promise<ConversationSnapshot> => ipcRenderer.invoke(IPC.SESSION_GET_CONVERSATION, { id }),
+
+  onConversationData: (callback: (data: ConversationUpdate) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: ConversationUpdate) => callback(data);
+    ipcRenderer.on(IPC.SESSION_CONVERSATION_DATA, handler);
+    return () => ipcRenderer.removeListener(IPC.SESSION_CONVERSATION_DATA, handler);
   },
 
   getSessionCwd: (id: string): Promise<string | null> => {

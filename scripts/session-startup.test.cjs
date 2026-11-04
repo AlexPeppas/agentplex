@@ -22,8 +22,9 @@ function fixture(t, stage) {
       },
     },
     'node-pty': {
-      spawn() {
+      spawn(executable, args, options) {
         const term = {
+          executable, args, options,
           pid: 1000 + terms.length, kills: 0, writes: [],
           onData(callback) { if (stage === 'callbacks') throw failure; term.data = callback; },
           onExit(callback) { term.exit = callback; },
@@ -35,7 +36,7 @@ function fixture(t, stage) {
       },
     },
     electron: {},
-    './shell-detector': { getShellById: () => ({ path: 'synthetic-shell' }) },
+    './shell-detector': { getShellById: () => ({ path: stage === 'copilot-powershell' ? 'powershell.exe' : 'synthetic-shell' }) },
     './settings-manager': { getDefaultShellId: () => 'synthetic-shell' },
     './claude-session-scanner': { renderJsonlTranscript: () => '' },
     './copilot-session-scanner': { renderCopilotTranscript: () => stage === 'transcript' ? 'HISTORY\n' : '' },
@@ -103,6 +104,50 @@ test('successful initialization still publishes ownership, launches once and for
   f.manager.kill(info.id);
   assert.equal(f.terms[0].kills, 1);
   assert.equal(f.watchers[0].timer, null);
+});
+
+test('Copilot launches its exact UUID as a profile-free startup command, without simulated keystrokes', t => {
+  const f = fixture(t, 'copilot-powershell');
+  const inherited = {
+    COPILOT_AGENT_SESSION_ID: 'parent-conversation',
+    COPILOT_CLI: '1',
+    COPILOT_LOADER_PID: '456',
+    WT_SESSION: 'parent-windows-terminal',
+    WT_PROFILE_ID: 'parent-profile',
+    TERM_PROGRAM_VERSION: 'parent-version',
+  };
+  const previous = Object.fromEntries(Object.keys(inherited).map(key => [key, process.env[key]]));
+  Object.assign(process.env, inherited);
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  const fresh = f.manager.create(f.home, 'copilot');
+  const resumed = f.manager.create(f.home, 'copilot-resume', uuid);
+  assert.equal(f.terms[0].executable, 'powershell.exe');
+  assert.deepEqual(f.terms[0].args, ['-NoLogo', '-NoProfile', '-Command',
+    `gh copilot --session-id=${fresh.resumeSessionId}; exit $LASTEXITCODE`]);
+  assert.deepEqual(f.terms[1].args, ['-NoLogo', '-NoProfile', '-Command', `gh copilot --resume=${uuid}; exit $LASTEXITCODE`]);
+  assert.equal(resumed.resumeSessionId, uuid);
+  for (const term of f.terms) {
+    for (const key of Object.keys(inherited)) assert.equal(term.options.env[key], undefined);
+    assert.equal(term.options.env.TERM_PROGRAM, 'AgentPlex');
+    assert.equal(term.options.env.TERM, 'xterm-256color');
+  }
+  t.mock.timers.tick(10_000);
+  assert.ok(f.terms.every(term => term.writes.length === 0), 'there is no automatic command to lose or relaunch later');
+  f.terms[0].exit({ exitCode: 0 });
+  assert.equal(f.manager.list().find(info => info.id === fresh.id).status, 'killed',
+    'a terminated managed CLI cannot turn into an untracked shell conversation');
+});
+
+test('Copilot runs gh directly when the configured shell has no known command mode', t => {
+  const f = fixture(t);
+  const info = f.manager.create(f.home, 'copilot');
+  assert.equal(f.terms[0].executable, 'gh');
+  assert.deepEqual(f.terms[0].args, ['copilot', `--session-id=${info.resumeSessionId}`]);
 });
 
 test('killing or shutting down initialized UUID sessions cancels their pending launch timers', t => {
