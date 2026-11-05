@@ -2,6 +2,7 @@ import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SessionStatus, 
 import type { HistoryRequestKind } from '../shared/ipc-channels';
 import type { WorkspaceDirectory, WorkspaceFile } from '../shared/ipc-channels';
 import type { ConversationSnapshot, ConversationUpdate } from '../shared/ipc-channels';
+import type { TerminalSnapshot, TerminalLink, TerminalResize } from '../shared/ipc-channels';
 
 export interface AgentPlexAPI {
   listWorkspaceDirectory: (sessionId: string, directory?: string) => Promise<WorkspaceDirectory>;
@@ -12,11 +13,13 @@ export interface AgentPlexAPI {
   createSession: (cwd?: string, cli?: CliTool, resumeSessionId?: string) => Promise<SessionInfo>;
   pickDirectory: () => Promise<string | null>;
   writeSession: (id: string, data: string) => void;
-  resizeSession: (id: string, cols: number, rows: number) => void;
+  resizeSession: (id: string, cols: number, rows: number) => Promise<TerminalResize>;
   killSession: (id: string) => Promise<void>;
   listSessions: () => Promise<SessionInfo[]>;
   getSessionBuffer: (id: string) => Promise<string>;
   getSessionBufferSnapshot: (id: string) => Promise<{ buffer: string; offset: number }>;
+  getTerminalSnapshot: (id: string) => Promise<TerminalSnapshot>;
+  getTerminalLinks: (id: string, line: number) => Promise<TerminalLink[]>;
   getConversationSnapshot: (id: string) => Promise<ConversationSnapshot>;
   onConversationData: (callback: (data: ConversationUpdate) => void) => () => void;
   getSessionCwd: (id: string) => Promise<string | null>;

@@ -4,6 +4,7 @@ import type { CliTool, DetectedShell, SessionInfo, SessionUsage, SubagentInfo, P
 import type { HistoryRequestKind } from '../shared/ipc-channels';
 import type { WorkspaceDirectory, WorkspaceFile } from '../shared/ipc-channels';
 import type { ConversationSnapshot, ConversationUpdate } from '../shared/ipc-channels';
+import type { TerminalSnapshot, TerminalLink, TerminalResize } from '../shared/ipc-channels';
 
 const api = {
   listWorkspaceDirectory: (sessionId: string, directory = ''): Promise<WorkspaceDirectory> =>
@@ -25,8 +26,8 @@ const api = {
     ipcRenderer.send(IPC.SESSION_WRITE, { id, data });
   },
 
-  resizeSession: (id: string, cols: number, rows: number): void => {
-    ipcRenderer.send(IPC.SESSION_RESIZE, { id, cols, rows });
+  resizeSession: (id: string, cols: number, rows: number): Promise<TerminalResize> => {
+    return ipcRenderer.invoke(IPC.SESSION_RESIZE, { id, cols, rows });
   },
 
   killSession: (id: string): Promise<void> => {
@@ -50,6 +51,12 @@ const api = {
   getSessionBufferSnapshot: (id: string): Promise<{ buffer: string; offset: number }> => {
     return ipcRenderer.invoke(IPC.SESSION_GET_BUFFER_SNAPSHOT, { id });
   },
+
+  getTerminalSnapshot: (id: string): Promise<TerminalSnapshot> =>
+    ipcRenderer.invoke(IPC.SESSION_GET_TERMINAL_SNAPSHOT, { id }),
+
+  getTerminalLinks: (id: string, line: number): Promise<TerminalLink[]> =>
+    ipcRenderer.invoke(IPC.SESSION_GET_TERMINAL_LINKS, { id, line }),
 
   getConversationSnapshot: (id: string): Promise<ConversationSnapshot> => ipcRenderer.invoke(IPC.SESSION_GET_CONVERSATION, { id }),
 

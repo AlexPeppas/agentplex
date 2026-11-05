@@ -9,6 +9,7 @@ import { SessionStatus, IPC, CLI_TOOLS, RESUME_TOOL, COPILOT_RESUME_TOOL } from 
 import type { SessionInfo, SessionUsage, CliTool, ExternalSession } from '../shared/ipc-channels';
 import type { ConversationSnapshot } from '../shared/ipc-channels';
 import { EMPTY_CONVERSATION, upsertConversation } from '../shared/conversation';
+import { TerminalState } from './terminal-state';
 import { getShellById } from './shell-detector';
 import { getDefaultShellId } from './settings-manager';
 import { stripAnsi } from '../shared/ansi-strip';
@@ -105,6 +106,7 @@ interface Session {
   /** Per-CLI session ID used to resume (Claude UUID, Copilot UUID, …) */
   resumeSessionId: string | null;
   pty: pty.IPty | null;
+  terminalState?: TerminalState;
   readOnly?: boolean;
   conversation?: ConversationSnapshot;
   conversationError?: string;
@@ -478,6 +480,7 @@ export class SessionManager {
       }
     }
     let ownedTerm: pty.IPty | undefined;
+    let ownedTerminalState: TerminalState | undefined;
     let launchTimer: ReturnType<typeof setTimeout> | undefined;
     let jsonlWatcher: JsonlSessionWatcher | null = null;
     try {
@@ -548,6 +551,7 @@ export class SessionManager {
         cwd: workDir,
         resumeSessionId,
         pty: term,
+        terminalState: ownedTerminalState = new TerminalState(120, 30, getWindowsPty()),
         status: isClaude? SessionStatus.Running:SessionStatus.Idle,
         startedAt: Date.now(),
         lastActivityAt: Date.now(),
@@ -654,6 +658,7 @@ export class SessionManager {
       }
       return info;
     } catch(error) {
+      ownedTerminalState?.dispose();
       this.sessions.delete(id);
       if(launchTimer) clearTimeout(launchTimer);
       try { jsonlWatcher?.stop(); }
@@ -677,6 +682,7 @@ export class SessionManager {
       this.statusInterval = null;
     }
     for (const session of this.sessions.values()) {
+      session.terminalState?.dispose();
       if (session.launchTimer) clearTimeout(session.launchTimer);
       if (session.jsonlWatcher) session.jsonlWatcher.stop();
       try {
@@ -729,13 +735,20 @@ export class SessionManager {
     const shell = isRawShell
       ? (detected?.path || resolveDefaultShell())
       : resolveDefaultShell();
-    const term = pty.spawn(shell, [], {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 30,
-      cwd: workDir,
-      env: getSafeEnv(),
-    });
+    const terminalState = new TerminalState(120, 30, getWindowsPty());
+    let term: pty.IPty;
+    try {
+      term = pty.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 30,
+        cwd: workDir,
+        env: getSafeEnv(),
+      });
+    } catch (error) {
+      terminalState.dispose();
+      throw error;
+    }
 
     const planDetector = new PlanTaskDetector((event) => {
       switch (event.type) {
@@ -784,6 +797,7 @@ export class SessionManager {
       cwd: workDir,
       resumeSessionId: null,
       pty: term,
+      terminalState,
       status: SessionStatus.Running,
       startedAt: Date.now(),
       lastActivityAt: Date.now(),
@@ -870,19 +884,28 @@ export class SessionManager {
 
   resize(id: string, cols: number, rows: number) {
     const session = this.sessions.get(id);
-    if (session && session.status !== SessionStatus.Killed) {
-      try {
-        session.pty?.resize(cols, rows);
-      } catch {
-        // ignore resize errors
-      }
-    }
+    if (!session) return Promise.resolve({ cols, rows, offset: 0 });
+    return new Promise<{ cols: number; rows: number; offset: number }>((resolve, reject) => {
+      const resize = (applied: boolean, error?: unknown) => {
+        if (error !== undefined) { console.error('[terminal] Cannot resize PTY:', id, error); reject(error); return; }
+        this.output.flush(id);
+        const offset = session.outputOffset;
+        if (applied && this.sessions.get(id) === session && session.status !== SessionStatus.Killed) {
+          try { session.pty?.resize(cols, rows); }
+          catch (error) { console.error('[terminal] Cannot resize PTY:', id, error); reject(error); return; }
+        }
+        resolve({ ...(session.terminalState?.size() ?? { cols, rows }), offset });
+      };
+      if (session.terminalState) session.terminalState.resize(cols, rows, resize);
+      else resize(true);
+    });
   }
 
   kill(id: string) {
     const session = this.sessions.get(id);
     if (session) {
       this.output.flush(id);
+      session.terminalState?.dispose();
       if (session.readOnly) {
         this.removeDiscoveredSession(session);
         return;
@@ -918,6 +941,20 @@ export class SessionManager {
     return { buffer: session.buffer, offset: session.outputOffset };
   }
 
+  getTerminalSnapshot(id: string) {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Unknown session: ${id}`);
+    if (session.terminalState) return session.terminalState.snapshot(session.outputOffset);
+    if (!session.readOnly) throw new Error('This session has no terminal state');
+    return Promise.resolve({ buffer: session.buffer, offset: session.outputOffset, cols: 120, rows: 30 });
+  }
+
+  getTerminalLinks(id: string, line: number) {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Unknown session: ${id}`);
+    return session.terminalState?.links(line) ?? Promise.resolve([]);
+  }
+
   getConversationSnapshot(id: string): ConversationSnapshot {
     const session = this.sessions.get(id);
     if (session?.conversationError) throw new Error(session.conversationError);
@@ -927,6 +964,7 @@ export class SessionManager {
 
   private appendOutput(session: Session, data: string): void {
     session.outputOffset += data.length;
+    session.terminalState?.write(data);
     session.buffer = (session.buffer + data).slice(-BUFFER_CAP);
   }
 

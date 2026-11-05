@@ -31,6 +31,7 @@ async function rendererTest(root) {
   const { Terminal } = fromRoot('@xterm/xterm');
   const { FitAddon } = fromRoot('@xterm/addon-fit');
   const { loadSource } = require(path.join(root, 'scripts', 'test-support.cjs'));
+  const { TerminalState } = loadSource('src/main/terminal-state.ts');
   const style = document.createElement('style');
   style.textContent = fs.readFileSync(require.resolve('@xterm/xterm/css/xterm.css', { paths: [root] }), 'utf8') + `
     * { box-sizing: border-box; } body { margin: 0; }
@@ -51,10 +52,12 @@ async function rendererTest(root) {
   const sizes = [];
   const listeners = new Set();
   const nativePtys = new Map();
+  const models = new Map();
   const typed = [];
   let clipboardText = '';
   const { ipcRenderer } = require('electron');
   const output = event => {
+    models.get(event.id)?.write(event.data);
     state.sessionBuffers[event.id] = ((state.sessionBuffers[event.id] ?? '') + event.data).slice(-512 * 1024);
     const offset = state.sessionBufferOffsets[event.id] = (state.sessionBufferOffsets[event.id] ?? 0) + event.data.length;
     listeners.forEach(callback => callback({ ...event, offset }));
@@ -64,10 +67,27 @@ async function rendererTest(root) {
   window.agentPlex = {
     platform: 'win32', onZoom: () => () => {},
     onSessionData: callback => { listeners.add(callback); return () => listeners.delete(callback); },
-    resizeSession: (id, cols, rows) => {
+    resizeSession: async (id, cols, rows) => {
       sizes.push({ id, cols, rows });
-      nativePtys.get(id)?.resize(cols, rows);
+      if (nativePtys.has(id)) return nativePtys.get(id).resize(cols, rows);
+      const model = models.get(id);
+      if (!model) return { cols, rows, offset: state.sessionBufferOffsets[id] ?? 0 };
+      return new Promise((resolve, reject) => model.resize(cols, rows, (_applied, error) => {
+        if (error) reject(error);
+        else resolve({ ...model.size(), offset: state.sessionBufferOffsets[id] ?? 0 });
+      }));
     },
+    getTerminalSnapshot: async id => {
+      if (nativePtys.has(id)) return ipcRenderer.invoke('test:pty-snapshot', id);
+      if (!models.has(id)) {
+        const model = new TerminalState(80, 24, state.sessions[id]?.windowsPty);
+        model.write(state.sessionBuffers[id] ?? '');
+        models.set(id, model);
+      }
+      return models.get(id).snapshot(state.sessionBufferOffsets[id] ?? 0);
+    },
+    getTerminalLinks: async (id, line) => nativePtys.has(id)
+      ? ipcRenderer.invoke('test:pty-links', id, line) : models.get(id)?.links(line) ?? [],
     writeSession: (id, data) => {
       if (id === 'demo') { typed.push(data); return; }
       assert.match(data, /^(?:\x1b\[\d+;\d+R|\x1b\[[IO])$/, 'only cursor-position and focus reports may reach test PTYs');
@@ -153,7 +173,7 @@ async function rendererTest(root) {
   await new Promise(resolve => term.write('', resolve));
   assert.equal(clipboardText, 'BEFORE_HISTORY', 'replaying saved output must not copy old clipboard commands');
   assert.equal(term.buffer.active.getLine(0).translateToString(true), 'HYDRATED_HISTORY');
-  assert.deepEqual(replayGeometry[0], { cols: term.cols, rows: term.rows }, 'history must be parsed at the visible pane geometry, not the default 80x24');
+  assert.deepEqual(replayGeometry[0], { cols: 80, rows: 24 }, 'snapshots must be parsed at their source geometry before fitting the pane');
   listeners.forEach(callback => callback({ id: 'demo', data: 'HYDRATED_HISTORY\r\n', offset: state.sessionBufferOffsets.demo }));
   await new Promise(resolve => term.write('', resolve));
   assert.equal(term.buffer.active.getLine(1).translateToString(true), '', 'late snapshot-overlapping IPC must not replay history twice');
@@ -348,7 +368,68 @@ async function rendererTest(root) {
     }
   }
   assert.equal(listeners.size, 1, 'closed panes must unsubscribe');
+  output({ id: 'demo', data: '\r\n| Metric | Value | Status |\r\n|--------|-------|--------|\r\n| Terminal replay | Original geometry retained | Ready |\r\n| Resize ordering | Old output drained before resize | Ready |\r\n' });
+  for (const width of [480, 1100]) {
+    host.style.width = `${width}px`;
+    await waitForLayout();
+    checkAll();
+    await new Promise(resolve => term.write('', resolve));
+    const tableRows = Array.from({ length: term.rows }, (_, index) =>
+      term.buffer.active.getLine(term.buffer.active.viewportY + index).translateToString(true));
+    assert.equal(tableRows.join('').match(/Ready/g)?.length, 2, 'resizing must not duplicate table cell content');
+    for (const [index, row] of [...term.element.querySelectorAll('.xterm-rows > div')].entries()) {
+      assert.equal(row.textContent.replace(/\u00a0/g, ' ').trimEnd(), tableRows[index].trimEnd(),
+        'rendered table rows must match the parsed screen');
+    }
+    await ipcRenderer.invoke('test:terminal-capture', width);
+  }
+  render();
+  await waitForLayout();
+  const replayHost = document.createElement('div');
+  document.body.append(replayHost);
+  const replayed = new Terminal({
+    cols: term.cols, rows: term.rows, windowsPty: term.options.windowsPty,
+  });
+  replayed.open(replayHost);
+  await new Promise(resolve => term.write('', resolve));
+  const snapshot = await window.agentPlex.getTerminalSnapshot('demo');
+  replayed.resize(snapshot.cols, snapshot.rows);
+  await new Promise(resolve => replayed.write(snapshot.buffer + '\x18', resolve));
+  replayed.resize(term.cols, term.rows);
+  const screen = candidate => Array.from({ length: candidate.rows }, (_, index) =>
+    candidate.buffer.active.getLine(candidate.buffer.active.baseY + index)?.translateToString(true));
+  assert.deepEqual(screen(replayed), screen(term),
+    'reopening at the current geometry must preserve the live terminal screen after earlier resizes');
+  replayed.dispose();
+  replayHost.remove();
+  const retainedScreen = screen(term);
   reactRoot.unmount();
+  const captureSnapshot = window.agentPlex.getTerminalSnapshot;
+  let unblockSnapshot;
+  let captures = 0;
+  window.agentPlex.getTerminalSnapshot = async id => {
+    if (++captures === 1) await new Promise(resolve => { unblockSnapshot = resolve; });
+    return captureSnapshot(id);
+  };
+  reactRoot = createRoot(host);
+  render();
+  await wait(50);
+  assert.ok(unblockSnapshot, 'the first restoration must wait for its snapshot');
+  listeners.forEach(callback => callback({
+    id: 'demo', data: '\0'.repeat(2 * 1024 * 1024 + 1), offset: state.sessionBufferOffsets.demo,
+  }));
+  await waitForLayout();
+  const recovered = activeTerminals()[0];
+  assert.equal(captures, 2, 'overflow must recreate only the pane with a fresh snapshot');
+  assert.deepEqual(screen(recovered), retainedScreen, 'queue recovery must retain the authoritative screen');
+  unblockSnapshot();
+  await wait(50);
+  assert.equal(activeTerminals()[0], recovered, 'a late snapshot must not replace the recovered view');
+  window.agentPlex.getTerminalSnapshot = captureSnapshot;
+  reactRoot.unmount();
+  for (const model of models.values()) model.dispose();
+  models.clear();
+  console.log('Terminal snapshot restoration passed');
   assert.equal(listeners.size, 0);
 
   let nativeFrames = 0;
@@ -388,7 +469,7 @@ async function rendererTest(root) {
           windowsPty: { backend: 'conpty', buildNumber } };
         await ipcRenderer.invoke('test:pty-spawn', id, child);
         const native = {
-          resize: (cols, rows) => ipcRenderer.send('test:pty-resize', id, cols, rows),
+          resize: (cols, rows) => ipcRenderer.invoke('test:pty-resize', id, cols, rows),
           write: data => ipcRenderer.send('test:pty-write', id, data),
           kill: () => ipcRenderer.invoke('test:pty-kill', id),
         };
@@ -489,6 +570,7 @@ app.setPath('userData', process.env.AGENTPLEX_EDITOR_E2E_ROOT
 app.disableHardwareAcceleration();
 let window;
 const nativePtys = new Map();
+const nativeStates = new Map();
 const stopNativePtys = () => {
   for (const native of nativePtys.values()) native.kill();
   nativePtys.clear();
@@ -496,17 +578,53 @@ const stopNativePtys = () => {
 app.whenReady().then(async () => {
   const nodeExecutable = require('node:child_process').execFileSync('node', ['-p', 'process.execPath'],
     { encoding: 'utf8', windowsHide: true }).trim();
+  const { TerminalOutputBatcher } = require('./test-support.cjs').loadSource('src/main/terminal-output.ts');
+  const batcher = new TerminalOutputBatcher((id, data, offset) => {
+    if (window && !window.isDestroyed()) window.webContents.send('test:pty-data', { id, data, offset });
+  });
   ipcMain.handle('test:pty-spawn', (event, id, child) => {
+    const { TerminalState } = require('./test-support.cjs').loadSource('src/main/terminal-state.ts');
+    const state = { model: new TerminalState(80, 24, {
+      backend: 'conpty', buildNumber: Number(os.release().split('.')[2]),
+    }), offset: 0 };
+    nativeStates.set(id, state);
     const native = require('node-pty').spawn(nodeExecutable, ['-e', child], {
       cols: 80, rows: 24, cwd: path.resolve(__dirname, '..'),
       env: { ...process.env },
     });
     nativePtys.set(id, native);
     native.onData(data => {
-      if (!event.sender.isDestroyed()) event.sender.send('test:pty-data', { id, data });
+      state.model.write(data);
+      state.offset += data.length;
+      if (!event.sender.isDestroyed()) batcher.push(id, data, state.offset);
     });
+    native.onExit(() => { state.model.dispose(); nativeStates.delete(id); });
   });
-  ipcMain.on('test:pty-resize', (_event, id, cols, rows) => nativePtys.get(id).resize(cols, rows));
+  ipcMain.handle('test:pty-resize', (_event, id, cols, rows) => {
+    const state = nativeStates.get(id);
+    return new Promise((resolve, reject) => state.model.resize(cols, rows, (applied, error) => {
+      if (error) { reject(error); return; }
+      batcher.flush(id);
+      const offset = state.offset;
+      if (applied) nativePtys.get(id).resize(cols, rows);
+      resolve({ ...state.model.size(), offset });
+    }));
+  });
+  ipcMain.handle('test:pty-snapshot', (_event, id) => {
+    const state = nativeStates.get(id);
+    return state.model.snapshot(state.offset);
+  });
+  ipcMain.handle('test:pty-links', (_event, id, line) => nativeStates.get(id).model.links(line));
+  ipcMain.handle('test:terminal-capture', async (_event, width) => {
+    if (!process.env.AGENTPLEX_TERMINAL_SCREENSHOT_PREFIX) return;
+    const image = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Terminal screenshot did not repaint')), 10000);
+      window.webContents.once('paint', (_event, _dirty, painted) => { clearTimeout(timer); resolve(painted); });
+      window.webContents.invalidate();
+    });
+    fs.writeFileSync(`${process.env.AGENTPLEX_TERMINAL_SCREENSHOT_PREFIX}-${width}.png`,
+      image.toPNG());
+  });
   ipcMain.on('test:pty-write', (_event, id, data) => nativePtys.get(id).write(data));
   ipcMain.handle('test:pty-kill', async (_event, id) => {
     const native = nativePtys.get(id);
@@ -524,6 +642,7 @@ app.whenReady().then(async () => {
     webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false, offscreen: true } });
   const rendererErrors = [];
   window.webContents.on('console-message', event => {
+    if (event.message === 'Terminal snapshot restoration passed') console.log(event.message);
     if (/Uncaught/.test(event.message)) rendererErrors.push(event.message);
   });
   await window.loadURL('about:blank');
@@ -534,6 +653,7 @@ app.whenReady().then(async () => {
   window.destroy();
   app.quit();
 }).catch(error => {
+  fs.writeSync(2, String(error.stack ?? error) + '\n');
   console.error(error);
   stopNativePtys();
   if (window && !window.isDestroyed()) window.destroy();

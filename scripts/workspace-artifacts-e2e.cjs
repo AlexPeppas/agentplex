@@ -514,8 +514,10 @@ app.whenReady().then(async () => {
   await wait(() => evaluate(`(${preview})?.querySelector('h1')?.textContent === 'Mounted workspace'`), 'mounted file preview');
   const clipboardProbe = { ...manager.sessions.get(info.id), id: 'clipboard-output-probe',
     title: 'Clipboard output probe', readOnly: false, jsonlWatcher: null, resumeSessionId: undefined,
+    terminalState: new (loadSource('src/main/terminal-state.ts').TerminalState)(120, 30),
     buffer: 'CLI clipboard output test\r\n', outputOffset: 0 };
   clipboardProbe.outputOffset = clipboardProbe.buffer.length;
+  clipboardProbe.terminalState.write(clipboardProbe.buffer);
   fs.appendFileSync(events, record('session.shutdown', {}));
   await wait(() => manager.list().length === 0, 'terminated discovered CLI removed from the main process');
   await wait(() => evaluate(`!document.querySelector('[data-id="${info.id}"]') && !document.body.innerText.includes(${JSON.stringify(info.title)})`),
@@ -542,6 +544,7 @@ app.whenReady().then(async () => {
   } finally {
     clipboard.clear();
     for (const [format, bytes] of beforeCliCopy) clipboard.writeBuffer(format, bytes);
+    clipboardProbe.terminalState.dispose();
     manager.sessions.delete(clipboardProbe.id);
     manager.send(IPC.SESSION_REMOVED, { id: clipboardProbe.id });
   }

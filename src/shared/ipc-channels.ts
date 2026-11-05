@@ -1,5 +1,26 @@
 export type CliTool = 'claude' | 'codex' | 'copilot' | 'claude-resume' | 'copilot-resume' | (string & {});
 
+export interface TerminalSnapshot {
+  buffer: string;
+  offset: number;
+  cols: number;
+  rows: number;
+  pendingSequence?: string;
+}
+
+export interface TerminalLink {
+  start: number;
+  end: number;
+  text: string;
+  uri: string;
+}
+
+export interface TerminalResize {
+  cols: number;
+  rows: number;
+  offset: number;
+}
+
 export const CLI_TOOLS: { id: CliTool; label: string; command: string }[] = [
   { id: 'claude', label: 'Claude', command: 'claude' },
   { id: 'codex', label: 'Codex', command: 'codex' },
@@ -316,6 +337,8 @@ export const IPC = {
   SESSION_LIST: 'session:list',
   SESSION_GET_BUFFER: 'session:getBuffer',
   SESSION_GET_BUFFER_SNAPSHOT: 'session:getBufferSnapshot',
+  SESSION_GET_TERMINAL_SNAPSHOT: 'session:getTerminalSnapshot',
+  SESSION_GET_TERMINAL_LINKS: 'session:getTerminalLinks',
   SESSION_GET_CONVERSATION: 'session:getConversation',
   SESSION_CONVERSATION_DATA: 'session:conversationData',
   SESSION_GET_CWD: 'session:getCwd',
