@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -135,6 +135,7 @@ function ensureGlobalListeners() {
 }
 
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>, sessionId: string, onOpenFile?: (reference: string) => void, enabled = true) {
+  const [restoration, setRestoration] = useState(0);
   const openFileRef = useRef(onOpenFile);
   useEffect(() => { openFileRef.current = onOpenFile; }, [onOpenFile]);
   const termRef = useRef<Terminal | null>(null);
@@ -171,11 +172,25 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     term.open(containerRef.current);
     term.registerLinkProvider({
       provideLinks: (line, callback) => {
-        callback(terminalArtifactReferences(term.buffer.active, term.cols, line).map(link => ({
+        const artifacts = terminalArtifactReferences(term.buffer.active, term.cols, line).map(link => ({
           range: link.range,
           text: link.reference,
           activate: () => openFileRef.current?.(link.reference),
-        })));
+        }));
+        if (useAppStore.getState().sessions[sessionId]?.readOnly) { callback(artifacts); return; }
+        window.agentPlex.getTerminalLinks(sessionId, line).then(links => {
+          if (termRef.current !== term) { callback([]); return; }
+          const row = term.buffer.active.getLine(line - 1);
+          callback([...links.filter(link => row?.translateToString(false, link.start - 1, link.end) === link.text).map(link => {
+            const range = { start: { x: link.start, y: line }, end: { x: link.end, y: line } };
+            return { range, text: link.text, activate: (event: MouseEvent) =>
+              term.options.linkHandler?.activate(event, link.uri, range) };
+          }), ...artifacts]);
+        }).catch(error => {
+          if (termRef.current !== term) { callback([]); return; }
+          console.error('[terminal] Cannot restore terminal links:', error);
+          callback(artifacts);
+        });
       },
     });
 
@@ -210,12 +225,32 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     const entry: LiveTerminal = {
       term,
       resize: createTerminalResizeController(term, fitAddon, containerRef.current,
-        (cols, rows) => window.agentPlex.resizeSession(sessionId, cols, rows)),
+        (cols, rows) => {
+          resizing = true;
+          resizeBoundary = null;
+          return window.agentPlex.resizeSession(sessionId, cols, rows);
+        }, {
+          beforeResize: async offset => {
+            resizeBoundary = offset;
+            const events = resizePending;
+            resizePending = [];
+            queuedLength = 0;
+            for (const event of events) writeResizeOutput(event.data, event.offset);
+            if (outputOffset < offset) await new Promise<void>((resolve, reject) => { resizeWaiter = { resolve, reject }; });
+            await new Promise<void>(resolve => term.write('', resolve));
+          },
+          afterResize: () => {
+            if (disposed) return;
+            resizing = false;
+            resizeBoundary = null;
+            const events = resizePending;
+            resizePending = [];
+            queuedLength = 0;
+            for (const event of events) writeOutput(event.data, event.offset);
+          },
+        }),
     };
-    liveTerminals.add(entry);
-
-    entry.resize.initialize();
-    fitWhenFontReady(entry);
+    let disposed = false;
 
     // Cmd (macOS) or Ctrl (Windows/Linux) + key shortcuts
     const isMac = window.agentPlex.platform === 'darwin';
@@ -290,32 +325,88 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Forward keystrokes to pty
     term.onData((data) => {
-      if (!useAppStore.getState().sessions[sessionId]?.readOnly) window.agentPlex.writeSession(sessionId, data);
+      if (!disposed && !useAppStore.getState().sessions[sessionId]?.readOnly) window.agentPlex.writeSession(sessionId, data);
     });
 
-    // Capture and subscribe in one event-loop turn so live output cannot fall
-    // between buffer replay and listener registration.
-    const replayState = useAppStore.getState();
-    const buffer = replayState.sessionBuffers[sessionId];
-    let outputOffset = replayState.sessionBufferOffsets[sessionId] ?? buffer?.length ?? 0;
-    const cleanup = window.agentPlex.onSessionData(({ id, data, offset }) => {
-      if (id === sessionId && termRef.current) {
+    let outputOffset = 0;
+    let pending: { data: string; offset: number }[] = [];
+    let resizing = false;
+    let resizeBoundary: number | null = null;
+    let resizePending: { data: string; offset: number }[] = [];
+    let resizeWaiter: { resolve: () => void; reject: (error: Error) => void } | null = null;
+    let queuedLength = 0;
+    const enqueue = (queue: { data: string; offset: number }[], event: { data: string; offset: number }) => {
+      queuedLength += event.data.length;
+      if (queuedLength <= 2 * 1024 * 1024) { queue.push(event); return; }
+      disposed = true;
+      replaying = true;
+      entry.resize.dispose();
+      liveTerminals.delete(entry);
+      resizeWaiter?.reject(new Error('Terminal restoration was restarted'));
+      pending = []; resizePending = [];
+      queuedLength = 0;
+      console.error('[terminal] Output exceeded the terminal restoration queue limit:', sessionId);
+      if (restoration < 3) setRestoration(value => value + 1);
+      else {
+        term.write('\x18\r\n[Output changed too quickly to restore this view. Close and reopen the pane.]\r\n');
+      }
+    };
+    const writeOutput = (data: string, offset: number) => {
+        if (disposed) return;
         const end = offset ?? outputOffset + data.length;
         if (end <= outputOffset) return;
         const delta = data.slice(Math.max(0, outputOffset - (end - data.length)));
         outputOffset = end;
-        if (delta) termRef.current.write(delta);
-      }
+        if (delta) term.write(delta);
+    };
+    const writeResizeOutput = (data: string, offset: number) => {
+      if (disposed) return;
+      if (resizeBoundary === null) { enqueue(resizePending, { data, offset }); return; }
+      const length = Math.max(0, Math.min(data.length, resizeBoundary - (offset - data.length)));
+      if (length) writeOutput(data.slice(0, length), offset - data.length + length);
+      if (length < data.length) enqueue(resizePending, { data: data.slice(length), offset });
+      if (outputOffset >= resizeBoundary) { resizeWaiter?.resolve(); resizeWaiter = null; }
+    };
+    // Subscribe before requesting the parsed screen; replay at its original
+    // geometry, drain the live suffix, then synchronize the visible pane.
+    const cleanup = window.agentPlex.onSessionData(({ id, data, offset }) => {
+      if (id !== sessionId || disposed) return;
+      if (replaying) enqueue(pending, { data, offset });
+      else if (resizing) writeResizeOutput(data, offset);
+      else writeOutput(data, offset);
     });
-    if (buffer) {
-      // Cancel incomplete historical escapes so a live suffix cannot replay a clipboard command.
-      term.write(buffer + '\x18', () => { replaying = false; });
-    } else replaying = false;
+    const finishReplay = () => {
+      if (disposed) return;
+      if (pending.length) {
+        const events = pending;
+        pending = [];
+        queuedLength = 0;
+        for (const event of events) writeOutput(event.data, event.offset);
+        term.write('', finishReplay);
+        return;
+      }
+      replaying = false;
+      liveTerminals.add(entry);
+      entry.resize.initialize();
+      fitWhenFontReady(entry);
+    };
+    window.agentPlex.getTerminalSnapshot(sessionId).then(snapshot => {
+      if (disposed) return;
+      outputOffset = snapshot.offset;
+      term.resize(snapshot.cols, snapshot.rows);
+      term.write(snapshot.buffer + '\x18' + (snapshot.pendingSequence ?? ''), finishReplay);
+    }).catch(error => {
+      if (disposed) return;
+      console.error('[terminal] Cannot restore terminal state:', sessionId, error);
+      pending = [];
+      queuedLength = 0;
+      disposed = true;
+      term.write('\r\n[Cannot restore this terminal view. Close and reopen the pane.]\r\n');
+    });
 
     // Handle resize
-    let disposed = false;
     const resizeObserver = new ResizeObserver(() => {
-      if (disposed) return;
+      if (disposed || replaying) return;
       syncTerminalSize(entry);
     });
     resizeObserver.observe(containerRef.current);
@@ -332,6 +423,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     return () => {
       disposed = true;
+      resizeWaiter?.reject(new Error('Terminal pane was closed'));
       liveTerminals.delete(entry);
       entry.resize.dispose();
       container.removeEventListener('contextmenu', handleContextMenu);
@@ -342,5 +434,5 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
       termRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sessionId, buffersReady, enabled]); // intentionally exclude the stable container ref
+  }, [sessionId, buffersReady, enabled, restoration]); // intentionally exclude the stable container ref
 }

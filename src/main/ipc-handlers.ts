@@ -120,11 +120,11 @@ export function registerIpcHandlers() {
     sessionManager.write(id, data);
   });
 
-  ipcMain.on(IPC.SESSION_RESIZE, (_event, { id, cols, rows }: { id: string; cols: number; rows: number }) => {
-    if (typeof id !== 'string') return;
+  ipcMain.handle(IPC.SESSION_RESIZE, (_event, { id, cols, rows }: { id: string; cols: number; rows: number }) => {
+    if (typeof id !== 'string' || !Number.isFinite(cols) || !Number.isFinite(rows)) throw new Error('Invalid terminal size');
     const safeCols = Math.max(1, Math.min(500, Math.floor(Number(cols) || 80)));
     const safeRows = Math.max(1, Math.min(200, Math.floor(Number(rows) || 24)));
-    sessionManager.resize(id, safeCols, safeRows);
+    return sessionManager.resize(id, safeCols, safeRows);
   });
 
   ipcMain.handle(IPC.SESSION_KILL, (_event, { id }: { id: string }) => {
@@ -144,6 +144,16 @@ export function registerIpcHandlers() {
   ipcMain.handle(IPC.SESSION_GET_BUFFER_SNAPSHOT, (_event, { id }: { id: string }) => {
     if (typeof id !== 'string') throw new Error('Session ID must be a string');
     return sessionManager.getBufferSnapshot(id);
+  });
+
+  ipcMain.handle(IPC.SESSION_GET_TERMINAL_SNAPSHOT, (_event, { id }: { id: string }) => {
+    if (typeof id !== 'string') throw new Error('Session ID must be a string');
+    return sessionManager.getTerminalSnapshot(id);
+  });
+
+  ipcMain.handle(IPC.SESSION_GET_TERMINAL_LINKS, (_event, { id, line }: { id: string; line: number }) => {
+    if (typeof id !== 'string' || !Number.isInteger(line) || line < 1) throw new Error('Invalid terminal link request');
+    return sessionManager.getTerminalLinks(id, line);
   });
 
   ipcMain.handle(IPC.SESSION_GET_CONVERSATION, (_event, { id }: { id: string }) => {

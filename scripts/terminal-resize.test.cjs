@@ -3,7 +3,22 @@ const { test } = require('node:test');
 const { loadSource } = require('./test-support.cjs');
 const { createTerminalResizeController } = loadSource('src/renderer/terminal-resize.ts');
 
-function fixture(t) {
+test('acknowledged oversized panes keep capped geometry without repeated requests', async t => {
+  const remote = {};
+  const f = fixture(t, remote);
+  f.fit.dims = { cols: 800, rows: 300 };
+  f.controller.initialize();
+  remote.ack({ cols: 500, rows: 200, offset: 0 });
+  await new Promise(resolve => setImmediate(resolve));
+  f.calls.length = 0;
+  f.controller.schedule();
+  f.settle();
+  assert.deepEqual(f.calls, [['refresh', 0, 199]]);
+  assert.equal(f.term.cols, 500);
+  assert.equal(f.term.rows, 200);
+});
+
+function fixture(t, remote) {
   const frames = new Map();
   const timers = new Map();
   const writes = [];
@@ -29,6 +44,7 @@ function fixture(t) {
     write: (data, callback) => { assert.equal(data, ''); writes.push(callback); },
     clearTextureAtlas: () => calls.push('atlas'),
     refresh: (start, end) => calls.push(['refresh', start, end]),
+    resize: (cols, rows) => { calls.push(['screen', cols, rows]); Object.assign(term, { cols, rows }); },
   };
   const fit = {
     dims: { cols: 90, rows: 25 },
@@ -36,7 +52,14 @@ function fixture(t) {
     fit() { calls.push('fit'); Object.assign(term, this.dims); },
   };
   const controller = createTerminalResizeController(term, fit, container,
-    (cols, rows) => calls.push(['resize', cols, rows]));
+    remote ? (cols, rows) => {
+      calls.push(['request', cols, rows]);
+      return new Promise(resolve => { remote.ack = resolve; });
+    } : (cols, rows) => { calls.push(['resize', cols, rows]); },
+    remote ? {
+      beforeResize: async offset => { calls.push(['barrier', offset]); },
+      afterResize: () => calls.push('release'),
+    } : undefined);
   t.after(() => controller.dispose());
   const frame = () => {
     const callbacks = [...frames.values()];
@@ -217,4 +240,38 @@ test('persistent failures have bounded retries, cancelled on disposal', t => {
   assert.equal(f.timers.size, 1);
   f.controller.dispose();
   assert.equal(f.timers.size, 0);
+});
+
+test('PTY resize acknowledgement and old-output barrier precede the visible geometry change', async t => {
+  const remote = {};
+  const f = fixture(t, remote);
+  f.controller.schedule();
+  f.settle();
+  assert.deepEqual(f.calls, [['request', 90, 25]]);
+  assert.equal(f.term.cols, 80, 'pending old output still uses the previous geometry');
+  remote.ack({ cols: 90, rows: 25, offset: 123 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(f.calls, [['request', 90, 25], ['barrier', 123], ['screen', 90, 25], ['refresh', 0, 24], 'release']);
+});
+
+test('an acknowledged intermediate size is applied before a newer layout so its output stays correctly framed', async t => {
+  const remote = {};
+  const f = fixture(t, remote);
+  f.controller.schedule();
+  f.settle();
+  const firstAck = remote.ack;
+  f.fit.dims = { cols: 120, rows: 35 };
+  f.controller.schedule();
+  f.quiet();
+  f.frame();
+  firstAck({ cols: 90, rows: 25, offset: 123 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.term.cols, 90);
+  f.frame();
+  f.drain();
+  remote.ack({ cols: 120, rows: 35, offset: 456 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.term.cols, 120);
+  assert.deepEqual(f.calls.filter(call => Array.isArray(call) && call[0] === 'screen'),
+    [['screen', 90, 25], ['screen', 120, 35]]);
 });

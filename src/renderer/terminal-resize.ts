@@ -1,5 +1,6 @@
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
+import type { TerminalResize } from '../shared/ipc-channels';
 
 const RESIZE_SETTLE_MS = 100;
 const MAX_RESIZE_RETRIES = 3;
@@ -9,7 +10,8 @@ export function createTerminalResizeController(
   term: Terminal,
   fit: FitAddon,
   container: HTMLElement,
-  sendSize: (cols: number, rows: number) => void,
+  sendSize: (cols: number, rows: number) => void | Promise<TerminalResize>,
+  output?: { beforeResize: (offset: number) => Promise<void>; afterResize: () => void },
 ) {
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -21,6 +23,15 @@ export function createTerminalResizeController(
   let lastCols = 0;
   let lastRows = 0;
 
+  const fail = (error: unknown) => {
+    if (disposed) return;
+    console.error('[terminal] Failed to synchronize terminal size', error);
+    force = true;
+    if (++failures <= MAX_RESIZE_RETRIES) {
+      timer = setTimeout(() => { timer = null; queueFrame(revision); }, RESIZE_SETTLE_MS);
+    }
+  };
+
   const apply = (expectedRevision: number) => {
     draining = false;
     if (disposed || expectedRevision !== revision) return;
@@ -30,6 +41,34 @@ export function createTerminalResizeController(
       const dims = fit.proposeDimensions();
       if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows) ||
           dims.cols < 2 || dims.rows < 1) return;
+      const cols = Math.min(500, dims.cols);
+      const rows = Math.min(200, dims.rows);
+      if (output && (force || cols !== lastCols || rows !== lastRows)) {
+        draining = true;
+        const repaint = force;
+        Promise.resolve(sendSize(cols, rows)).then(async size => {
+          if (disposed) return;
+          if (!size) throw new Error('Terminal resize was not acknowledged');
+          await output.beforeResize(size.offset);
+          if (disposed) return;
+          // Apply the acknowledged size, even if another layout is now queued:
+          // output produced between those resizes belongs to this geometry.
+          term.resize(size.cols, size.rows);
+          lastCols = size.cols; lastRows = size.rows;
+          if (repaint) term.clearTextureAtlas();
+          term.refresh(0, term.rows - 1);
+          if (expectedRevision === revision) force = false;
+          failures = 0;
+        }).catch(fail).finally(() => {
+          draining = false;
+          output.afterResize();
+        });
+        return;
+      }
+      if (output) {
+        term.refresh(0, term.rows - 1);
+        return;
+      }
       fit.fit();
       if (force || term.cols !== lastCols || term.rows !== lastRows) {
         sendSize(term.cols, term.rows);
@@ -41,14 +80,7 @@ export function createTerminalResizeController(
       force = false;
       failures = 0;
     } catch (error) {
-      console.error('[terminal] Failed to synchronize terminal size', error);
-      force = true;
-      if (++failures <= MAX_RESIZE_RETRIES) {
-        timer = setTimeout(() => {
-          timer = null;
-          queueFrame(expectedRevision);
-        }, RESIZE_SETTLE_MS);
-      }
+      fail(error);
     }
   };
 
