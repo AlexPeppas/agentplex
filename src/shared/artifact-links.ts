@@ -28,30 +28,66 @@ export function findArtifactReferences(text: string): ArtifactReference[] {
 }
 
 export function terminalArtifactReferences(buffer: IBuffer, columns: number, row: number) {
-  let first = row - 1;
-  while (first > 0 && row - first < 16 && buffer.getLine(first)?.isWrapped) first--;
-  let last = row - 1;
-  while (last - first < 16 && buffer.getLine(last + 1)?.isWrapped) last++;
-  let text = '';
-  const positions: { start: { x: number; y: number }; end: { x: number; y: number } }[] = [];
-  for (let y = first; y <= last; y++) {
-    const line = buffer.getLine(y);
-    if (!line) continue;
-    for (let x = 0; x < columns; x++) {
-      const cell = line.getCell(x);
-      if (!cell || cell.getWidth() === 0) continue;
-      const chars = cell.getChars() || ' ';
-      text += chars;
-      for (let index = 0; index < chars.length; index++) positions.push({
-        start: { x: x + 1, y: y + 1 }, end: { x: x + cell.getWidth(), y: y + 1 },
-      });
+  const isHardWrap = (y: number) => {
+    const previous = buffer.getLine(y - 1);
+    const current = buffer.getLine(y);
+    if (!previous || !current || current.isWrapped) return false;
+    const before = previous.translateToString(true).trimEnd();
+    const after = current.translateToString(true);
+    const indent = after.match(/^ +/)?.[0].length ?? 0;
+    if (!indent || indent > 8 || !after.trim()) return false;
+    let end = columns;
+    while (end > 0 && !previous.getCell(end - 1)?.getChars().trim()) end--;
+    if (end < columns - 2) return false;
+    // CLI renderers also wrap explicitly with CRLF and continuation indentation.
+    // Never extend a completed file reference into the next independent line.
+    return !findArtifactReferences(before).some(link => link.end === before.length);
+  };
+  const collect = (hardWraps: boolean) => {
+    const continues = (y: number) => !!buffer.getLine(y)?.isWrapped || (hardWraps && isHardWrap(y));
+    let first = row - 1;
+    while (first > 0 && row - first < 16 && continues(first)) first--;
+    let last = row - 1;
+    while (last - first < 16 && continues(last + 1)) last++;
+    let text = '';
+    const breaks: number[] = [];
+    const positions: { start: { x: number; y: number }; end: { x: number; y: number } }[] = [];
+    for (let y = first; y <= last; y++) {
+      const line = buffer.getLine(y);
+      if (!line) continue;
+      let startColumn = 0;
+      let endColumn = columns;
+      if (y > first && hardWraps && isHardWrap(y)) {
+        breaks.push(text.length);
+        while (startColumn < columns && !line.getCell(startColumn)?.getChars().trim()) startColumn++;
+      }
+      if (y < last && hardWraps && isHardWrap(y + 1)) {
+        while (endColumn > startColumn && !line.getCell(endColumn - 1)?.getChars().trim()) endColumn--;
+      }
+      for (let x = startColumn; x < endColumn; x++) {
+        const cell = line.getCell(x);
+        if (!cell || cell.getWidth() === 0) continue;
+        const chars = cell.getChars() || ' ';
+        text += chars;
+        for (let index = 0; index < chars.length; index++) positions.push({
+          start: { x: x + 1, y: y + 1 }, end: { x: x + cell.getWidth(), y: y + 1 },
+        });
+      }
     }
-  }
-  return findArtifactReferences(text).flatMap(link => {
-    const start = positions[link.start]?.start;
-    const end = positions[link.end - 1]?.end;
-    return start && end && start.y <= row && end.y >= row ? [{ reference: link.reference, range: { start, end } }] : [];
-  });
+    if (hardWraps && !breaks.length) return [];
+    return findArtifactReferences(text).flatMap(link => {
+      if (hardWraps && (!breaks.some(offset => link.start < offset && link.end > offset) ||
+          !/^(?:[a-z]:[\\/]|file:|[\\/]|[\w.-]+[\\/])/i.test(link.reference))) return [];
+      const start = positions[link.start]?.start;
+      const end = positions[link.end - 1]?.end;
+      return start && end && start.y <= row && end.y >= row ? [{ reference: link.reference, range: { start, end } }] : [];
+    });
+  };
+  const recovered = collect(true);
+  return [...recovered, ...collect(false).filter(link => !recovered.some(full =>
+    full.range.start.y <= link.range.start.y && full.range.end.y >= link.range.end.y &&
+    (full.range.start.y < link.range.start.y || full.range.start.x <= link.range.start.x) &&
+    (full.range.end.y > link.range.end.y || full.range.end.x >= link.range.end.x)))];
 }
 
 export function resolveArtifactLink(documentPath: string, href: string): string {

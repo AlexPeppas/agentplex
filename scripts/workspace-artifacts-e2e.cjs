@@ -531,6 +531,32 @@ app.whenReady().then(async () => {
   await wait(() => evaluate(`!!document.querySelector('[data-id="${clipboardProbe.id}"]')`), 'test-owned writable session');
   await evaluate(`document.querySelector('[data-id="${clipboardProbe.id}"] > div').click()`);
   await wait(() => evaluate(`!!document.querySelector('.xterm-rows')?.textContent.includes('CLI clipboard output test')`), 'test-owned writable terminal');
+  await wait(() => clipboardProbe.terminalState.size().cols !== 120, 'test-owned terminal geometry settled');
+  const wrappedDirectory = path.join(mounted, 'generated results', 'IntelligentInvestor');
+  fs.mkdirSync(wrappedDirectory, { recursive: true });
+  const wrappedFile = path.join(wrappedDirectory, 'IntelligentInvestor-Evaluations-clean-updated.xlsx');
+  fs.writeFileSync(wrappedFile, await createXlsx());
+  const columns = clipboardProbe.terminalState.size().cols;
+  let remainder = wrappedFile;
+  let wrappedOutput = '\r\n  Open ';
+  let wrapColumns = columns - 7;
+  while (remainder.length > wrapColumns) {
+    wrappedOutput += remainder.slice(0, wrapColumns) + '\r\n  ';
+    remainder = remainder.slice(wrapColumns);
+    wrapColumns = columns - 2;
+  }
+  wrappedOutput += remainder + ' .\r\n';
+  manager.appendOutput(clipboardProbe, wrappedOutput);
+  manager.send(IPC.SESSION_DATA, { id: clipboardProbe.id, data: wrappedOutput, offset: clipboardProbe.outputOffset });
+  await wait(() => evaluate(`document.querySelector('.xterm-rows')?.textContent.includes('clean-updated.xlsx')`), 'hard-wrapped workbook path rendered');
+  await clickTerminalText('clean-updated.xlsx');
+  await wait(() => evaluate(`(${preview})?.textContent.includes('Computed') && (${preview})?.textContent.includes('84')`),
+    'clicking the wrapped filename suffix opens the exact workbook through native IPC');
+  assert.equal(await evaluate(`(${preview})?.querySelector('[role="alert"]')?.textContent ?? ''`), '');
+  if (process.env.AGENTPLEX_WRAPPED_LINK_SCREENSHOT) {
+    fs.writeFileSync(process.env.AGENTPLEX_WRAPPED_LINK_SCREENSHOT, (await win.webContents.capturePage()).toPNG());
+  }
+  await clickText(clipboardProbe.displayName || clipboardProbe.title);
   const beforeCliCopy = clipboard.availableFormats().map(format => [format, clipboard.readBuffer(format)]);
   try {
     clipboard.writeText('NOT_YET_COPIED_BY_CLI');
@@ -554,7 +580,7 @@ app.whenReady().then(async () => {
     htmlSandbox: isolation, blockedNetwork: true, workspaceMounts: true, terminalPreserved: true, externalProcessOwnership: true,
     csvTsvTables: true, plainAndCodeText: true, docxAndLegacyDoc: true, xlsxSheetsAndReload: true,
     mermaidAndMarkdownDiagrams: true, malformedFormatsVisible: true, terminatedDiscoveryRemoved: true,
-    sandboxClipboard: true, mouseSelectedTerminalCopy: true, cliOutputNativeClipboard: true,
+    sandboxClipboard: true, mouseSelectedTerminalCopy: true, cliOutputNativeClipboard: true, hardWrappedWorkbookLinks: true,
     graphiteAndStone: true, persistedTheme: true, readableSurfaces: true, liveCliIcons: true, keyboardNodeActions: true, graphZoomDock: true,
     reducedMotion: true }));
   manager.stop();
