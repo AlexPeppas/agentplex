@@ -252,3 +252,62 @@ test('real xterm links span wrapped rows and retain correct cells after Unicode 
   const continuation = terminalArtifactReferences(term.buffer.active, term.cols, 2);
   assert.deepEqual(continuation, links);
 });
+
+test('CLI-indented hard wraps preserve the absolute path instead of linking a filename suffix', async t => {
+  const { Terminal } = require('@xterm/xterm');
+  const term = new Terminal({ cols: 80, rows: 8, windowsPty: { backend: 'conpty', buildNumber: 26100 } });
+  t.after(() => term.dispose());
+  const reference = 'C:\\workspace\\generated\\IntelligentInvestor\\IntelligentInvestor-Evaluations-clean-updated.xlsx';
+  const prefix = '  Open ';
+  const split = term.cols - prefix.length;
+  await new Promise(resolve => term.write(prefix + reference.slice(0, split) + '\r\n  ' + reference.slice(split) + ' .', resolve));
+  assert.equal(term.buffer.active.getLine(1).isWrapped, false, 'the CLI explicitly emits the wrap');
+  for (const row of [1, 2]) {
+    const links = terminalArtifactReferences(term.buffer.active, term.cols, row);
+    assert.equal(links.length, 1);
+    assert.equal(links[0].reference, reference);
+    assert.deepEqual(links[0].range.start, { x: prefix.length + 1, y: 1 });
+    assert.equal(links[0].range.end.y, 2);
+  }
+});
+
+test('hard-wrap recovery spans repeated redraw rows and preserves spaces, file URLs and source locations', async t => {
+  const { Terminal } = require('@xterm/xterm');
+  for (const reference of [
+    'C:\\My Workspace\\' + 'nested directory\\'.repeat(7) + 'report.xlsx',
+    'file:///C:/workspace/' + 'nested/'.repeat(12) + 'report.json#L12',
+    'generated/' + 'nested/'.repeat(12) + 'report.md',
+  ]) {
+    const term = new Terminal({ cols: 45, rows: 12 });
+    t.after(() => term.dispose());
+    let remaining = reference;
+    let output = '\x1b[1;1H  Open ';
+    let available = term.cols - 9; // Two cells of CLI right-hand padding.
+    let row = 1;
+    while (remaining.length > available) {
+      output += remaining.slice(0, available) + `\x1b[${++row};1H  `;
+      remaining = remaining.slice(available);
+      available = term.cols - 4;
+    }
+    output += remaining + ' .';
+    await new Promise(resolve => term.write(output, resolve));
+    for (let line = 1; line <= row; line++) {
+      assert.equal(terminalArtifactReferences(term.buffer.active, term.cols, line)[0]?.reference, reference);
+    }
+  }
+});
+
+test('separate lines and completed file references are not concatenated into invented paths', async t => {
+  const { Terminal } = require('@xterm/xterm');
+  for (const text of [
+    '  Open C:\\workspace\\incomplete\r\n  report.json',
+    '  Open C:\\workspace\\' + 'x'.repeat(55) + '.json\r\n  next.json',
+  ]) {
+    const term = new Terminal({ cols: 80, rows: 8 });
+    t.after(() => term.dispose());
+    await new Promise(resolve => term.write(text, resolve));
+    const links = terminalArtifactReferences(term.buffer.active, term.cols, 2);
+    assert.deepEqual(links.map(link => link.reference), [text.endsWith('next.json') ? 'next.json' : 'report.json']);
+    assert.equal(links[0].range.start.y, 2);
+  }
+});
